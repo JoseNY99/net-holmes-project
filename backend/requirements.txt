@@ -22,3 +22,5 @@ apify-client==1.8.0
 TikTokApi
 facebook-scraper
 aiohttp
+slowapi==0.1.9
+bcrypt==4.0.1
