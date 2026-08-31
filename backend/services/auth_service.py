@@ -1,24 +1,24 @@
-"""Servicio de autenticación: hashing de contraseñas y generación de JWT."""
-
+import bcrypt
 from datetime import datetime, timedelta, timezone
 
-from passlib.context import CryptContext
 from jose import jwt
-
 from config import settings
-
-# Contexto de hashing con bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def hash_password(password: str) -> str:
     """Genera el hash bcrypt de una contraseña en texto plano."""
-    return pwd_context.hash(password)
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica una contraseña en texto plano contra su hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8")
+        )
+    except Exception:
+        return False
 
 
 def create_access_token(data: dict) -> str:
