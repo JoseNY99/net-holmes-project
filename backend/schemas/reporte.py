@@ -7,13 +7,13 @@ from schemas.perfil_investigacion import PerfilResponse
 from schemas.platform_data import PlatformDataPayload
 
 class ReporteBase(BaseModel):
-    pais: str
+    pais: Optional[str] = "Argentina"
     referencia_interna: Optional[str] = None
-    producto_catalogo: str
-    marca_afectada: str
-    plataforma: str
-    titular_cuenta: str
-    url_evidencia: str
+    producto_catalogo: Optional[str] = None
+    marca_afectada: Optional[str] = None
+    plataforma: Optional[str] = None
+    titular_cuenta: Optional[str] = None
+    url_evidencia: Optional[str] = None
     descripcion_post: Optional[str] = None
     precio_publico: Optional[Decimal] = None
     direccion_publica: Optional[str] = None
@@ -29,9 +29,9 @@ class ReporteUpdate(BaseModel):
 
 class ReporteResponse(ReporteBase):
     id: int
-    fecha_captura: datetime
-    created_at: datetime
-    updated_at: datetime
+    fecha_captura: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

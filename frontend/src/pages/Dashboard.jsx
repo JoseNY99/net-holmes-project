@@ -76,11 +76,12 @@ export default function Dashboard() {
       try {
         const res = await api.get('/api/dashboard/stats');
         const data = res.data;
+        if (!data) return;
         
         // Formatear la hora localmente
         const formattedActivity = (data.recent_activity || []).map(act => ({
           ...act,
-          timeFormatted: new Date(act.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+          timeFormatted: act.time ? new Date(act.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : ''
         }));
 
         setStats({
@@ -91,16 +92,16 @@ export default function Dashboard() {
           platforms: data.platforms || [],
           recent_activity: formattedActivity
         });
-      } catch (e) {
-        console.error('Error fetching dashboard stats:', e);
+      } catch {
+        // Silencio en consola para evitar spam de polling
       }
     };
     
     fetchBrands();
     fetchStats();
     
-    // Polling cada 5 segundos para actualizar estados pendientes
-    const intervalId = setInterval(fetchStats, 5000);
+    // Polling cada 15 segundos para actualizar estados en vivo
+    const intervalId = setInterval(fetchStats, 15000);
     return () => clearInterval(intervalId);
   }, []);
 
