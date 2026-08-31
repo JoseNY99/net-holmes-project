@@ -15,7 +15,9 @@ router = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 def register(user_data: UserCreate, db: Session = Depends(get_db)):
     """Registra un nuevo usuario. El primer usuario registrado obtiene rol 'admin'."""
-    existing = db.query(User).filter(User.correo == user_data.correo).first()
+    from sqlalchemy import func
+    clean_correo = (user_data.correo or "").strip().lower()
+    existing = db.query(User).filter(func.lower(func.trim(User.correo)) == clean_correo).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -26,13 +28,14 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     user_count = db.query(User).count()
     rol = "admin" if user_count == 0 else "analista"
 
+    clean_password = (user_data.password or "").strip()
     user = User(
-        nombre=user_data.nombre,
-        apellido=user_data.apellido,
+        nombre=user_data.nombre.strip(),
+        apellido=user_data.apellido.strip(),
         celular=user_data.celular,
         ci=user_data.ci,
-        correo=user_data.correo,
-        password_hash=hash_password(user_data.password),
+        correo=clean_correo,
+        password_hash=hash_password(clean_password),
         rol=rol,
     )
     db.add(user)

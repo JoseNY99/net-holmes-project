@@ -22,6 +22,7 @@ def get_user(db: Session, user_id: int) -> User:
 
 def create_user(db: Session, user_data: UserCreateAdmin, current_user: User) -> User:
     """Crea un nuevo usuario desde el panel de admin respetando jerarquía."""
+    from sqlalchemy import func
     # Solo SUP_ADMIN puede crear ADMIN o SUP_ADMIN
     if user_data.rol in ("admin", "sup_admin") and current_user.rol != "sup_admin":
         raise HTTPException(
@@ -29,20 +30,22 @@ def create_user(db: Session, user_data: UserCreateAdmin, current_user: User) -> 
             detail="Solo un Super Administrador puede crear usuarios con rol Administrador o Super Admin.",
         )
         
-    existing = db.query(User).filter(User.correo == user_data.correo).first()
+    clean_correo = (user_data.correo or "").strip().lower()
+    existing = db.query(User).filter(func.lower(func.trim(User.correo)) == clean_correo).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ya existe un usuario con este correo electrónico",
         )
         
+    clean_password = (user_data.password or "").strip()
     user = User(
-        nombre=user_data.nombre,
-        apellido=user_data.apellido,
+        nombre=user_data.nombre.strip(),
+        apellido=user_data.apellido.strip(),
         celular=user_data.celular,
         ci=user_data.ci,
-        correo=user_data.correo,
-        password_hash=hash_password(user_data.password),
+        correo=clean_correo,
+        password_hash=hash_password(clean_password),
         rol=user_data.rol,
     )
     db.add(user)
@@ -76,10 +79,17 @@ def update_user(db: Session, user_id: int, user_data: UserUpdate, current_user: 
         )
     
     update_data = user_data.model_dump(exclude_unset=True)
+    if "correo" in update_data and update_data["correo"]:
+        update_data["correo"] = update_data["correo"].strip().lower()
+        
     if "password" in update_data and update_data["password"]:
-        target_user.password_hash = hash_password(update_data.pop("password"))
+        clean_new_pass = str(update_data.pop("password")).strip()
+        if clean_new_pass:
+            target_user.password_hash = hash_password(clean_new_pass)
         
     for key, value in update_data.items():
+        if isinstance(value, str):
+            value = value.strip()
         setattr(target_user, key, value)
         
     db.commit()
