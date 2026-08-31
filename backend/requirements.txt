@@ -18,7 +18,7 @@ cerebras_cloud_sdk==1.2.0
 beautifulsoup4==4.12.3
 playwright==1.52.0
 pytz==2024.1
-apify-client==1.8.0
+apify-client>=3.0.0
 TikTokApi
 facebook-scraper
 aiohttp
