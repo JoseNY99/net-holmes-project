@@ -1,7 +1,7 @@
 // Barra de Navegación — componente principal de navegación
 import { useState, useEffect } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { FaShieldAlt, FaSun, FaMoon, FaBars, FaTimes } from 'react-icons/fa';
+import { FaShieldAlt, FaSun, FaMoon, FaBars, FaTimes, FaSignOutAlt } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 import './Navbar.css';
 
@@ -215,7 +215,7 @@ export default function Navbar() {
                     <span>{user?.nombre}</span>
                   </div>
                   <button className="navbar__logout-btn" onClick={handleLogout}>
-                    Salir
+                    <FaSignOutAlt style={{ marginRight: '6px' }} /> Cerrar Sesión
                   </button>
                 </>
               ) : (
@@ -355,8 +355,8 @@ export default function Navbar() {
                   {user?.rol === 'sup_admin' && <span title="Super Administrador (SUP_ADMIN)" style={{ color: '#FFD700', fontSize: '0.85rem' }}>👑</span>}
                 </span>
               </div>
-              <button className="navbar__logout-btn" onClick={handleLogout}>
-                Salir
+              <button className="navbar__logout-btn" onClick={handleLogout} title="Cerrar Sesión">
+                <FaSignOutAlt style={{ marginRight: '6px' }} /> Cerrar Sesión
               </button>
             </>
           ) : (
