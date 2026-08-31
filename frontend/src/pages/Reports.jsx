@@ -34,19 +34,15 @@ export default function Reports() {
   const fetchGeneralStats = async () => {
     try {
       const res = await getGeneralReport();
-      setReportData(res.data);
-    } catch (err) {
-      console.error(err);
-    }
+      if (res && res.data) setReportData(res.data);
+    } catch {}
   };
 
   const fetchBrands = async () => {
     try {
       const res = await getBrands();
-      setMarcas(res.data);
-    } catch (e) {
-      console.error(e);
-    }
+      if (res && res.data) setMarcas(res.data);
+    } catch {}
   }
 
   const fetchList = async () => {
@@ -64,9 +60,7 @@ export default function Reports() {
       const res = await getReportList(params);
       setListData(res.data?.items || []);
       setTotalPages(Math.ceil((res.data?.total || 0) / pageSize) || 1);
-    } catch (e) {
-      console.error(e);
-    } finally {
+    } catch {} finally {
       setLoading(false);
     }
   }
@@ -220,7 +214,13 @@ export default function Reports() {
                   {loading ? (
                     <tr><td colSpan="8" style={{textAlign: 'center'}}><div className="spinner spinner--dark" style={{margin:'20px auto'}}></div></td></tr>
                   ) : listData.length === 0 ? (
-                    <tr><td colSpan="8" style={{textAlign: 'center', padding: '20px'}}>No hay datos para estos filtros.</td></tr>
+                    <tr>
+                      <td colSpan="8" style={{textAlign: 'center', padding: '36px 20px', color: 'var(--text-secondary)'}}>
+                        <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🔍</div>
+                        <strong style={{ display: 'block', fontSize: '1rem', marginBottom: '4px', color: 'var(--text-primary)' }}>Parece que todo sigue vacío por aquí...</strong>
+                        <span style={{ fontSize: '0.85rem' }}>Aún no se han detectado infracciones con los filtros seleccionados.</span>
+                      </td>
+                    </tr>
                   ) : (
                     listData.map(item => {
                       let correlations = "";

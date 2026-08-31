@@ -11,17 +11,29 @@ from models.instagram_data import ReporteInstagramData
 from models.tiktok_data import ReporteTiktokData
 from models.mercadolibre_data import ReporteMercadoLibreData
 
-def get_reportes(db: Session, estado: str = None, plataforma: str = None, skip: int = 0, limit: int = 20):
-    query = db.query(ReporteBrandDefense)
-    if estado:
-        query = query.filter(ReporteBrandDefense.estado == estado)
-    if plataforma:
-        query = query.filter(ReporteBrandDefense.plataforma == plataforma)
+def get_reportes(db: Session, estado: str = None, plataforma: str = None, skip: int = 0, limit: int = 20, marca_id: str = None):
+    try:
+        query = db.query(ReporteBrandDefense)
+        if estado and estado.strip():
+            query = query.filter(ReporteBrandDefense.estado.ilike(f"%{estado.strip()}%"))
+        if plataforma and plataforma.strip():
+            query = query.filter(ReporteBrandDefense.plataforma.ilike(f"%{plataforma.strip()}%"))
+        if marca_id and str(marca_id).strip():
+            try:
+                from models.brand import Brand
+                brand = db.query(Brand).filter(Brand.id == int(marca_id)).first()
+                if brand:
+                    query = query.filter(ReporteBrandDefense.marca_afectada.ilike(f"%{brand.nombre}%"))
+            except Exception:
+                query = query.filter(ReporteBrandDefense.marca_afectada.ilike(f"%{marca_id}%"))
+                
+        total = query.count()
+        items = query.order_by(ReporteBrandDefense.fecha_captura.desc().nullslast(), ReporteBrandDefense.id.desc()).offset(skip).limit(limit).all()
         
-    total = query.count()
-    items = query.order_by(ReporteBrandDefense.fecha_captura.desc()).offset(skip).limit(limit).all()
-    
-    return {"items": items, "total": total}
+        return {"items": items or [], "total": total or 0}
+    except Exception as e:
+        print(f"Error in get_reportes: {e}")
+        return {"items": [], "total": 0}
 
 def get_reporte_detail(db: Session, reporte_id: int):
     reporte = db.query(ReporteBrandDefense).filter(ReporteBrandDefense.id == reporte_id).first()

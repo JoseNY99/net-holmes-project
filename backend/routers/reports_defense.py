@@ -49,12 +49,17 @@ def get_general_stats(db: Session = Depends(get_db)):
 def get_reportes(
     estado: str | None = Query(None),
     plataforma: str | None = Query(None),
+    tipo: str | None = Query(None),
+    page: int | None = Query(None),
+    brand_id: str | None = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user)
 ):
-    return reports_defense_service.get_reportes(db, estado, plataforma, skip, limit)
+    if page and page > 0 and skip == 0:
+        skip = (page - 1) * limit
+    return reports_defense_service.get_reportes(db, estado, plataforma, skip, limit, marca_id=brand_id)
 
 @router.get("/{reporte_id}", response_model=ReporteDetail)
 def get_reporte(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
