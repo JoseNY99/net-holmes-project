@@ -25,6 +25,7 @@ import {
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { getBrands } from '../services/brandService';
+import api from '../services/api';
 import './Dashboard.css';
 
 // Componente premium personalizado para efecto Count-Up
@@ -73,8 +74,8 @@ export default function Dashboard() {
     };
     const fetchStats = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/dashboard/stats');
-        const data = await res.json();
+        const res = await api.get('/api/dashboard/stats');
+        const data = res.data;
         
         // Formatear la hora localmente
         const formattedActivity = (data.recent_activity || []).map(act => ({

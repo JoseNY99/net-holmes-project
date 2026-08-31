@@ -404,7 +404,7 @@ export default function SuspectDetail() {
               }
               
               if (imgUrl && typeof imgUrl === 'string' && imgUrl.startsWith('/static')) {
-                imgUrl = `http://localhost:8000${imgUrl}?t=${screenshotTimestamp}`;
+                imgUrl = `${imgUrl}?t=${screenshotTimestamp}`;
               }
 
               return (
@@ -416,7 +416,7 @@ export default function SuspectDetail() {
                     style={{ maxWidth: '100%', maxHeight: '380px', objectFit: 'contain', display: 'block', margin: '0 auto' }}
                     onError={(e) => {
                       if (e.target.src.includes('/static/evidencias/')) {
-                        e.target.src = `http://localhost:8000/static/screenshots/reporte_${reporte.id}.jpg?t=${screenshotTimestamp}`;
+                        e.target.src = `/static/screenshots/reporte_${reporte.id}.jpg?t=${screenshotTimestamp}`;
                       } else {
                         e.target.style.display = 'none';
                         const fallbackEl = document.getElementById(`fallback-no-img-${reporte.id}`);

@@ -74,7 +74,7 @@ export default function CronConfig() {
       let nextInterval = 30000; // 30 segundos en reposo (idle)
       
       try {
-        const statusRes = await fetch('http://localhost:8000/api/cron/status').then(r => r.json());
+        const statusRes = await api.get('/api/cron/status').then(r => r.data);
         
         const isCurrentlyRunning = statusRes.is_running;
         setCronRunning(isCurrentlyRunning);
