@@ -28,25 +28,32 @@ import { getBrands } from '../services/brandService';
 import api from '../services/api';
 import './Dashboard.css';
 
-// Componente premium personalizado para efecto Count-Up
-function AnimatedCounter({ value, duration = 2000 }) {
-  const [count, setCount] = useState(0);
+// Componente premium ágil para efecto Count-Up
+function AnimatedCounter({ value, duration = 400 }) {
+  const [count, setCount] = useState(value <= 5 ? value : 0);
 
   useEffect(() => {
+    if (!value || value <= 5) {
+      setCount(value || 0);
+      return;
+    }
     let startTimestamp = null;
+    const actualDuration = Math.min(duration, 500);
     const step = (timestamp) => {
       if (!startTimestamp) startTimestamp = timestamp;
-      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-      const easeProgress = 1 - Math.pow(1 - progress, 4); // easeOutQuart
+      const progress = Math.min((timestamp - startTimestamp) / actualDuration, 1);
+      const easeProgress = 1 - Math.pow(1 - progress, 3);
       setCount(Math.floor(easeProgress * value));
       if (progress < 1) {
         window.requestAnimationFrame(step);
+      } else {
+        setCount(value);
       }
     };
     window.requestAnimationFrame(step);
   }, [value, duration]);
 
-  return <>{count.toLocaleString('es-AR')}</>;
+  return <>{(count || 0).toLocaleString('es-AR')}</>;
 }
 
 export default function Dashboard() {
@@ -66,8 +73,10 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchBrands = async () => {
       try {
-        const response = await getBrands('activa');
-        setActiveBrands(response.data.length || 0);
+        const response = await getBrands();
+        const brandsList = Array.isArray(response?.data) ? response.data : [];
+        const activeList = brandsList.filter(b => (b.estado || '').toLowerCase() === 'activa');
+        setActiveBrands(activeList.length > 0 ? activeList.length : brandsList.length);
       } catch {
         setActiveBrands(0);
       }

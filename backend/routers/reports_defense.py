@@ -28,15 +28,15 @@ def get_general_stats(db: Session = Depends(get_db)):
     
     data = {"confirmados": 0, "pendientes": 0, "investigando": 0, "descartados": 0, "total": 0}
     for row in stats:
-        estado = row[0].lower() if row[0] else ""
+        estado = (row[0] or "").lower()
         count = row[1]
         data["total"] += count
-        if "confirmado" in estado or "sospechoso" in estado:
+        if "confirmado" in estado:
             data["confirmados"] += count
+        elif "sospechoso" in estado or "investigando" in estado:
+            data["investigando"] += count
         elif "pendiente" in estado:
             data["pendientes"] += count
-        elif "investigando" in estado:
-            data["investigando"] += count
         elif "descartado" in estado:
             data["descartados"] += count
             

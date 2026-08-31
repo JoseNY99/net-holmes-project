@@ -18,8 +18,8 @@ from schemas.product import ProductCreate, ProductUpdate
 def get_brands(db: Session, estado_filter: str | None = None) -> list[Brand]:
     """Obtiene todas las marcas, con filtro opcional por estado."""
     query = db.query(Brand).options(joinedload(Brand.products), joinedload(Brand.cuentas_oficiales))
-    if estado_filter:
-        query = query.filter(Brand.estado == estado_filter)
+    if estado_filter and estado_filter.strip():
+        query = query.filter(Brand.estado.ilike(f"%{estado_filter.strip()}%"))
     return query.order_by(Brand.created_at.desc()).all()
 
 
