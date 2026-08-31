@@ -1,0 +1,88 @@
+# Config & Secrets
+.env
+.env.*
+*.env
+!.env.example
+!.env_example
+
+# Python & Venv
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database, Backups & Dumps
+*.sqlite3
+*.db
+*.sql
+*.dump
+*.log
+logs/
+
+# Scripts temporales de prueba, limpieza y desarrollo
+test_*.py
+*_test.py
+check_*.py
+clean_*.py
+reset_*.py
+hotfix_*.py
+setup_*.py
+seed_*.py
+migrate_*.py
+rev.py
+scratch_*.py
+run_ngrok.bat
+
+# Archivos de prueba y evidencias temporales
+fb_test_data.json
+ml_test.png
+test_*.pdf
+test_*.docx
+test_*.json
+test_*.png
+test_*.jpg
+
+# Playwright & Screenshots temporales
+.playwright/
+test-results/
+screenshots/
+evidencias/
+backend/static/screenshots/
+backend/static/evidencias/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store

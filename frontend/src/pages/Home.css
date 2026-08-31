@@ -1,0 +1,274 @@
+/* === Página de Inicio (Landing) === */
+
+.home {
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+/* === Sección Hero === */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: calc(var(--navbar-height) + 48px) 24px 80px;
+  overflow: hidden;
+}
+
+/* Fondo con gradiente sutil animado */
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+      ellipse 60% 50% at 20% 30%,
+      rgba(27, 42, 74, 0.06) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 50% 60% at 80% 70%,
+      rgba(44, 74, 124, 0.05) 0%,
+      transparent 70%
+    );
+  z-index: 0;
+}
+
+[data-theme='dark'] .hero::before {
+  background: radial-gradient(
+      ellipse 60% 50% at 20% 30%,
+      rgba(91, 141, 239, 0.08) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 50% 60% at 80% 70%,
+      rgba(59, 89, 152, 0.06) 0%,
+      transparent 70%
+    );
+}
+
+/* Formas flotantes decorativas */
+.hero__shapes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.hero__shape {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.04;
+  background: var(--accent-primary);
+}
+
+.hero__shape--1 {
+  width: 400px;
+  height: 400px;
+  top: -100px;
+  right: -80px;
+  animation: float 8s ease-in-out infinite;
+}
+
+.hero__shape--2 {
+  width: 250px;
+  height: 250px;
+  bottom: 10%;
+  left: -50px;
+  animation: float 10s ease-in-out infinite 1s;
+}
+
+.hero__shape--3 {
+  width: 180px;
+  height: 180px;
+  top: 40%;
+  right: 15%;
+  animation: float 7s ease-in-out infinite 2s;
+}
+
+.hero__content {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+}
+
+/* Título con efecto gradiente de alto contraste */
+.hero__title {
+  font-family: 'Outfit', sans-serif;
+  font-size: clamp(2.8rem, 6vw, 4.5rem);
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  background: linear-gradient(135deg, #0B3256 0%, #10C5C9 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 6s ease-in-out infinite;
+}
+
+[data-theme='dark'] .hero__title {
+  background: linear-gradient(135deg, #FFFFFF 0%, #10C5C9 65%, #31DBDF 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.hero__subtitle {
+  font-family: 'Outfit', sans-serif;
+  font-size: clamp(1.05rem, 2.2vw, 1.4rem);
+  font-weight: 600;
+  color: var(--accent-primary);
+  margin-bottom: 20px;
+  letter-spacing: 0.04em;
+  opacity: 0;
+  animation: fadeIn 0.7s 0.2s forwards;
+}
+
+[data-theme='light'] .hero__subtitle {
+  color: #0B3256;
+  font-weight: 700;
+}
+
+[data-theme='dark'] .hero__subtitle {
+  color: #10C5C9;
+  text-shadow: 0 0 25px rgba(16, 197, 201, 0.45);
+}
+
+.hero__description {
+  font-size: clamp(0.95rem, 1.5vw, 1.15rem);
+  color: var(--text-secondary);
+  line-height: 1.75;
+  max-width: 600px;
+  margin: 0 auto 40px;
+  opacity: 0;
+  animation: fadeIn 0.7s 0.4s forwards;
+}
+
+[data-theme='dark'] .hero__description {
+  color: #CDE7EE;
+}
+
+.hero__cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  opacity: 0;
+  animation: fadeIn 0.7s 0.6s forwards;
+}
+
+.hero__cta .btn-primary {
+  padding: 16px 36px;
+  font-size: 1rem;
+}
+
+.hero__cta .btn-secondary {
+  padding: 16px 36px;
+  font-size: 1rem;
+}
+
+/* === Sección de Características === */
+.features {
+  position: relative;
+  z-index: 1;
+  padding: 80px 24px 100px;
+  background: var(--bg-secondary);
+}
+
+.features__header {
+  text-align: center;
+  margin-bottom: 56px;
+}
+
+.features__label {
+  display: inline-block;
+  padding: 6px 18px;
+  background: rgba(27, 42, 74, 0.08);
+  color: var(--accent-primary);
+  border-radius: 100px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 16px;
+}
+
+[data-theme='dark'] .features__label {
+  background: rgba(91, 141, 239, 0.12);
+}
+
+.features__title {
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  color: var(--text-primary);
+}
+
+.features__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 28px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* === Tarjeta de Característica === */
+.feature-card {
+  padding: 36px 32px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  transition: var(--transition);
+  cursor: default;
+}
+
+.feature-card:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow-hover);
+  border-color: var(--accent-primary);
+}
+
+.feature-card__icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(27, 42, 74, 0.08);
+  color: var(--accent-primary);
+  border-radius: var(--radius);
+  font-size: 1.5rem;
+  margin-bottom: 20px;
+  transition: var(--transition);
+}
+
+[data-theme='dark'] .feature-card__icon {
+  background: rgba(91, 141, 239, 0.12);
+}
+
+.feature-card:hover .feature-card__icon {
+  background: var(--accent-primary);
+  color: #FFFFFF;
+  transform: scale(1.08);
+}
+
+.feature-card__title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.feature-card__text {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}

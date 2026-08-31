@@ -1,0 +1,110 @@
+/* === Formulario de Marca === */
+
+.brand-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.brand-form__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.brand-form__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.brand-form__required {
+  color: var(--danger);
+  margin-left: 2px;
+}
+
+.brand-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* Seccion de Cuentas Oficiales */
+.brand-form__section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.brand-form__section-title {
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-color);
+  margin-bottom: 0.5rem;
+}
+
+.brand-form__section-help {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.brand-form__add-cuenta {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.platform-select {
+  flex: 0 0 180px;
+}
+
+.handle-input {
+  flex: 1;
+}
+
+.add-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 1rem;
+  white-space: nowrap;
+}
+
+.brand-form__cuentas-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.brand-form__cuenta-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  background: var(--bg-hover);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.cuenta-platform {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: var(--primary-color-light, rgba(0,0,0,0.05));
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+
+.cuenta-handle {
+  flex: 1;
+  margin-left: 1rem;
+  font-weight: 500;
+}
