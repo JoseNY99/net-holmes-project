@@ -15,9 +15,9 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
     # Timeline de recolección (últimos 7 días)
     # Agrupamos por fecha
     from sqlalchemy import func
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     
-    seven_days_ago = datetime.now() - timedelta(days=7)
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
     
     daily_stats = db.query(
         func.date(ReporteBrandDefense.created_at).label("fecha"),
