@@ -46,8 +46,12 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(credentials: UserLogin, db: Session = Depends(get_db)):
     """Inicia sesión con correo y contraseña, devuelve un token JWT."""
-    user = db.query(User).filter(User.correo == credentials.correo).first()
-    if not user or not verify_password(credentials.password, user.password_hash):
+    from sqlalchemy import func
+    clean_correo = (credentials.correo or "").strip().lower()
+    clean_pass = credentials.password or ""
+    
+    user = db.query(User).filter(func.lower(func.trim(User.correo)) == clean_correo).first()
+    if not user or not (verify_password(clean_pass, user.password_hash) or verify_password(clean_pass.strip(), user.password_hash)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas",
