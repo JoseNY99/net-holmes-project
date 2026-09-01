@@ -470,26 +470,6 @@
   gap: 6px;
 }
 
-.terminal-ctrl-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--text-secondary);
-  border-radius: 4px;
-  padding: 3px 7px;
-  font-size: 0.72rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.2s ease;
-}
-
-.terminal-ctrl-btn:hover {
-  background: rgba(0, 180, 216, 0.2);
-  color: #fff;
-  border-color: rgba(0, 180, 216, 0.4);
-}
-
 .terminal-console-body {
   padding: 12px;
   height: 240px;
@@ -517,22 +497,61 @@
   background: rgba(0, 180, 216, 0.6);
 }
 
+.terminal-ctrl-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #94A3B8;
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.terminal-ctrl-btn:hover {
+  background: rgba(0, 180, 216, 0.3);
+  color: #FFFFFF;
+  border-color: rgba(0, 180, 216, 0.6);
+}
+
 .terminal-log-row {
   margin-bottom: 4px;
   padding: 2px 4px;
   border-radius: 3px;
   display: flex;
-  gap: 6px;
+  gap: 8px;
   word-break: break-word;
+  align-items: flex-start;
 }
 
 .log-time-chip {
-  color: #4A6B8F;
-  font-weight: 600;
+  color: #38BDF8 !important;
+  font-weight: 700;
   flex-shrink: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
 
-.log-divider { color: #576574; border-bottom: 1px dashed rgba(255, 255, 255, 0.1); padding-bottom: 4px; margin-bottom: 6px; }
+.log-content-span {
+  color: #E2E8F0 !important;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.log-normal .log-content-span { color: #E2E8F0 !important; }
+.log-success .log-content-span { color: #4ADE80 !important; font-weight: 600; }
+.log-warning .log-content-span { color: #FBBF24 !important; font-weight: 600; }
+.log-danger .log-content-span { color: #F87171 !important; font-weight: 600; }
+.log-osint .log-content-span { color: #22D3EE !important; }
+.log-photo .log-content-span { color: #C084FC !important; }
+.log-divider { 
+  color: #64748B !important; 
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.15); 
+  padding-bottom: 4px; 
+  margin-bottom: 6px; 
+}
+.log-divider .log-content-span { color: #94A3B8 !important; font-style: italic; }
 
 /* === Responsive Media Queries para CronConfig === */
 @media (max-width: 768px) {
