@@ -117,6 +117,43 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Middleware de Cabeceras de Seguridad (Hardening WebVuln-MITRE)
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        
+        # 1. Protección contra MIME-Sniffing (CVSS 4.3 / T1039)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        
+        # 2. Protección contra Clickjacking / UI Redressing
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        
+        # 3. Filtro de protección XSS en navegadores compatibles
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        
+        # 4. Política de Referrer para no filtrar datos sensibles
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        # 5. HSTS (Strict-Transport-Security) (CVSS 3.7 / T1562.001)
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        
+        # 6. Content Security Policy permisiva con evidencias multimedia (CVSS 6.1 / T1059)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "img-src 'self' data: https: blob: http:; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "connect-src 'self' https: http: ws: wss:; "
+            "font-src 'self' data: https:; "
+            "frame-ancestors 'self';"
+        )
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Configuración de CORS
 app.add_middleware(
     CORSMiddleware,
