@@ -46,12 +46,43 @@ export default function CronConfig() {
   const [proveedor, setProveedor] = useState("playwright");
   
   const [modalState, setModalState] = useState({ isOpen: false, type: null, title: null, body: null });
+  const [modalCountdown, setModalCountdown] = useState(5);
+  const modalTimerRef = React.useRef(null);
+  const modalIntervalRef = React.useRef(null);
+
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedLogs, setCopiedLogs] = useState(false);
   const terminalLogsRef = React.useRef(null);
   const initialLogsCount = React.useRef(null);
   const wasRunning = React.useRef(null);
   const isFirstMount = React.useRef(true);
+
+  const closeModal = () => {
+    if (modalTimerRef.current) clearTimeout(modalTimerRef.current);
+    if (modalIntervalRef.current) clearInterval(modalIntervalRef.current);
+    setModalState({ isOpen: false, type: null, title: null, body: null });
+  };
+
+  const showNoticeModal = ({ title, body, type = 'success' }) => {
+    if (modalTimerRef.current) clearTimeout(modalTimerRef.current);
+    if (modalIntervalRef.current) clearInterval(modalIntervalRef.current);
+
+    setModalCountdown(5);
+    setModalState({ isOpen: true, type, title, body });
+
+    let remaining = 5;
+    modalIntervalRef.current = setInterval(() => {
+      remaining -= 1;
+      setModalCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(modalIntervalRef.current);
+      }
+    }, 1000);
+
+    modalTimerRef.current = setTimeout(() => {
+      closeModal();
+    }, 5000);
+  };
 
   // Auto-scroll terminal to bottom on new logs
   useEffect(() => {
@@ -229,11 +260,18 @@ export default function CronConfig() {
         proveedor: proveedor
       };
       await updateCronConfig(payload);
-      setMessage({ type: 'success', text: 'Configuración guardada exitosamente.' });
-      setTimeout(() => setMessage(null), 4000);
+      showNoticeModal({
+        title: 'Configuración Guardada',
+        body: 'La configuración del motor Cron ha sido guardada exitosamente y los horarios se han sincronizado con el servidor.',
+        type: 'success'
+      });
       await fetchConfig();
     } catch (error) {
-      setMessage({ type: 'error', text: 'Error al guardar la configuración.' });
+      showNoticeModal({
+        title: 'Error al Guardar',
+        body: 'Ocurrió un error al guardar la configuración en el servidor.',
+        type: 'error'
+      });
     } finally {
       setSaving(false);
     }
@@ -244,11 +282,18 @@ export default function CronConfig() {
       setLogs(prev => ["[Sistema] 🚀 Disparando escaneo forzado inmediato...", ...prev]);
       await triggerManualRun();
       setCronRunning(true);
-      setMessage({ type: 'success', text: 'Escaneo forzado iniciado exitosamente en segundo plano.' });
-      setTimeout(() => setMessage(null), 4000);
+      showNoticeModal({
+        title: 'Escaneo Forzado Iniciado',
+        body: 'El escaneo inmediato ha sido disparado en segundo plano y los resultados se están transmitiendo a la consola.',
+        type: 'info'
+      });
     } catch (error) {
       const errorDetail = error.response?.data?.detail || error.response?.data?.msg || 'Error al disparar el escaneo.';
-      setMessage({ type: 'error', text: errorDetail });
+      showNoticeModal({
+        title: 'Error de Ejecución',
+        body: errorDetail,
+        type: 'error'
+      });
     }
   };
 
@@ -256,10 +301,17 @@ export default function CronConfig() {
     try {
       await stopCron();
       setCronRunning(false);
-      setMessage({ type: 'success', text: 'Señal de detención enviada exitosamente.' });
-      setTimeout(() => setMessage(null), 4000);
+      showNoticeModal({
+        title: 'Señal de Detención Enviada',
+        body: 'Se envió la orden de interrupción de emergencia al motor de escaneo.',
+        type: 'warning'
+      });
     } catch (error) {
-      setMessage({ type: 'error', text: 'Error al solicitar detención.' });
+      showNoticeModal({
+        title: 'Error al Detener',
+        body: 'No se pudo enviar la señal de detención al motor.',
+        type: 'error'
+      });
     }
   };
 
@@ -270,19 +322,23 @@ export default function CronConfig() {
       const res = await toggleCron(nextState);
       const serverState = res.data.is_active;
       setIsActive(serverState);
-      setMessage({
-        type: 'success',
-        text: `Motor de escaneo ${serverState ? 'ENCENDIDO' : 'APAGADO'} correctamente.`
+      showNoticeModal({
+        title: serverState ? 'Motor Encendido' : 'Motor Apagado',
+        body: serverState 
+          ? 'El motor de escaneo automático ha sido ENCENDIDO. El sistema ejecutará las búsquedas según el horario configurado.' 
+          : 'El motor de escaneo automático ha sido APAGADO. No se realizarán escaneos programados hasta que vuelva a activarse.',
+        type: serverState ? 'success' : 'warning'
       });
-      setTimeout(() => setMessage(null), 4000);
       await fetchConfig();
     } catch (error) {
       setIsActive(prev => !prev);
-      setMessage({ type: 'error', text: 'Error al cambiar el estado del motor.' });
+      showNoticeModal({
+        title: 'Error al Cambiar Estado',
+        body: 'No se pudo cambiar el estado del motor en el servidor.',
+        type: 'error'
+      });
     }
   };
-
-
 
   const isEditingDisabled = cronRunning;
 
@@ -291,39 +347,38 @@ export default function CronConfig() {
   const renderModal = () => {
     if (!modalState.isOpen) return null;
 
-    if (modalState.type === 'info' || modalState.type === 'error') {
-      return createPortal(
-        <div className="modal-overlay fade-in">
-          <div className="glass-modal slide-up">
-            <div className="modal-header">
-              <h3 style={{ color: modalState.type === 'error' ? 'var(--danger)' : 'var(--accent-primary)' }}>
-                {modalState.title}
-              </h3>
-              <button className="btn-close" onClick={() => setModalState({ isOpen: false, type: null })}>&times;</button>
-            </div>
-            <div className="modal-body"><p>{modalState.body}</p></div>
-            <div className="modal-footer">
-              <button className="btn-primary" onClick={() => setModalState({ isOpen: false, type: null })}>Entendido</button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      );
-    }
-
-    const isSave = modalState.type === 'save';
-    const title = isSave ? 'Confirmar Configuración' : 'Cambiar Estado del Motor';
-    const body = isSave ? '¿Estás seguro de que deseas guardar los cambios?' : `¿Estás seguro de que deseas ${isActive ? 'APAGAR' : 'ENCENDER'} el motor?`;
-    const confirmAction = isSave ? handleSave : handleToggleActive;
+    let headerColor = 'var(--accent-primary)';
+    if (modalState.type === 'error') headerColor = 'var(--danger)';
+    else if (modalState.type === 'success') headerColor = '#00E676';
+    else if (modalState.type === 'warning') headerColor = '#F59E0B';
 
     return createPortal(
-      <div className="modal-overlay fade-in">
-        <div className="glass-modal slide-up">
-          <div className="modal-header"><h3>{title}</h3><button className="btn-close" onClick={() => setModalState({ isOpen: false, type: null })}>&times;</button></div>
-          <div className="modal-body"><p>{body}</p></div>
-          <div className="modal-footer">
-            <button className="btn-ghost" onClick={() => setModalState({ isOpen: false, type: null })}>Cancelar</button>
-            <button className={isSave ? "btn-primary" : (isActive ? "btn-danger" : "btn-warning")} onClick={() => { setModalState({ isOpen: false, type: null }); confirmAction(); }}>Confirmar</button>
+      <div className="modal-overlay fade-in" onClick={closeModal}>
+        <div 
+          className="glass-modal slide-up" 
+          onClick={(e) => e.stopPropagation()} 
+          style={{ maxWidth: '460px', border: `1px solid ${headerColor}`, boxShadow: `0 8px 32px rgba(0,0,0,0.6)` }}
+        >
+          <div className="modal-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h3 style={{ color: headerColor, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.15rem', margin: 0 }}>
+              {modalState.type === 'success' && <FaCheckCircle color="#00E676" size={18} />}
+              {modalState.type === 'warning' && <FaPowerOff color="#F59E0B" size={18} />}
+              {modalState.type === 'error' && <FaExclamationTriangle color="var(--danger)" size={18} />}
+              {modalState.type === 'info' && <FaPlay color="var(--accent-primary)" size={18} />}
+              {modalState.title}
+            </h3>
+            <button className="btn-close" onClick={closeModal} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontSize: '1.4rem', cursor: 'pointer' }}>&times;</button>
+          </div>
+          <div className="modal-body" style={{ padding: '18px 0', fontSize: '0.95rem', color: 'var(--text-primary)', lineHeight: '1.5' }}>
+            <p style={{ margin: 0 }}>{modalState.body}</p>
+          </div>
+          <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Cerrando en <strong>{modalCountdown}s</strong>...
+            </span>
+            <button className="btn-primary" onClick={closeModal} style={{ padding: '6px 18px', minWidth: '90px', fontSize: '0.9rem' }}>
+              Aceptar
+            </button>
           </div>
         </div>
       </div>,
