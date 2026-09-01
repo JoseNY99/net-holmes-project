@@ -20,6 +20,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     rol = Column(String(20), nullable=False, default="analista")
     is_active = Column(Boolean, nullable=False, default=True)
+    session_token = Column(String(100), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

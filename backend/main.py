@@ -31,6 +31,14 @@ async def lifespan(app: FastAPI):
     
     from sqlalchemy import text
     with engine.connect() as conn:
+        # Migración de sesión única (Single Active Device / Session)
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN session_token VARCHAR(100);"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            pass
+
         # Migración de estado en tabla products
         try:
             conn.execute(text("ALTER TABLE products ADD COLUMN estado VARCHAR(20) DEFAULT 'activa';"))

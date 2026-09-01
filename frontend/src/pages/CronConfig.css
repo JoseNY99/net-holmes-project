@@ -532,10 +532,44 @@
   flex-shrink: 0;
 }
 
-.log-normal { color: #8EC5FC; }
-.log-success { color: #2ECC71; background: rgba(46, 204, 113, 0.05); }
-.log-warning { color: #F39C12; background: rgba(243, 156, 18, 0.05); }
-.log-danger { color: #FF6B6B; background: rgba(231, 76, 60, 0.08); font-weight: 600; }
-.log-osint { color: #00D2D3; background: rgba(0, 210, 211, 0.05); }
-.log-photo { color: #E056FD; }
 .log-divider { color: #576574; border-bottom: 1px dashed rgba(255, 255, 255, 0.1); padding-bottom: 4px; margin-bottom: 6px; }
+
+/* === Responsive Media Queries para CronConfig === */
+@media (max-width: 768px) {
+  .cron-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .config-panel, .status-panel {
+    padding: 1.2rem;
+  }
+
+  .cron-header h2 {
+    font-size: 1.5rem;
+  }
+
+  .time-selector {
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .platforms-selector {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .platform-toggle {
+    width: 100%;
+    text-align: center;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  .terminal-console-body {
+    height: 190px;
+    font-size: 0.72rem;
+  }
+}

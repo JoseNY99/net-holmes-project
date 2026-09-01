@@ -32,6 +32,7 @@ def get_current_user(
             token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
         user_id: int | None = payload.get("sub")
+        session_id: str | None = payload.get("session_id")
         if user_id is None:
             raise credentials_exception
     except JWTError:
@@ -40,6 +41,15 @@ def get_current_user(
     user = db.query(User).filter(User.id == int(user_id)).first()
     if user is None or not user.is_active:
         raise credentials_exception
+
+    # Validación de Sesión Única (Single Device Active Session)
+    if user.session_token and session_id and user.session_token != session_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión expirada: Se ha iniciado sesión desde otro dispositivo o navegador.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user
 
 

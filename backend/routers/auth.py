@@ -42,7 +42,13 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    token = create_access_token(data={"sub": str(user.id)})
+    import uuid
+    session_id = uuid.uuid4().hex
+    user.session_token = session_id
+    db.commit()
+    db.refresh(user)
+
+    token = create_access_token(data={"sub": str(user.id), "session_id": session_id})
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
 
 
@@ -50,6 +56,7 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 def login(credentials: UserLogin, db: Session = Depends(get_db)):
     """Inicia sesión con correo y contraseña, devuelve un token JWT."""
     from sqlalchemy import func
+    import uuid
     clean_correo = (credentials.correo or "").strip().lower()
     clean_pass = credentials.password or ""
     
@@ -65,7 +72,13 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
             detail="La cuenta está desactivada",
         )
 
-    token = create_access_token(data={"sub": str(user.id)})
+    # Sesión única: Invalida cualquier sesión previa en otros dispositivos/navegadores
+    new_session_id = uuid.uuid4().hex
+    user.session_token = new_session_id
+    db.commit()
+    db.refresh(user)
+
+    token = create_access_token(data={"sub": str(user.id), "session_id": new_session_id})
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
 
 
