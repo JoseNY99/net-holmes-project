@@ -2,6 +2,9 @@ import collections
 import threading
 from datetime import datetime
 import pytz
+from pathlib import Path
+
+LOG_FILE = Path(__file__).resolve().parent.parent / "cron_execution.log"
 
 class CronLogger:
     def __init__(self):
@@ -15,12 +18,23 @@ class CronLogger:
             now = datetime.now(self.tz).strftime('%H:%M:%S')
             log_entry = f"[{now}] {message}"
             self.logs.append(log_entry)
+            print(log_entry, flush=True)
             try:
-                print(log_entry)
-            except UnicodeEncodeError:
-                print(log_entry.encode('cp1252', errors='replace').decode('cp1252'))
+                with open(LOG_FILE, "a", encoding="utf-8") as f:
+                    f.write(log_entry + "\n")
+            except Exception:
+                pass
 
-    def get_logs(self, last_n: int = 50) -> list[str]:
+    def get_logs(self, last_n: int = 60) -> list[str]:
+        # Leer desde archivo compartido para sincronizar todos los workers de Uvicorn
+        try:
+            if LOG_FILE.exists():
+                with open(LOG_FILE, "r", encoding="utf-8") as f:
+                    lines = [line.strip() for line in f if line.strip()]
+                    if lines:
+                        return lines[-last_n:]
+        except Exception:
+            pass
         with self.lock:
             return list(self.logs)[-last_n:]
 
@@ -44,5 +58,10 @@ class CronLogger:
         with self.lock:
             self.logs.clear()
             self.progress.clear()
+            try:
+                if LOG_FILE.exists():
+                    LOG_FILE.write_text("", encoding="utf-8")
+            except Exception:
+                pass
 
 cron_logger = CronLogger()

@@ -394,9 +394,12 @@ async def run_automatic_scan():
     from services.cron_service import set_running
     set_running(db, True)
     try:
-        brands = db.query(Brand).filter(Brand.estado == "activa").all()
+        from sqlalchemy import func
+        brands = db.query(Brand).filter(func.lower(func.trim(Brand.estado)).like("%activa%")).all()
         if not brands:
-            cron_logger.log("No hay marcas activas. Abortando.")
+            brands = db.query(Brand).all()
+        if not brands:
+            cron_logger.log("⚠️ No hay marcas registradas en el sistema. Registra marcas antes de escanear.")
             return
 
         from services import cron_service
@@ -404,14 +407,15 @@ async def run_automatic_scan():
         cron_config = cron_service.get_cron_config(db)
         
         try:
-            marcas_ids = json.loads(cron_config.marcas_seleccionadas)
+            marcas_ids = json.loads(cron_config.marcas_seleccionadas) if cron_config.marcas_seleccionadas else []
             if marcas_ids:
-                brands = [b for b in brands if b.id in marcas_ids]
+                filtered = [b for b in brands if b.id in marcas_ids]
+                if filtered:
+                    brands = filtered
             else:
-                cron_logger.log("No hay marcas seleccionadas en la configuración. Abortando.")
-                return
+                cron_logger.log(f"ℹ️ Marcas seleccionadas en blanco: escaneando {len(brands)} marca(s) registradas.")
         except Exception as e:
-            cron_logger.log(f"Error parseando marcas_seleccionadas, usando todas las activas. {e}")
+            cron_logger.log(f"Error parseando marcas_seleccionadas, usando marcas activas: {e}")
         
         try:
             provincias = json.loads(cron_config.provincias_seleccionadas)

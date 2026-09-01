@@ -71,7 +71,7 @@ export default function CronConfig() {
 
     const pollStatus = async () => {
       if (!isSubscribed) return;
-      let nextInterval = 30000; // 30 segundos en reposo (idle)
+      let nextInterval = 4000; // 4 segundos en reposo
       
       try {
         const statusRes = await api.get('/api/cron/status').then(r => r.data);
@@ -80,7 +80,7 @@ export default function CronConfig() {
         setCronRunning(isCurrentlyRunning);
         
         if (isCurrentlyRunning) {
-            nextInterval = 10000; // 10 segundos cuando está ejecutando
+            nextInterval = 1500; // 1.5 segundos durante escaneo activo
         }
         
         if (isFirstMount.current) {
