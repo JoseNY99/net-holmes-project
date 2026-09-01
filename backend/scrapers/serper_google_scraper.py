@@ -18,9 +18,9 @@ class SerperGoogleScraper:
         if platform == "facebook":
             return f'site:facebook.com/marketplace/item/ "{kw}" "{loc}"'
         elif platform == "instagram":
-            return f'(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" ("precio" OR "vendo" OR "envios" OR "showroom" OR "talles" OR "cuotas")'
+            return f'site:instagram.com/p/ "{kw}" {loc} showroom'
         elif platform == "tiktok":
-            return f'site:tiktok.com inurl:video "{kw}" ("precio" OR "vendo" OR "envios" OR "showroom" OR "talles" OR "cuotas" OR "stock" OR "zapatillas" OR "ropa")'
+            return f'site:tiktok.com/@ "{kw}" showroom indumentaria Argentina'
         return f'"{kw}" "{loc}"'
 
     async def scrape(self, platform: str, keyword: str, limit: int = 10, city_name: str = None) -> AsyncGenerator[Dict[str, Any], None]:
@@ -160,7 +160,15 @@ class SerperGoogleScraper:
         elif platform == "instagram":
             return "/p/" in u or "/reel/" in u
         elif platform == "tiktok":
-            return "/video/" in u or "/@" in u or "vt.tiktok.com" in u
+            if "vt.tiktok.com/" in u:
+                return True
+            m = re.search(r'tiktok\.com/@([A-Za-z0-9_.-]+)/(?:video|photo)/\d+', u)
+            if m:
+                u_name = m.group(1).lower()
+                if u_name in ("about", "legal", "nav", "us", "wiki", "explore", "tag", "channel", "discover", "live", "login", "signup", "foryou", "privacy", "community", "support"):
+                    return False
+                return True
+            return False
         return True
 
     def _extract_seller_name(self, platform: str, url: str, title: str, snippet: str) -> str:
@@ -178,12 +186,17 @@ class SerperGoogleScraper:
             if m_user:
                 return m_user.group(1)
         elif platform == "tiktok":
-            m = re.search(r'tiktok\.com/(@[A-Za-z0-9_.]+)', url)
+            m = re.search(r'tiktok\.com/@([A-Za-z0-9_.-]+)', url)
             if m:
-                return m.group(1)
-            m_tt = re.search(r'(@[A-Za-z0-9_.]+)', f"{title} {snippet}")
+                u_name = m.group(1)
+                if u_name.lower() not in ("about", "legal", "nav", "us", "wiki", "explore", "tag", "channel", "discover", "live", "login", "signup", "foryou", "privacy", "community", "support"):
+                    return f"@{u_name}" if not u_name.startswith("@") else u_name
+            m_tt = re.search(r'(@[A-Za-z0-9_.]{3,30})', f"{title} {snippet}")
             if m_tt:
-                return m_tt.group(1)
+                u_cand = m_tt.group(1)
+                if u_cand.lower().replace("@", "") not in ("about", "legal", "nav", "us", "wiki", "explore", "tag", "channel", "discover", "live", "login", "signup", "foryou", "privacy", "community", "support"):
+                    return u_cand
+            return "@vendedor_tiktok"
         elif platform == "facebook":
             # 1. En Facebook marketplace a veces viene 'en Venta por Seller' o 'de Seller' o 'Seller publicó...'
             m_fb = re.search(r'(?:por|by|seller|vendedor|publicado por|contacto:?)\s+([A-Za-zÁÉÍÓÚáéíóúñÑ0-9\s]{3,25})', f"{title} {snippet}", re.IGNORECASE)

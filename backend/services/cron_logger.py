@@ -18,7 +18,13 @@ class CronLogger:
             now = datetime.now(self.tz).strftime('%H:%M:%S')
             log_entry = f"[{now}] {message}"
             self.logs.append(log_entry)
-            print(log_entry, flush=True)
+            try:
+                print(log_entry, flush=True)
+            except Exception:
+                try:
+                    print(log_entry.encode('ascii', 'replace').decode('ascii'), flush=True)
+                except Exception:
+                    pass
             try:
                 with open(LOG_FILE, "a", encoding="utf-8") as f:
                     f.write(log_entry + "\n")

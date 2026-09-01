@@ -460,7 +460,8 @@ async def run_automatic_scan():
         except:
             plataformas_activas = ["facebook", "instagram", "tiktok", "mercadolibre"]
 
-        proveedor = getattr(cron_config, 'proveedor', 'apify')
+        # Excluir 'web' de escaneos automáticos (las webs quedan reservadas exclusivamente para el escaneo manual)
+        plataformas_activas = [p for p in plataformas_activas if p != "web"]
 
         # Si el proveedor es Apify o RapidAPI, excluir automáticamente MercadoLibre para evitar conflictos
         if proveedor in ("apify", "rapidapi"):
@@ -531,16 +532,8 @@ async def run_automatic_scan():
                         except Exception as e:
                             cron_logger.log(f"Error en {platform_name} para {keyword} en {provincia}: {e}")
 
-            # Escaneo de Tiendas Falsas y Phishing (Certstream / SSL) para el proveedor OSINT
-            if not _stop_requested and proveedor == "google_meli_osint" and getattr(settings, "ENABLE_CERTSTREAM_SCAN", True):
-                try:
-                    cron_logger.log(f"🛡️ [Certstream Scanner] Analizando dominios y tiendas falsas para {brand.nombre}...")
-                    async for item in engine.scan_certstream_domains(brand.nombre, limit=3):
-                        if _stop_requested:
-                            break
-                        process_and_save_single_result(db, item, brand, brand.nombre)
-                except Exception as e_cs:
-                    cron_logger.log(f"⚠️ [Certstream Scanner] Error en escaneo de dominios: {e_cs}")
+            if _stop_requested:
+                break
                         
         if _stop_requested:
             cron_logger.log("🛑 ====== ESCANEO DETENIDO POR EMERGENCIA ======")

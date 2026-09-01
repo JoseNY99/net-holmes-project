@@ -340,6 +340,17 @@ async def ejecutar_motor_indexado(
             body = item.get("body", "")
             title = item.get("title", "Sin Título")
 
+            # ── Validación Estricta de Dominio por Plataforma ──
+            href_low = href.lower()
+            if platform == "facebook" and "facebook.com" not in href_low:
+                continue
+            if platform == "instagram" and "instagram.com" not in href_low:
+                continue
+            if platform == "tiktok" and ("tiktok.com/@" not in href_low and "vt.tiktok.com" not in href_low):
+                continue
+            if platform == "mercadolibre" and "mercadolibre.com" not in href_low:
+                continue
+
             price = _extract_price(f"{title} {body}")
             followers = _extract_followers(f"{title} {body}")
             username = _extract_username(platform, href, title)
