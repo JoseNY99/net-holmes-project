@@ -49,11 +49,11 @@ def get_brand(
 def create_brand(
     brand_data: BrandCreate,
     db: Session = Depends(get_db),
-    admin: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     _block: None = Depends(check_cron_not_running),
 ):
-    """Crea una nueva marca (solo administradores)."""
-    return brand_service.create_brand(db, brand_data, admin.id)
+    """Crea una nueva marca (analistas, administradores y super administradores)."""
+    return brand_service.create_brand(db, brand_data, current_user.id)
 
 
 @router.put("/{brand_id}", response_model=BrandResponse)

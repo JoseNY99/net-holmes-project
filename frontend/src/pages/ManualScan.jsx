@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { manualScan } from '../services/scanService';
-import { getBrands } from '../services/brandService';
+import { getBrands, createBrand } from '../services/brandService';
 import { FaSearch, FaLink, FaTags, FaPlay, FaUserSecret } from 'react-icons/fa';
 import { promoteScan } from '../services/suspectService';
+import Swal from 'sweetalert2';
 import './ManualScan.css';
 
 export default function ManualScan() {
@@ -15,13 +16,19 @@ export default function ManualScan() {
   const [error, setError] = useState(null);
   const [promoting, setPromoting] = useState(false);
   const [promoteSuccess, setPromoteSuccess] = useState(false);
-  const [nuevaMarca, setNuevaMarca] = useState('');
 
-  const fetchBrands = async () => {
+  const fetchBrands = async (selectedId = null) => {
     try {
       const resBrands = await getBrands('activa');
-      setBrands(resBrands.data);
-      if (resBrands.data.length > 0) setBrandId(resBrands.data[0].id);
+      const activeOnly = (resBrands.data || []).filter(
+        (b) => (b.estado || 'activa').toLowerCase() === 'activa'
+      );
+      setBrands(activeOnly);
+      if (selectedId) {
+        setBrandId(selectedId);
+      } else if (activeOnly.length > 0 && !brandId) {
+        setBrandId(activeOnly[0].id);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -31,44 +38,98 @@ export default function ManualScan() {
     fetchBrands();
   }, []);
 
+  const handleBrandChange = async (e) => {
+    const val = e.target.value;
+    if (val === 'nueva') {
+      // Modal SweetAlert2 para registrar nueva marca
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const { value: formValues } = await Swal.fire({
+        title: 'Registrar Nueva Marca',
+        html: `
+          <div style="text-align: left; margin-top: 10px;">
+            <label style="font-size: 0.85rem; font-weight: 600; color: ${isDark ? '#A0D2DE' : '#0B3256'}; display: block; margin-bottom: 6px;">Nombre de la Marca *</label>
+            <input id="swal-brand-name" class="swal2-input" placeholder="Ej: Nike, Puma, Chanel..." style="width: 100%; box-sizing: border-box; margin: 0 0 14px 0; background: ${isDark ? '#071A2E' : '#F4F8FB'}; color: ${isDark ? '#fff' : '#0B3256'}; border: 1px solid ${isDark ? 'rgba(16,197,201,0.3)' : '#ccc'}; border-radius: 8px;" />
+            
+            <label style="font-size: 0.85rem; font-weight: 600; color: ${isDark ? '#A0D2DE' : '#0B3256'}; display: block; margin-bottom: 6px;">Descripción (Opcional)</label>
+            <input id="swal-brand-desc" class="swal2-input" placeholder="Ej: Protección de indumentaria y calzado..." style="width: 100%; box-sizing: border-box; margin: 0; background: ${isDark ? '#071A2E' : '#F4F8FB'}; color: ${isDark ? '#fff' : '#0B3256'}; border: 1px solid ${isDark ? 'rgba(16,197,201,0.3)' : '#ccc'}; border-radius: 8px;" />
+          </div>
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Registrar Marca',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#10C5C9',
+        cancelButtonColor: '#E74C3C',
+        background: isDark ? '#0B3256' : '#FFFFFF',
+        color: isDark ? '#FFFFFF' : '#0B3256',
+        customClass: {
+          popup: 'swal2-custom-brand-modal',
+        },
+        preConfirm: () => {
+          const name = document.getElementById('swal-brand-name').value;
+          const desc = document.getElementById('swal-brand-desc').value;
+          if (!name || !name.trim()) {
+            Swal.showValidationMessage('El nombre de la marca es obligatorio');
+            return false;
+          }
+          return { nombre: name.trim(), descripcion: desc ? desc.trim() : 'Marca creada desde Scraping Manual' };
+        },
+      });
+
+      if (formValues) {
+        try {
+          const newBrandRes = await createBrand({
+            nombre: formValues.nombre,
+            descripcion: formValues.descripcion,
+            estado: 'activa',
+          });
+          const createdId = newBrandRes.data.id;
+          await fetchBrands(createdId);
+          setBrandId(createdId);
+
+          Swal.fire({
+            icon: 'success',
+            title: `¡Marca "${formValues.nombre}" registrada!`,
+            text: 'Ha sido agregada al sistema y seleccionada automáticamente.',
+            timer: 2500,
+            showConfirmButton: false,
+            background: isDark ? '#0B3256' : '#FFFFFF',
+            color: isDark ? '#FFFFFF' : '#0B3256',
+          });
+        } catch (err) {
+          Swal.fire({
+            icon: 'error',
+            title: 'Error al registrar marca',
+            text: err.response?.data?.detail || 'No se pudo crear la marca.',
+            confirmButtonColor: '#10C5C9',
+            background: isDark ? '#0B3256' : '#FFFFFF',
+            color: isDark ? '#FFFFFF' : '#0B3256',
+          });
+          // Revertir a la primera marca activa
+          if (brands.length > 0) setBrandId(brands[0].id);
+        }
+      } else {
+        // Si cancela, revertir al primer ID activo si no tenía ninguno
+        if (brands.length > 0 && !brandId) setBrandId(brands[0].id);
+      }
+    } else {
+      setBrandId(val);
+    }
+  };
+
   const handleScan = async (e) => {
     e.preventDefault();
-    if (!url || (!brandId && !nuevaMarca)) return;
-    
+    if (!url || !brandId) return;
+
     setLoading(true);
     setError(null);
     setResult(null);
 
     try {
-      let activeBrandId = brandId;
-      
-      // Si el usuario eligió crear una marca nueva, la creamos al vuelo
-      if (brandId === 'nueva') {
-        if (!nuevaMarca.trim()) {
-          setError('El nombre de la nueva marca no puede estar vacío.');
-          setLoading(false);
-          return;
-        }
-        
-        // Importamos dinámicamente o asumiendo que createBrand existe en brandService
-        const { createBrand } = await import('../services/brandService');
-        const newBrandRes = await createBrand({
-          nombre: nuevaMarca,
-          descripcion: 'Marca creada desde Scraping Manual',
-          estado: 'activa'
-        });
-        
-        activeBrandId = newBrandRes.data.id;
-        
-        // Refrescamos la lista de marcas para que aparezca
-        await fetchBrands();
-        setBrandId(activeBrandId);
-      }
-
-      const res = await manualScan(url, plataforma, activeBrandId);
+      const res = await manualScan(url, plataforma, brandId);
       setResult(res.data);
     } catch (err) {
-      setError('Error al ejecutar el scraping manual o crear la marca.');
+      setError(err.response?.data?.detail || 'Error al ejecutar el scraping manual.');
     } finally {
       setLoading(false);
     }
@@ -116,38 +177,25 @@ export default function ManualScan() {
                   <option value="tiktok">TikTok</option>
                   <option value="facebook">Facebook</option>
                   <option value="instagram">Instagram</option>
-                  <option value="generico">Genérico</option>
+                  <option value="generico">Genérico (Cualquier WEB o clasificado)</option>
                 </select>
               </div>
 
               <div className="form-group">
                 <label><FaTags /> Marca Afectada</label>
-                <select className="input-field" value={brandId} onChange={(e) => {
-                  setBrandId(e.target.value);
-                  if (e.target.value !== 'nueva') setNuevaMarca('');
-                }} required>
-                  {brands.map(b => (
+                <select className="input-field" value={brandId} onChange={handleBrandChange} required>
+                  {brands.map((b) => (
                     <option key={b.id} value={b.id}>{b.nombre}</option>
                   ))}
-                  <option value="nueva" style={{fontWeight: 'bold', color: '#ffcc00'}}>+ Registrar nueva marca</option>
+                  <option value="nueva" style={{ fontWeight: 'bold', color: '#ffcc00' }}>
+                    + Registrar nueva marca
+                  </option>
                   {brands.length === 0 && <option value="" disabled>No hay marcas activas</option>}
                 </select>
-                
-                {brandId === 'nueva' && (
-                  <input 
-                    type="text" 
-                    className="input-field mt-2 slide-down" 
-                    placeholder="Nombre de la nueva marca..." 
-                    value={nuevaMarca}
-                    onChange={(e) => setNuevaMarca(e.target.value)}
-                    required
-                    autoFocus
-                  />
-                )}
               </div>
             </div>
 
-            <button type="submit" className="btn-primary w-100 mt-2" disabled={loading || (!brandId && !nuevaMarca)}>
+            <button type="submit" className="btn-primary w-100 mt-2" disabled={loading || !brandId}>
               {loading ? <div className="spinner"></div> : <><FaPlay /> Iniciar Análisis Forense</>}
             </button>
           </form>

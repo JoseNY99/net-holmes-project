@@ -94,9 +94,11 @@ export default function Navbar() {
 
         {/* Menú móvil desplegable */}
         {menuOpen && (
-          <div className="navbar__mobile-menu">
-            {isAuthenticated && (
-              <div className="navbar__links">
+          <>
+            <div className="navbar__mobile-backdrop" onClick={() => setMenuOpen(false)} />
+            <div className="navbar__mobile-menu">
+              {isAuthenticated && (
+                <div className="navbar__links">
                 <NavLink
                   to="/dashboard"
                   className={({ isActive }) =>
@@ -230,7 +232,8 @@ export default function Navbar() {
               )}
             </div>
           </div>
-        )}
+        </>
+      )}
 
         {/* Navegación de escritorio (oculta en móvil) */}
         <div className="navbar__links navbar__desktop-only" style={{ display: '' }}>
