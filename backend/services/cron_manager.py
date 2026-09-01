@@ -463,6 +463,8 @@ async def run_automatic_scan():
         # Excluir 'web' de escaneos automáticos (las webs quedan reservadas exclusivamente para el escaneo manual)
         plataformas_activas = [p for p in plataformas_activas if p != "web"]
 
+        proveedor = getattr(cron_config, 'proveedor', 'google_meli_osint') or 'google_meli_osint'
+
         # Si el proveedor es Apify o RapidAPI, excluir automáticamente MercadoLibre para evitar conflictos
         if proveedor in ("apify", "rapidapi"):
             plataformas_activas = [p for p in plataformas_activas if p != "mercadolibre"]
