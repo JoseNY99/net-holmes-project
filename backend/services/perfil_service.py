@@ -19,18 +19,35 @@ def update_perfil(db: Session, reporte_id: int, user_id: int, data: PerfilUpdate
     perfil = get_or_create_perfil(db, reporte_id)
     update_data = data.model_dump(exclude_unset=True)
     
-    for campo, valor_nuevo in update_data.items():
-        valor_anterior = getattr(perfil, campo)
-        if str(valor_nuevo) != str(valor_anterior):
-            audit = AuditLog(
-                reporte_id=reporte_id, 
-                user_id=user_id,
-                campo=campo, 
-                valor_anterior=str(valor_anterior) if valor_anterior is not None else None,
-                valor_nuevo=str(valor_nuevo) if valor_nuevo is not None else None
-            )
-            db.add(audit)
-            setattr(perfil, campo, valor_nuevo)
+    # Mapear alias legados
+    if "telefono_confirmado" in update_data and update_data["telefono_confirmado"] and not update_data.get("telefono_privado"):
+        update_data["telefono_privado"] = update_data.pop("telefono_confirmado")
+    if "precio_final" in update_data and update_data["precio_final"] and not update_data.get("precio_final_cotizado"):
+        update_data["precio_final_cotizado"] = update_data.pop("precio_final")
+        
+    valid_fields = [
+        "dni_cedula", "cuit_cuil_ruc", "banco", "alias_bancario",
+        "cvu_cbu", "email", "direccion_exacta", "telefono_privado",
+        "precio_final_cotizado"
+    ]
+    
+    for campo in valid_fields:
+        if campo in update_data:
+            valor_nuevo = update_data[campo]
+            valor_anterior = getattr(perfil, campo, None)
+            if str(valor_nuevo or '') != str(valor_anterior or ''):
+                try:
+                    audit = AuditLog(
+                        reporte_id=reporte_id, 
+                        user_id=user_id,
+                        campo=campo, 
+                        valor_anterior=str(valor_anterior) if valor_anterior is not None else None,
+                        valor_nuevo=str(valor_nuevo) if valor_nuevo is not None else None
+                    )
+                    db.add(audit)
+                except Exception:
+                    pass
+                setattr(perfil, campo, valor_nuevo)
             
     perfil.updated_at = datetime.now(timezone.utc)
     db.commit()
