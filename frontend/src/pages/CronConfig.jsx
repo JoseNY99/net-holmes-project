@@ -129,8 +129,8 @@ export default function CronConfig() {
 
   const fetchBrands = async () => {
     try {
-      const res = await getBrands('activa');
-      setActiveBrands(res.data);
+      const res = await getBrands();
+      setActiveBrands(res.data || []);
     } catch (e) {
       console.error(e);
     }
@@ -199,7 +199,10 @@ export default function CronConfig() {
   };
 
   const selectAllMarcas = () => {
-    setMarcas(activeBrands.map(b => b.id));
+    const onlyActiveIds = activeBrands
+      .filter(b => (b.estado || 'activa').toLowerCase() === 'activa')
+      .map(b => b.id);
+    setMarcas(onlyActiveIds);
   };
 
   const deselectAllMarcas = () => {
@@ -218,23 +221,25 @@ export default function CronConfig() {
     setSaving(true);
     setMessage(null);
     try {
-      const updatedData = {
-        is_active: isActive,
+      const cleanMarcas = marcas.filter(mId => {
+        const found = activeBrands.find(b => b.id === mId);
+        return found && (found.estado || 'activa').toLowerCase() === 'activa';
+      });
+
+      const payload = {
         hora: Number(hora),
         minuto: Number(minuto),
         plataformas_activas: JSON.stringify(plataformas),
-        marcas_seleccionadas: JSON.stringify(marcas),
-        provincias_seleccionadas: JSON.stringify(provincias),
+        marcas_seleccionadas: JSON.stringify(cleanMarcas),
+        provincias_seleccionadas: JSON.stringify(scanProvinces ? provincias : []),
         limite_extraccion_fb: Number(limiteFB),
         limite_extraccion_ig: Number(limiteIG),
         limite_extraccion_tt: Number(limiteTT),
         limite_extraccion_ml: Number(limiteML),
         proveedor: proveedor
       };
-      const res = await updateCronConfig(updatedData);
-      setConfig(res.data);
-      setMessage({ type: 'success', text: 'Configuración guardada correctamente.' });
-      setTimeout(() => setMessage(null), 3000);
+      await updateCronConfig(payload);
+      setMessage({ type: 'success', text: 'Configuración guardada exitosamente.' });
     } catch (error) {
       setMessage({ type: 'error', text: 'Error al guardar la configuración.' });
     } finally {
@@ -242,38 +247,37 @@ export default function CronConfig() {
     }
   };
 
-  const handleForceRun = async () => {
+  const handleManualRun = async () => {
     try {
       await triggerManualRun();
-      setMessage({ type: 'success', text: 'Ejecución del cron forzada.' });
-      fetchConfig();
-      setTimeout(() => setMessage(null), 3000);
+      setCronRunning(true);
+      setModalState({ isOpen: true, type: 'info', title: 'Escaneo Iniciado', body: 'El escaneo manual ha sido disparado en segundo plano.' });
     } catch (error) {
-      setMessage({ type: 'error', text: 'Error al forzar la ejecución.' });
+      const errorDetail = error.response?.data?.detail || 'Error al disparar el escaneo.';
+      setModalState({ isOpen: true, type: 'error', title: 'Error de Ejecución', body: errorDetail });
     }
   };
 
-  const handleStop = async () => {
+  const handleStopCron = async () => {
     try {
       await stopCron();
-      setMessage({ type: 'success', text: 'El motor ha sido detenido de emergencia.' });
-      fetchConfig();
-      setTimeout(() => setMessage(null), 3000);
+      setCronRunning(false);
+      setMessage({ type: 'success', text: 'Señal de detención enviada exitosamente.' });
     } catch (error) {
-      setMessage({ type: 'error', text: 'Error al detener el motor.' });
+      setMessage({ type: 'error', text: 'Error al solicitar detención.' });
     }
   };
 
   const handleToggleActive = async () => {
     try {
-      const newActive = !isActive;
-      setIsActive(newActive);
-      await toggleCron(newActive);
-      setMessage({ type: 'success', text: newActive ? 'Motor CRON ENCENDIDO.' : 'Motor CRON APAGADO.' });
-      setTimeout(() => setMessage(null), 3000);
+      const res = await toggleCron();
+      setIsActive(res.data.is_active);
+      setMessage({
+        type: 'success',
+        text: `Motor de escaneo ${res.data.is_active ? 'encendido' : 'apagado'} correctamente.`
+      });
     } catch (error) {
-      setIsActive(!isActive);
-      setMessage({ type: 'error', text: 'Error al cambiar estado del motor.' });
+      setMessage({ type: 'error', text: 'Error al cambiar el estado del motor.' });
     }
   };
 
@@ -285,13 +289,21 @@ export default function CronConfig() {
 
   const renderModal = () => {
     if (!modalState.isOpen) return null;
-    if (modalState.type === 'info') {
+
+    if (modalState.type === 'info' || modalState.type === 'error') {
       return createPortal(
         <div className="modal-overlay fade-in">
           <div className="glass-modal slide-up">
-            <div className="modal-header"><h3>{modalState.title}</h3><button className="btn-close" onClick={() => setModalState({ isOpen: false, type: null })}>&times;</button></div>
+            <div className="modal-header">
+              <h3 style={{ color: modalState.type === 'error' ? 'var(--danger)' : 'var(--accent-primary)' }}>
+                {modalState.title}
+              </h3>
+              <button className="btn-close" onClick={() => setModalState({ isOpen: false, type: null })}>&times;</button>
+            </div>
             <div className="modal-body"><p>{modalState.body}</p></div>
-            <div className="modal-footer"><button className="btn-primary" onClick={() => setModalState({ isOpen: false, type: null })}>Entendido</button></div>
+            <div className="modal-footer">
+              <button className="btn-primary" onClick={() => setModalState({ isOpen: false, type: null })}>Entendido</button>
+            </div>
           </div>
         </div>,
         document.body
@@ -335,14 +347,46 @@ export default function CronConfig() {
       <div className="cron-grid">
         <div className="glass-card config-panel fade-in">
           <h3><FaTags /> Marcas de Escaneo</h3>
-          <div className="brands-selector" style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px', maxHeight: '150px', overflowY: 'auto', padding: '10px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '15px'}}>
-            {activeBrands.map(brand => (
-              <label key={brand.id} className={`brand-toggle ${marcas.includes(brand.id) ? 'active' : ''}`} style={{ margin: 0, padding: '5px', fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={marcas.includes(brand.id)} onChange={() => !isEditingDisabled && handleToggleMarca(brand.id)} disabled={isEditingDisabled} hidden/>
-                <span className="brand-name">{brand.nombre}</span>
-              </label>
-            ))}
-            {activeBrands.length === 0 && <span style={{color: 'var(--text-secondary)'}}>No hay marcas activas.</span>}
+          <div className="brands-selector" style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', maxHeight: '160px', overflowY: 'auto', padding: '10px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '15px'}}>
+            {activeBrands.map(brand => {
+              const isBrandActive = (brand.estado || 'activa').toLowerCase() === 'activa';
+              const isChecked = isBrandActive && marcas.includes(brand.id);
+
+              return (
+                <label 
+                  key={brand.id} 
+                  className={`brand-toggle ${isChecked ? 'active' : ''}`} 
+                  style={{ 
+                    margin: 0, 
+                    padding: '6px 10px', 
+                    fontSize: '0.85rem',
+                    opacity: isBrandActive ? 1 : 0.45,
+                    cursor: isBrandActive ? 'pointer' : 'not-allowed',
+                    borderStyle: isBrandActive ? 'solid' : 'dashed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '6px'
+                  }}
+                  title={!isBrandActive ? 'Marca inactiva en el sistema (no seleccionable)' : ''}
+                >
+                  <input 
+                    type="checkbox" 
+                    checked={isChecked} 
+                    onChange={() => isBrandActive && !isEditingDisabled && handleToggleMarca(brand.id)} 
+                    disabled={!isBrandActive || isEditingDisabled} 
+                    hidden
+                  />
+                  <span className="brand-name">{brand.nombre}</span>
+                  {!isBrandActive && (
+                    <span style={{ fontSize: '0.65rem', background: 'rgba(231,76,60,0.2)', color: 'var(--danger)', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                      Inactiva
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+            {activeBrands.length === 0 && <span style={{color: 'var(--text-secondary)'}}>No hay marcas configuradas.</span>}
           </div>
           <div style={{display: 'flex', gap: '10px', marginBottom: '15px'}}>
             <button className="btn-ghost" style={{fontSize: '0.8rem', padding: '4px 10px'}} onClick={selectAllMarcas} disabled={isEditingDisabled}>Seleccionar Todas</button>
