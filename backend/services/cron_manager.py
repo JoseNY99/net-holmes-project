@@ -321,25 +321,50 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         # Extraer imagen candidata directa
         candidate_img = _extract_single_clean_image_url(item)
 
+        parsed_price = None
+        raw_p = item.get("price")
+        if raw_p is not None:
+            try:
+                clean_p = re.sub(r'[^0-9.]', '', str(raw_p).replace(',', '.'))
+                if clean_p:
+                    parsed_price = float(clean_p)
+            except Exception:
+                parsed_price = None
+
+        parsed_followers = None
+        raw_f = item.get("seguidores_infractor") or item.get("seller_profile", {}).get("followers") or item.get("platform_data", {}).get("followers")
+        if raw_f is not None:
+            try:
+                clean_f = re.sub(r'[^0-9]', '', str(raw_f))
+                if clean_f:
+                    parsed_followers = int(clean_f)
+            except Exception:
+                parsed_followers = None
+
         new_result = ReporteBrandDefense(
             pais=item.get("location", "Argentina"),
             producto_catalogo=keyword if keyword else "Desconocido",
             marca_afectada=brand.nombre,
-            plataforma=item.get("plataforma"),
+            plataforma=item.get("plataforma") or "web",
             titular_cuenta=item.get("seller_profile", {}).get("name", "Desconocido"),
             url_evidencia=item.get("url"),
             descripcion_post=item.get("description") or item.get("title", ""),
-            precio_publico=float(item.get("price")) if item.get("price") and str(item.get("price")).replace('.','',1).isdigit() else None,
+            precio_publico=parsed_price,
             direccion_publica=item.get("location", ""),
             telefono_publico=found_phone or item.get("phone") or item.get("platform_data", {}).get("phone"),
-            seguidores_infractor=item.get("seguidores_infractor") or item.get("seller_profile", {}).get("followers") or item.get("platform_data", {}).get("followers"),
+            seguidores_infractor=parsed_followers,
             estado="Pendiente"
         )
         db.add(new_result)
         db.flush() # Obtain ID without committing entirely yet
 
         # 💾 Descargar físicamente la imagen al servidor local (/static/evidencias/reporte_{id}.jpg)
-        local_img_path = persistir_imagen_local(candidate_img, new_result.id, post_url=item.get("url"))
+        local_img_path = None
+        try:
+            from services.image_persistence import persistir_imagen_local
+            local_img_path = persistir_imagen_local(candidate_img, new_result.id, post_url=item.get("url"))
+        except Exception:
+            local_img_path = None
         
         # Platform specific data
         plat_data = item.get("platform_data", {})
@@ -350,33 +375,34 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
             plat_data["image_urls"] = json.dumps([local_img_path])
 
         if plat_data is not None:
-            plat = item.get("plataforma", "").lower()
-            if plat == "facebook":
-                clean_data = {k: v for k, v in plat_data.items() if hasattr(ReporteFacebookData, k)}
-                clean_data["seller_name"] = clean_data.get("seller_name") or new_result.titular_cuenta
-                db.add(ReporteFacebookData(reporte_id=new_result.id, **clean_data))
-            elif plat == "instagram":
-                clean_data = {k: v for k, v in plat_data.items() if hasattr(ReporteInstagramData, k)}
-                clean_data["username"] = clean_data.get("username") or new_result.titular_cuenta
-                db.add(ReporteInstagramData(reporte_id=new_result.id, **clean_data))
-            elif plat == "tiktok":
-                clean_data = {k: v for k, v in plat_data.items() if hasattr(ReporteTiktokData, k)}
-                clean_data["username"] = clean_data.get("username") or new_result.titular_cuenta
-                db.add(ReporteTiktokData(reporte_id=new_result.id, **clean_data))
-            elif plat == "mercadolibre":
-                clean_data = {k: v for k, v in plat_data.items() if hasattr(ReporteMercadoLibreData, k)}
-                db.add(ReporteMercadoLibreData(reporte_id=new_result.id, **clean_data))
+            plat = str(item.get("plataforma", "")).lower()
+            try:
+                if plat == "facebook":
+                    clean_data = {k: v for k, v in plat_data.items() if hasattr(ReporteFacebookData, k)}
+                    clean_data["seller_name"] = clean_data.get("seller_name") or new_result.titular_cuenta
+                    db.add(ReporteFacebookData(reporte_id=new_result.id, **clean_data))
+                elif plat == "instagram":
+                    clean_data = {k: v for k, v in plat_data.items() if hasattr(ReporteInstagramData, k)}
+                    clean_data["username"] = clean_data.get("username") or new_result.titular_cuenta
+                    db.add(ReporteInstagramData(reporte_id=new_result.id, **clean_data))
+                elif plat == "tiktok":
+                    clean_data = {k: v for k, v in plat_data.items() if hasattr(ReporteTiktokData, k)}
+                    clean_data["username"] = clean_data.get("username") or new_result.titular_cuenta
+                    db.add(ReporteTiktokData(reporte_id=new_result.id, **clean_data))
+                elif plat == "mercadolibre":
+                    clean_data = {k: v for k, v in plat_data.items() if hasattr(ReporteMercadoLibreData, k)}
+                    db.add(ReporteMercadoLibreData(reporte_id=new_result.id, **clean_data))
+            except Exception as pe:
+                cron_logger.log(f"ℹ️ [Plataforma Data] {pe}")
 
         db.commit()
-        db.refresh(new_result)
         cron_logger.log(f"✅ [Éxito] Reporte guardado: {brand.nombre} - {item.get('plataforma')} - {new_result.url_evidencia}")
 
         # Trigger correlación automática
         try:
             CorrelationEngine.analyze_new_reports(db, [new_result.id])
         except Exception as ce:
-            db.rollback()
-            cron_logger.log(f"⚠️ Error en correlación automática: {ce}")
+            cron_logger.log(f"ℹ️ [Correlación] {ce}")
 
     except Exception as e:
         db.rollback()

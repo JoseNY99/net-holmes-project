@@ -54,15 +54,24 @@ async def _fetch_ddg_html(query: str, limit: int = 30) -> list:
     Usa el paquete ddgs oficial que maneja correctamente los tokens VQD y bypasses de TLS (curl_cffi)
     para evitar el agresivo anti-bot de DuckDuckGo (Error 202/302).
     """
-    from ddgs import DDGS
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            DDGS = None
+            
     import logging
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    if not DDGS:
+        return []
 
     results = []
     try:
         def fetch():
             with DDGS() as ddgs:
-                # kl="ar-es" para forzar Argentina
                 return list(ddgs.text(query, region="ar-es", max_results=limit))
         
         # Ejecutar en threadpool porque DDGS es síncrono

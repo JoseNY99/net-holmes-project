@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Numeric
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -29,7 +29,7 @@ class ReporteBrandDefense(Base):
     url_evidencia = Column(Text, nullable=False)
     descripcion_post = Column(Text, nullable=True)
     
-    precio_publico = Column(Numeric(10, 2), nullable=True)
+    precio_publico = Column(Float, nullable=True)
     direccion_publica = Column(String(255), nullable=True)
     telefono_publico = Column(String(100), nullable=True)
     seguidores_infractor = Column(Integer, nullable=True)

@@ -31,6 +31,20 @@ async def lifespan(app: FastAPI):
     
     from sqlalchemy import text
     with engine.connect() as conn:
+        # Migración de auto-reparación de tipos de columna en PostgreSQL
+        pg_type_fixes = [
+            "ALTER TABLE reportes_brand_defense ALTER COLUMN precio_publico TYPE double precision USING (NULLIF(regexp_replace(precio_publico::text, '[^0-9.]', '', 'g'), '')::double precision);",
+            "ALTER TABLE reportes_brand_defense ALTER COLUMN seguidores_infractor TYPE integer USING (NULLIF(regexp_replace(seguidores_infractor::text, '[^0-9]', '', 'g'), '')::integer);",
+            "ALTER TABLE reportes_brand_defense ALTER COLUMN url_evidencia TYPE text;",
+            "ALTER TABLE reportes_brand_defense ALTER COLUMN descripcion_post TYPE text;",
+        ]
+        for fix_sql in pg_type_fixes:
+            try:
+                conn.execute(text(fix_sql))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
         # Migración de sesión única (Single Active Device / Session)
         try:
             conn.execute(text("ALTER TABLE users ADD COLUMN session_token VARCHAR(100);"))
