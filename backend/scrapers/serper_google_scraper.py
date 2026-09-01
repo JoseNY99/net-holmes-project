@@ -20,7 +20,7 @@ class SerperGoogleScraper:
         elif platform == "instagram":
             return f'(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" ("precio" OR "vendo" OR "envios" OR "showroom" OR "talles" OR "cuotas")'
         elif platform == "tiktok":
-            return f'site:tiktok.com/@*/video/ "{kw}" ("talles" OR "envios" OR "precio" OR "stock" OR "cuotas" OR "showroom")'
+            return f'site:tiktok.com inurl:video "{kw}" ("precio" OR "vendo" OR "envios" OR "showroom" OR "talles" OR "cuotas" OR "stock" OR "zapatillas" OR "ropa")'
         return f'"{kw}" "{loc}"'
 
     async def scrape(self, platform: str, keyword: str, limit: int = 10, city_name: str = None) -> AsyncGenerator[Dict[str, Any], None]:
@@ -160,7 +160,7 @@ class SerperGoogleScraper:
         elif platform == "instagram":
             return "/p/" in u or "/reel/" in u
         elif platform == "tiktok":
-            return "/video/" in u
+            return "/video/" in u or "/@" in u or "vt.tiktok.com" in u
         return True
 
     def _extract_seller_name(self, platform: str, url: str, title: str, snippet: str) -> str:

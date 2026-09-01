@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getGeneralReport, getReportList, exportReport } from '../services/reportService';
 import { getBrands } from '../services/brandService';
-import { FaChartPie, FaDownload, FaRobot, FaUserCog, FaFilter, FaChevronLeft, FaChevronRight, FaLock } from 'react-icons/fa';
+import { FaChartPie, FaDownload, FaRobot, FaUserCog, FaFilter, FaChevronLeft, FaChevronRight, FaLock, FaFilePdf } from 'react-icons/fa';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import './Reports.css';
 
@@ -257,32 +257,35 @@ export default function Reports() {
                         <td><span className={`status-badge status-${item.estado}`}>{item.estado}</span></td>
                         <td>
                           <div style={{display:'flex', gap:'5px', alignItems:'center'}}>
-                            {item.estado === 'pendiente' ? (
-                              <>
-                                <button 
-                                  className="btn-primary" 
-                                  style={{padding: '4px 8px', fontSize:'0.75rem', backgroundColor: 'var(--warning)', borderColor: 'var(--warning)', color: '#fff'}}
-                                  onClick={() => {
-                                    import('../services/suspectService').then(m => {
-                                      m.promoteScan(item.id).then(() => {
-                                        alert("Relevado a investigaciones exitosamente.");
-                                        fetchList();
-                                      }).catch(e => {
-                                        console.error(e);
-                                        alert("Error al relevar");
-                                      });
+                            {item.estado === 'pendiente' && (
+                              <button 
+                                className="btn-primary" 
+                                style={{padding: '4px 8px', fontSize:'0.75rem', backgroundColor: 'var(--warning)', borderColor: 'var(--warning)', color: '#fff'}}
+                                onClick={() => {
+                                  import('../services/suspectService').then(m => {
+                                    m.promoteScan(item.id).then(() => {
+                                      alert("Relevado a investigaciones exitosamente.");
+                                      fetchList();
+                                    }).catch(e => {
+                                      console.error(e);
+                                      alert("Error al relevar");
                                     });
-                                  }}
-                                >
-                                  Relevar
-                                </button>
-                                <div 
-                                  title="El reporte requiere ser relevado y completado en la fase de investigación antes de poder exportarse o imprimirse"
-                                  style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-secondary)', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem' }}
-                                >
-                                  <FaLock /> Bloqueado
-                                </div>
-                              </>
+                                  });
+                                }}
+                              >
+                                Relevar
+                              </button>
+                            )}
+
+                            {(item.estado === 'pendiente' || item.estado === 'descartado') ? (
+                              <button 
+                                className="btn-secondary" 
+                                style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                onClick={() => handleSingleExport(item.id, 'fase1-preview-pdf')}
+                                title="Descargar Ficha Preliminar de Detección (Fase 1)"
+                              >
+                                <FaFilePdf /> Vista Previa (Fase 1)
+                              </button>
                             ) : (
                               <div className="export-dropdown" style={{marginLeft: 0}}>
                                 <button className="btn-secondary" style={{padding: '4px 8px', fontSize:'0.8rem'}}><FaDownload /> <span style={{fontSize:'0.6rem'}}>▼</span></button>

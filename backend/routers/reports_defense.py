@@ -140,6 +140,28 @@ def get_audit_logs(reporte_id: int, db: Session = Depends(get_db), _user: User =
 
 from fastapi.responses import StreamingResponse
 from services.export_service import generate_investigation_pdf, generate_investigation_docx, generate_cbn_investigation_pdf
+from services.cbn_pdf import generate_fase1_preview_pdf
+
+@router.get("/{reporte_id}/export/fase1-preview-pdf")
+def export_fase1_preview_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
+    if str(reporte.estado).lower() not in ["pendiente", "descartado"]:
+        raise HTTPException(
+            status_code=400, 
+            detail="La Vista Previa (Fase 1) solo está disponible para reportes en estado Pendiente o Descartado. Para reportes relevados utilice el Reporte Oficial CBN."
+        )
+    
+    pdf_buffer = generate_fase1_preview_pdf(db, reporte)
+    
+    import uuid
+    random_id = uuid.uuid4().hex[:6]
+    platform_name = str(reporte.plataforma).lower()
+    filename = f"vista_previa_fase1_{platform_name}_{random_id}.pdf"
+    
+    headers = {
+        "Content-Disposition": f"attachment; filename={filename}"
+    }
+    return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
 
 @router.get("/{reporte_id}/export/pdf")
 def export_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):

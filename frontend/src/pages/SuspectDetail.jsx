@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getSuspectDetail, updateSuspect, getPerfil, updatePerfil, getAuditLogs, exportPdf, exportWord, exportCbnPdf, captureScreenshot } from '../services/suspectService';
+import { getSuspectDetail, updateSuspect, getPerfil, updatePerfil, getAuditLogs, exportPdf, exportWord, exportCbnPdf, exportFase1PreviewPdf, captureScreenshot } from '../services/suspectService';
 import correlationService from '../services/correlationService';
 import chatService from '../services/chatService';
 import { FaArrowLeft, FaBoxOpen, FaSave, FaCheckCircle, FaExclamationTriangle, FaHistory, FaLock, FaUnlock, FaNetworkWired, FaFilePdf, FaFileWord, FaCommentDots, FaRobot, FaUserEdit, FaPaperPlane, FaWhatsapp, FaBrain, FaLink, FaCamera } from 'react-icons/fa';
@@ -39,6 +39,7 @@ export default function SuspectDetail() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingWord, setExportingWord] = useState(false);
   const [exportingCbnPdf, setExportingCbnPdf] = useState(false);
+  const [exportingFase1, setExportingFase1] = useState(false);
   const [capturingScreenshot, setCapturingScreenshot] = useState(false);
   const [screenshotTimestamp, setScreenshotTimestamp] = useState(Date.now());
 
@@ -274,6 +275,25 @@ export default function SuspectDetail() {
       setMessage({ type: 'error', text: 'Error al exportar Word.' });
     } finally {
       setExportingWord(false);
+    }
+  };
+
+  const handleExportFase1Preview = async () => {
+    setExportingFase1(true);
+    try {
+      const res = await exportFase1PreviewPdf(id);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Vista_Previa_Fase1_${reporte.referencia_interna}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Error al exportar Vista Previa (Fase 1).' });
+    } finally {
+      setExportingFase1(false);
     }
   };
 
@@ -569,10 +589,23 @@ export default function SuspectDetail() {
         {/* COLUMNA DERECHA: FASE 2 DE RELEVAMIENTO */}
         <div className="glass-card notes-panel" style={{ position: 'relative' }}>
           {!abmUnlocked && (
-            <div className="lock-overlay" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(10, 15, 30, 0.85)', backdropFilter: 'blur(4px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 10, borderRadius: '16px' }}>
-              <FaLock size={48} style={{ color: 'rgba(255,255,255,0.3)', marginBottom: '15px' }} />
-              <h3 style={{ color: 'rgba(255,255,255,0.7)' }}>Fase 2 de Relevamiento Bloqueada</h3>
-              <p style={{ textAlign: 'center', maxWidth: '80%', color: 'var(--text-secondary)' }}>Cambia el estado del reporte a <strong>"Investigando"</strong> o <strong>"Sospechoso"</strong> para habilitar la carga de relevamiento de identidad.</p>
+            <div className="lock-overlay" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(10, 15, 30, 0.85)', backdropFilter: 'blur(4px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 10, borderRadius: '16px', padding: '20px' }}>
+              <FaLock size={40} style={{ color: 'rgba(255,255,255,0.3)', marginBottom: '12px' }} />
+              <h3 style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.2rem', marginBottom: '6px' }}>Fase 2 de Relevamiento Bloqueada</h3>
+              <p style={{ textAlign: 'center', maxWidth: '85%', color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>
+                Cambia el estado del reporte a <strong>"Investigando"</strong> o <strong>"Sospechoso"</strong> para habilitar la carga de datos de identidad y el informe oficial CBN.
+              </p>
+              
+              <button 
+                type="button" 
+                className="btn-primary" 
+                onClick={handleExportFase1Preview} 
+                disabled={exportingFase1}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem', padding: '8px 16px', background: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}
+                title="Descargar Ficha Preliminar de Detección (Fase 1 / Triage)"
+              >
+                <FaFilePdf /> {exportingFase1 ? 'Generando PDF...' : 'Descargar Vista Previa (Fase 1)'}
+              </button>
             </div>
           )}
           

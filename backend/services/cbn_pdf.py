@@ -638,3 +638,184 @@ def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
     doc.build(S)
     buffer.seek(0)
     return buffer
+
+
+def generate_fase1_preview_pdf(db: Session, reporte) -> io.BytesIO:
+    """
+    Genera el Reporte de Vista Previa / Ficha Preliminar de Detección (Fase 1 - Triage).
+    Especialmente diseñado para reportes en estado 'Pendiente' o 'Descartado'.
+    Estilo visual institucional CBN Argentina.
+    """
+    buffer = io.BytesIO()
+    doc = BaseDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+        topMargin=2.8 * cm,
+        bottomMargin=2.2 * cm,
+    )
+    frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="f1_normal")
+    doc.addPageTemplates([
+        PageTemplate(id="inner", frames=frame, onPage=_draw_header_footer)
+    ])
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "F1Title", parent=styles["Heading1"],
+        fontName="Helvetica-Bold", fontSize=15, leading=19,
+        textColor=CBN_NAVY, spaceAfter=4
+    )
+    subtitle_style = ParagraphStyle(
+        "F1Subtitle", parent=styles["Normal"],
+        fontName="Helvetica", fontSize=9, leading=12,
+        textColor=CBN_ACCENT, spaceAfter=10
+    )
+    normal = ParagraphStyle(
+        "F1Normal", parent=styles["Normal"],
+        fontName="Helvetica", fontSize=8.5, leading=12, textColor=CBN_TEXT
+    )
+    bold_s = ParagraphStyle(
+        "F1Bold", parent=normal, fontName="Helvetica-Bold", textColor=CBN_DARK
+    )
+    hw = ParagraphStyle("F1Hw", parent=normal, fontName="Helvetica-Bold", textColor=CBN_WHITE)
+    small = ParagraphStyle(
+        "F1Small", parent=styles["Normal"],
+        fontName="Helvetica-Oblique", fontSize=7.5, leading=10, textColor=colors.HexColor("#555555")
+    )
+
+    S = []
+
+    # Banner Superior de Triage / Fase 1
+    estado_upper = str(reporte.estado).upper()
+    is_descartado = estado_upper == "DESCARTADO"
+    badge_bg = colors.HexColor("#7F8C8D") if is_descartado else colors.HexColor("#D35400")
+
+    banner_data = [[
+        Paragraph("<b>NET HOLMES OSINT \u2014 FICHA PRELIMINAR DE DETECCIÓN (FASE 1)</b>", hw),
+        Paragraph(f"<b>ESTADO: {estado_upper}</b>", hw)
+    ]]
+    tb_banner = Table(banner_data, colWidths=[12.5 * cm, 5.5 * cm])
+    tb_banner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), CBN_NAVY),
+        ("BACKGROUND", (1, 0), (1, 0), badge_bg),
+        ("ALIGN", (1, 0), (1, 0), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    S.append(tb_banner)
+    S.append(Spacer(1, 10))
+
+    # Título Principal
+    S.append(Paragraph(f"VISTA PREVIA DE EVIDENCIA \u2014 {reporte.marca_afectada.upper()} ({reporte.plataforma.upper()})", title_style))
+    S.append(Paragraph(f"Referencia Técnica: #{reporte.referencia_interna} | Fecha de Captura: {reporte.fecha_captura.strftime('%d/%m/%Y %H:%M') if reporte.fecha_captura else 'N/D'}", subtitle_style))
+    S.append(Spacer(1, 6))
+
+    # Tabla de Datos de Detección (Fase 1)
+    precio_str = f"ARS {reporte.precio_publico:,.2f}" if reporte.precio_publico else "No especificado"
+    
+    det_rows = [
+        [Paragraph("<b>MARCA AFECTADA</b>", bold_s), Paragraph(reporte.marca_afectada or "N/D", normal),
+         Paragraph("<b>PLATAFORMA</b>", bold_s), Paragraph(str(reporte.plataforma).upper(), normal)],
+        [Paragraph("<b>PRODUCTO / KEYWORD</b>", bold_s), Paragraph(reporte.producto_catalogo or "Búsqueda general", normal),
+         Paragraph("<b>PRECIO PUBLICADO</b>", bold_s), Paragraph(precio_str, normal)],
+        [Paragraph("<b>USUARIO / TITULAR</b>", bold_s), Paragraph(reporte.titular_cuenta or "No identificado", normal),
+         Paragraph("<b>TELÉFONO PÚBLICO</b>", bold_s), Paragraph(reporte.telefono_publico or "No detectado", normal)],
+        [Paragraph("<b>UBICACIÓN DETECTADA</b>", bold_s), Paragraph(reporte.direccion_publica or reporte.pais or "Argentina", normal),
+         Paragraph("<b>SEGUIDORES / REP</b>", bold_s), Paragraph(str(reporte.seguidores_infractor) if reporte.seguidores_infractor is not None else "N/D", normal)],
+    ]
+    t_det = Table(det_rows, colWidths=[4 * cm, 5 * cm, 4 * cm, 5 * cm])
+    t_det.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), CBN_TABLE_BG),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CCCCCC")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    S.append(t_det)
+    S.append(Spacer(1, 10))
+
+    # URL Directa de Evidencia
+    url_box = [
+        [Paragraph("<b>ENLACE DIRECTO:</b>", bold_s),
+         Paragraph(f"<a href='{reporte.url_evidencia}' color='#00639B'><b>{reporte.url_evidencia}</b></a>", normal)]
+    ]
+    t_url = Table(url_box, colWidths=[3.5 * cm, 14.5 * cm])
+    t_url.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EBF5FB")),
+        ("BOX", (0, 0), (-1, -1), 1, CBN_ACCENT),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    S.append(t_url)
+    S.append(Spacer(1, 10))
+
+    # Texto / Descripción de la Publicación
+    if reporte.descripcion_post:
+        S.append(Paragraph("<b>CONTENIDO DE LA PUBLICACIÓN (SNIPPET CAPTURADO)</b>", bold_s))
+        S.append(Spacer(1, 4))
+        desc_clean = reporte.descripcion_post.replace("<", "&lt;").replace(">", "&gt;")[:600]
+        t_desc = Table([[Paragraph(f"<i>\"{desc_clean}\"</i>", small)]], colWidths=[18 * cm])
+        t_desc.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F9F9F9")),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#DDDDDD")),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        S.append(t_desc)
+        S.append(Spacer(1, 10))
+
+    # Fotografías de Evidencia Capturadas (Grid)
+    imgs = _collect_evidence_images(reporte, limit=2)
+    if imgs:
+        S.append(Paragraph("<b>EVIDENCIA FOTOGRÁFICA / CAPTURA DE PANTALLA</b>", bold_s))
+        S.append(Spacer(1, 6))
+        img_cells = []
+        for im in imgs:
+            try:
+                rl = RLImage(im, width=8.5 * cm, height=8.5 * cm, kind="proportional")
+                rl.hAlign = "CENTER"
+                img_cells.append(rl)
+            except Exception:
+                pass
+        if img_cells:
+            t_imgs = Table([img_cells], colWidths=[9 * cm] * len(img_cells))
+            t_imgs.setStyle(TableStyle([
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            S.append(t_imgs)
+            S.append(Spacer(1, 10))
+
+    # Aviso Legal de Fase 1
+    notice_text = (
+        "<b>AVISO DE CONTROL DE CALIDAD \u2014 FASE 1 (TRIAGE):</b> Este documento es una ficha preliminar de detección "
+        "forense automatizada. No constituye un dictamen pericial definitivo. Para habilitar el informe oficial "
+        "con relevamiento de titularidad bancaria, cruce de CUIT/DNI, trazabilidad de pagos y actas periciales, "
+        "el analista debe promover el caso a <b>Fase 2 (Investigando / Sospechoso)</b> desde el panel de Net Holmes."
+    )
+    t_notice = Table([[Paragraph(notice_text, small)]], colWidths=[18 * cm])
+    t_notice.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FEF9E7")),
+        ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#F39C12")),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    S.append(t_notice)
+
+    doc.build(S)
+    buffer.seek(0)
+    return buffer
