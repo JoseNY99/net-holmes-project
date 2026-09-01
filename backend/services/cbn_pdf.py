@@ -510,6 +510,41 @@ def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
              Paragraph(f"Seller: <b>{getattr(ml, 'seller_nickname', 'N/A')}</b> | Rep: {getattr(ml, 'seller_reputation_level', 'N/A')} | Sales: {getattr(ml, 'seller_transactions_completed', 'N/A')}", normal)]
         ])
 
+    # Plataforma Genérica (Web / Clasificados / Portales)
+    is_generico = str(reporte.plataforma).lower() in ("generico", "web", "clasificados", "clasificado", "generic", "portal")
+    
+    if is_generico:
+        from urllib.parse import urlparse
+        parsed_domain = urlparse(reporte.url_evidencia).netloc or "Sitio Web / Clasificado"
+        
+        extracted_emails = []
+        extracted_phones = []
+        if getattr(reporte, "platform_data", None):
+            try:
+                pdata = json.loads(str(reporte.platform_data))
+                extracted_emails = pdata.get("extracted_emails", [])
+                extracted_phones = pdata.get("extracted_phones", [])
+            except Exception:
+                pass
+
+        emails_str = ", ".join(extracted_emails) if extracted_emails else (pf("email") if pf("email") != "\u2014" else "No detectado")
+        phones_str = ", ".join(extracted_phones) if extracted_phones else (reporte.telefono_publico or pf("telefono_privado") or "No detectado")
+
+        gen_details = [
+            Paragraph(f"<b>PORTAL / DOMINIO:</b> {parsed_domain.upper()}", normal),
+            Paragraph(f"<b>PUBLICACIÓN:</b> {reporte.titulo_publicacion or 'Publicación en Clasificados / Web'}", normal),
+            Paragraph(f"<b>URL DIRECTA:</b> <a href='{reporte.url_evidencia}' color='#00639B'>{reporte.url_evidencia}</a>", normal),
+            Paragraph(f"<b>VENDEDOR / PUBLICANTE:</b> {reporte.titular_cuenta or 'No especificado'}", normal),
+            Paragraph(f"<b>UBICACIÓN:</b> {reporte.ubicacion_infractor or 'Argentina'}", normal),
+            Paragraph(f"<b>TELÉFONOS EXTRAÍDOS:</b> {phones_str}", normal),
+            Paragraph(f"<b>CORREOS EXTRAÍDOS:</b> {emails_str}", normal),
+        ]
+
+        social_rows.append([
+            Paragraph("<b>WEB / CLASIFICADOS</b>", hw),
+            gen_details
+        ])
+
     if not social_rows:
         plat = str(reporte.plataforma).upper()
         social_rows.append([

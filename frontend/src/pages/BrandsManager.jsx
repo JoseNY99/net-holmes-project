@@ -236,7 +236,7 @@ export default function BrandsManager() {
       render: (row) => (
         <div className="brands__actions">
           <button
-            className="brands__action-btn"
+            className="brands__action-btn brands__action-btn--add"
             onClick={(e) => {
               e.stopPropagation();
               setExpandedBrand(row.id);
@@ -244,7 +244,6 @@ export default function BrandsManager() {
             }}
             title="Agregar Keyword/Producto"
             disabled={cronRunning}
-            style={{ color: 'var(--success)', borderColor: 'var(--success)' }}
           >
             <FaPlus />
           </button>

@@ -61,33 +61,60 @@
 .brands__actions {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 .brands__action-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
-  border: none;
   border-radius: 6px;
   cursor: pointer;
   transition: var(--transition);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  font-size: 0.88rem;
 }
 
 .brands__action-btn:hover {
   transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-.brands__action-btn--edit { color: var(--accent-secondary); }
-.brands__action-btn--edit:hover { background: rgba(44, 74, 124, 0.1); }
+.brands__action-btn--add {
+  color: #2ECC71 !important;
+  border-color: rgba(46, 204, 113, 0.4);
+}
+.brands__action-btn--add:hover {
+  background: rgba(46, 204, 113, 0.15);
+}
 
-.brands__action-btn--toggle { color: var(--warning); }
-.brands__action-btn--toggle:hover { background: rgba(212, 147, 13, 0.1); }
+.brands__action-btn--edit {
+  color: #10C5C9 !important;
+  border-color: rgba(16, 197, 201, 0.4);
+}
+.brands__action-btn--edit:hover {
+  background: rgba(16, 197, 201, 0.2);
+  color: #FFFFFF !important;
+}
 
-.brands__action-btn--delete { color: var(--danger); }
-.brands__action-btn--delete:hover { background: rgba(192, 57, 43, 0.1); }
+.brands__action-btn--toggle {
+  color: #F39C12 !important;
+  border-color: rgba(243, 156, 18, 0.4);
+}
+.brands__action-btn--toggle:hover {
+  background: rgba(243, 156, 18, 0.15);
+}
+
+.brands__action-btn--delete {
+  color: #FF6B6B !important;
+  border-color: rgba(231, 76, 60, 0.4);
+}
+.brands__action-btn--delete:hover {
+  background: rgba(231, 76, 60, 0.15);
+}
 
 /* === Productos Expandible === */
 .brands__products {
