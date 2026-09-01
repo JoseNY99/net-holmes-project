@@ -33,13 +33,16 @@ def update_config(data: CronConfigUpdate, db: Session = Depends(get_db), admin=D
     update_job_schedule(db)
     return updated
 
+from typing import Optional
 from pydantic import BaseModel
 class ToggleRequest(BaseModel):
-    is_active: bool
+    is_active: Optional[bool] = None
 
 @router.post('/toggle', response_model=CronConfigResponse)
-def toggle_cron_state(req: ToggleRequest, db: Session = Depends(get_db), admin=Depends(require_admin)):
-    updated = cron_service.toggle_active(db, req.is_active)
+def toggle_cron_state(req: Optional[ToggleRequest] = None, db: Session = Depends(get_db), admin=Depends(require_admin)):
+    config = cron_service.get_cron_config(db)
+    new_state = not config.is_active if (req is None or req.is_active is None) else req.is_active
+    updated = cron_service.toggle_active(db, new_state)
     update_job_schedule(db)
     return updated
 

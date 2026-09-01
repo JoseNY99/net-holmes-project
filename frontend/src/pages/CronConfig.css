@@ -223,19 +223,31 @@
   align-items: center;
   gap: 8px;
   padding: 12px 24px;
-  background: transparent;
-  color: var(--text-secondary);
-  border: 2px solid var(--border-color);
+  background: rgba(239, 68, 68, 0.08);
+  color: #EF4444;
+  border: 2px solid rgba(239, 68, 68, 0.4);
   border-radius: var(--radius-sm);
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   transition: var(--transition);
 }
 
+.btn-power:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: #EF4444;
+}
+
 .btn-power.active {
-  border-color: var(--success);
-  color: var(--success);
-  background: rgba(45, 138, 86, 0.1);
+  border-color: #00E676;
+  color: #00E676;
+  background: rgba(0, 230, 118, 0.12);
+  box-shadow: 0 0 12px rgba(0, 230, 118, 0.2);
+}
+
+.btn-power.active:hover {
+  background: rgba(0, 230, 118, 0.22);
+  border-color: #00E676;
+  box-shadow: 0 0 16px rgba(0, 230, 118, 0.35);
 }
 
 /* Status Panel */

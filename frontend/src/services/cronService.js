@@ -9,7 +9,7 @@ export const updateCronConfig = (data) => {
 };
 
 export const toggleCron = (isActive) => {
-  return api.post('/api/cron/toggle', { is_active: isActive });
+  return api.post('/api/cron/toggle', typeof isActive === 'boolean' ? { is_active: isActive } : {});
 };
 
 export const triggerManualRun = () => {

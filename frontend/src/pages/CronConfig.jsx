@@ -230,6 +230,8 @@ export default function CronConfig() {
       };
       await updateCronConfig(payload);
       setMessage({ type: 'success', text: 'Configuración guardada exitosamente.' });
+      setTimeout(() => setMessage(null), 4000);
+      await fetchConfig();
     } catch (error) {
       setMessage({ type: 'error', text: 'Error al guardar la configuración.' });
     } finally {
@@ -255,6 +257,7 @@ export default function CronConfig() {
       await stopCron();
       setCronRunning(false);
       setMessage({ type: 'success', text: 'Señal de detención enviada exitosamente.' });
+      setTimeout(() => setMessage(null), 4000);
     } catch (error) {
       setMessage({ type: 'error', text: 'Error al solicitar detención.' });
     }
@@ -262,13 +265,19 @@ export default function CronConfig() {
 
   const handleToggleActive = async () => {
     try {
-      const res = await toggleCron();
-      setIsActive(res.data.is_active);
+      const nextState = !isActive;
+      setIsActive(nextState);
+      const res = await toggleCron(nextState);
+      const serverState = res.data.is_active;
+      setIsActive(serverState);
       setMessage({
         type: 'success',
-        text: `Motor de escaneo ${res.data.is_active ? 'encendido' : 'apagado'} correctamente.`
+        text: `Motor de escaneo ${serverState ? 'ENCENDIDO' : 'APAGADO'} correctamente.`
       });
+      setTimeout(() => setMessage(null), 4000);
+      await fetchConfig();
     } catch (error) {
+      setIsActive(prev => !prev);
       setMessage({ type: 'error', text: 'Error al cambiar el estado del motor.' });
     }
   };
@@ -461,8 +470,23 @@ export default function CronConfig() {
             })}
           </div>
           <div className="config-actions">
-            <button className={`btn-power ${isActive ? 'active' : ''}`} onClick={() => setModalState({ isOpen: true, type: 'toggle' })} disabled={isEditingDisabled}><FaPowerOff /> {isActive ? 'Motor Encendido' : 'Motor Apagado'}</button>
-            <button className="btn-primary" onClick={() => setModalState({ isOpen: true, type: 'save' })} disabled={saving || isEditingDisabled}><FaSave /> Guardar Configuración</button>
+            <button 
+              type="button"
+              className={`btn-power ${isActive ? 'active' : ''}`} 
+              onClick={handleToggleActive} 
+              disabled={isEditingDisabled}
+              title={isActive ? "Haz clic para APAGAR el motor automático" : "Haz clic para ENCENDER el motor automático"}
+            >
+              <FaPowerOff /> {isActive ? 'Motor Encendido' : 'Motor Apagado'}
+            </button>
+            <button 
+              type="button"
+              className="btn-primary" 
+              onClick={handleSave} 
+              disabled={saving || isEditingDisabled}
+            >
+              <FaSave /> {saving ? 'Guardando...' : 'Guardar Configuración'}
+            </button>
           </div>
         </div>
 

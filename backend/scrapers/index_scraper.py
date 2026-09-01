@@ -491,4 +491,8 @@ async def _fallback_mercadolibre_api(keyword: str, limit: int = 10) -> AsyncGene
                 await asyncio.sleep(0.05)
 
     except Exception as e:
-        cron_logger.log(f"[Fallback ML API] ⚠️ Error: {e}")
+        err_str = str(e)
+        if "403" in err_str or "Forbidden" in err_str:
+            cron_logger.log(f"[Fallback ML API] ℹ️ Aviso: La API pública de Mercado Libre no está disponible temporalmente (403 Forbidden).")
+        else:
+            cron_logger.log(f"[Fallback ML API] ℹ️ Nota: {e}")
