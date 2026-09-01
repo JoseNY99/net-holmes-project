@@ -44,12 +44,16 @@ def toggle_cron_state(req: ToggleRequest, db: Session = Depends(get_db), admin=D
     return updated
 
 @router.post('/start')
-def start_cron_force(background_tasks: BackgroundTasks, db: Session = Depends(get_db), admin=Depends(require_admin)):
-    config = cron_service.get_cron_config(db)
-    if config.is_running:
-        return {"msg": "Ya hay un escaneo en ejecución"}
-    background_tasks.add_task(trigger_manual_scan)
-    return {"msg": "Escaneo forzado iniciado en background"}
+async def start_cron_force(background_tasks: BackgroundTasks, db: Session = Depends(get_db), admin=Depends(require_admin)):
+    from services.cron_logger import cron_logger
+    from services.cron_manager import run_automatic_scan
+    from services import cron_service
+
+    cron_service.set_running(db, True)
+    cron_logger.reset()
+    cron_logger.log("🚀 [Manual] Escaneo forzado inmediato solicitado por el analista.")
+    background_tasks.add_task(run_automatic_scan)
+    return {"msg": "Escaneo forzado iniciado exitosamente en background"}
 
 @router.post('/stop')
 def stop_cron_force(db: Session = Depends(get_db), admin=Depends(require_admin)):

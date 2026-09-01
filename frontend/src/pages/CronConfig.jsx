@@ -96,18 +96,8 @@ export default function CronConfig() {
         wasRunning.current = isCurrentlyRunning;
 
         if (statusRes.logs && statusRes.logs.length > 0) {
-          if (initialLogsCount.current === null) {
-            initialLogsCount.current = statusRes.logs.length;
-          }
-          let displayLogs = statusRes.logs;
-          if (displayLogs.length >= initialLogsCount.current) {
-            displayLogs = displayLogs.slice(initialLogsCount.current);
-          } else {
-            initialLogsCount.current = 0;
-          }
-          setLogs(displayLogs.length ? displayLogs : ["[Sistema] Consola de monitoreo inicializada. Esperando eventos..."]);
+          setLogs(statusRes.logs);
         } else {
-          initialLogsCount.current = 0;
           setLogs(["[Sistema] Consola de monitoreo inicializada. Esperando eventos..."]);
         }
       } catch (e) {
@@ -249,12 +239,14 @@ export default function CronConfig() {
 
   const handleManualRun = async () => {
     try {
+      setLogs(prev => ["[Sistema] 🚀 Disparando escaneo forzado inmediato...", ...prev]);
       await triggerManualRun();
       setCronRunning(true);
-      setModalState({ isOpen: true, type: 'info', title: 'Escaneo Iniciado', body: 'El escaneo manual ha sido disparado en segundo plano.' });
+      setMessage({ type: 'success', text: 'Escaneo forzado iniciado exitosamente en segundo plano.' });
+      setTimeout(() => setMessage(null), 4000);
     } catch (error) {
-      const errorDetail = error.response?.data?.detail || 'Error al disparar el escaneo.';
-      setModalState({ isOpen: true, type: 'error', title: 'Error de Ejecución', body: errorDetail });
+      const errorDetail = error.response?.data?.detail || error.response?.data?.msg || 'Error al disparar el escaneo.';
+      setMessage({ type: 'error', text: errorDetail });
     }
   };
 

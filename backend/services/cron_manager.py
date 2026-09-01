@@ -20,8 +20,8 @@ from models.mercadolibre_data import ReporteMercadoLibreData
 from services.correlation_engine import CorrelationEngine
 from scrapers.filtro_comercial import es_cuenta_oficial
 
-# Instancia del scheduler (reemplaza a cron_engine.py)
-scheduler = AsyncIOScheduler()
+# Instancia del scheduler con zona horaria de Argentina
+scheduler = AsyncIOScheduler(timezone="America/Argentina/Buenos_Aires")
 
 # Bandera global para detención de emergencia inmediata
 _stop_requested = False
@@ -552,19 +552,16 @@ def update_job_schedule(db: Session = None):
     """Actualiza la programación del trabajo en el scheduler usando la config de DB o config.py."""
     scheduler.remove_all_jobs()
     
-    # Try to load from DB if provided, else use settings
-    is_enabled = settings.CRON_ENABLED
-    minute = settings.CRON_MINUTE
-    hour = settings.CRON_HOUR
-    
     if db:
         from services import cron_service
         config = cron_service.get_cron_config(db)
-        is_enabled = config.is_active
-        hour = config.hora
-        minute = config.minuto
-        # Si la config de BD tiene los campos, úsalos; si no, asume valores fijos o los de config.py
-        # asumiendo que cron_service devuelve la config real.
+        is_enabled = bool(config.is_active)
+        hour = config.hora if config.hora is not None else 2
+        minute = config.minuto if config.minuto is not None else 0
+    else:
+        is_enabled = settings.CRON_ENABLED
+        minute = settings.CRON_MINUTE
+        hour = settings.CRON_HOUR
     
     if is_enabled:
         scheduler.add_job(
@@ -575,14 +572,11 @@ def update_job_schedule(db: Session = None):
             id='main_scan_job',
             replace_existing=True
         )
-        cron_logger.log(f"Cron ACTIVO: Programado para la hora {hour}:{minute}")
+        cron_logger.log(f"⏰ [Cron Programado] ACTIVO: Programado para ejecutarse a las {hour:02d}:{minute:02d} (Hora Argentina)")
     else:
-        cron_logger.log("Cron deshabilitado.")
+        cron_logger.log("⏸️ [Cron Programado] Motor programado desactivado.")
 
 async def trigger_manual_scan():
     """Lanza el escaneo desde el panel (sin esperar al cron)."""
-    if cron_logger.get_status().get("status") == "running":
-        cron_logger.log("⚠️ Intento de inicio manual ignorado: Ya hay un escaneo en curso.")
-        return
-    cron_logger.log("🚀 Inicio manual solicitado por el usuario.")
-    asyncio.create_task(run_automatic_scan())
+    cron_logger.log("🚀 [Manual] Inicio de escaneo forzado solicitado.")
+    await run_automatic_scan()
