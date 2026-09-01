@@ -479,8 +479,8 @@ export default function CronConfig() {
           <div className="status-indicator"><div className={`status-dot ${cronRunning ? 'pulsing' : (isActive ? 'active' : 'inactive')}`}></div><span>{cronRunning ? 'ESCANEO EN PROGRESO...' : (isActive ? 'EN ESPERA (PROGRAMADO)' : 'APAGADO')}</span></div>
           <div className="danger-zone">
             <h4>Acciones Manuales</h4>
-            <button className="btn-secondary w-100" onClick={handleForceRun} disabled={cronRunning}><FaPlay /> Forzar Ejecución Inmediata</button>
-            <button className={cronRunning ? "btn-danger w-100" : "btn-ghost w-100"} onClick={handleStop} disabled={!cronRunning}><FaStopCircle /> Detener por Emergencia</button>
+            <button className="btn-secondary w-100" onClick={handleManualRun} disabled={cronRunning}><FaPlay /> Forzar Ejecución Inmediata</button>
+            <button className={cronRunning ? "btn-danger w-100" : "btn-ghost w-100"} onClick={handleStopCron} disabled={!cronRunning}><FaStopCircle /> Detener por Emergencia</button>
           </div>
           {/* Cyber-Forensic Terminal Window */}
           <div className="terminal-wrapper mt-2">

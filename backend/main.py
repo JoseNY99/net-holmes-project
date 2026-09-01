@@ -148,14 +148,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # 5. HSTS (Strict-Transport-Security) (CVSS 3.7 / T1562.001)
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         
-        # 6. Content Security Policy permisiva con evidencias multimedia (CVSS 6.1 / T1059)
+        # 6. Content Security Policy permisiva con evidencias multimedia y Google Fonts (CVSS 6.1 / T1059)
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "img-src 'self' data: https: blob: http:; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-            "style-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "connect-src 'self' https: http: ws: wss:; "
-            "font-src 'self' data: https:; "
+            "font-src 'self' data: https: https://fonts.gstatic.com; "
             "frame-ancestors 'self';"
         )
         return response

@@ -89,6 +89,7 @@ export default function WhatsAppSettings() {
                 value={formData.whatsapp_access_token}
                 onChange={handleChange}
                 placeholder="EAAA..."
+                autoComplete="current-password"
                 style={{ width: '100%', paddingRight: '40px' }}
               />
               <button 
