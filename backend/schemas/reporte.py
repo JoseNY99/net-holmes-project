@@ -16,6 +16,7 @@ class ReporteBase(BaseModel):
     url_evidencia: Optional[str] = None
     descripcion_post: Optional[str] = None
     precio_publico: Optional[Decimal] = None
+    moneda: Optional[str] = "ARS"
     direccion_publica: Optional[str] = None
     telefono_publico: Optional[str] = None
     seguidores_infractor: Optional[int] = None
@@ -25,6 +26,15 @@ class ReporteCreate(ReporteBase):
     platform_data: Optional[PlatformDataPayload] = None
 
 class ReporteUpdate(BaseModel):
+    estado: Optional[str] = None
+
+class ReporteQuickEdit(BaseModel):
+    precio_publico: Optional[float] = None
+    moneda: Optional[str] = None
+    telefono_publico: Optional[str] = None
+    direccion_publica: Optional[str] = None
+    descripcion_post: Optional[str] = None
+    titular_cuenta: Optional[str] = None
     estado: Optional[str] = None
 
 class ReporteResponse(ReporteBase):

@@ -4,6 +4,8 @@
 *.env
 !.env.example
 !.env_example
+ignorar/
+
 
 # Python & Venv
 __pycache__/

@@ -47,11 +47,8 @@ export default function Login() {
     <div className="login-page">
       <div className="login-card glass-card">
         <div className="login-card__header">
-          <div className="login-card__icon-wrapper">
-            <img src="/netholmes-icon.png" alt="Net Holmes" className="login-card__logo-img" />
-          </div>
-          <h1 className="login-card__title">Iniciar Sesión</h1>
-          <p className="login-card__subtitle">Accede a tu cuenta de Net Holmes</p>
+          <h1 className="login-card__title">Acceso al Sistema</h1>
+          <p className="login-card__subtitle">Ingresa tus credenciales para continuar</p>
         </div>
 
         {error && <div className="error-message">{error}</div>}

@@ -69,6 +69,29 @@ def update_reporte_status(db: Session, reporte_id: int, estado: str):
         db.refresh(reporte)
     return reporte
 
+def quick_update_reporte(db: Session, reporte_id: int, data: dict):
+    reporte = get_reporte_detail(db, reporte_id)
+    if "precio_publico" in data and data["precio_publico"] is not None:
+        reporte.precio_publico = data["precio_publico"]
+    if "moneda" in data and data["moneda"] is not None:
+        reporte.moneda = data["moneda"]
+    if "telefono_publico" in data and data["telefono_publico"] is not None:
+        reporte.telefono_publico = data["telefono_publico"]
+    if "direccion_publica" in data and data["direccion_publica"] is not None:
+        reporte.direccion_publica = data["direccion_publica"]
+    if "descripcion_post" in data and data["descripcion_post"] is not None:
+        reporte.descripcion_post = data["descripcion_post"]
+    if "titular_cuenta" in data and data["titular_cuenta"] is not None:
+        reporte.titular_cuenta = data["titular_cuenta"]
+    if "estado" in data and data["estado"] is not None:
+        reporte.estado = data["estado"]
+        if reporte.estado in ["Sospechoso", "Investigando"]:
+            get_or_create_perfil(db, reporte_id)
+            
+    db.commit()
+    db.refresh(reporte)
+    return reporte
+
 def ingest_reportes(db: Session, reportes_data: List[ReporteCreate]):
     nuevos_reportes = []
     for data in reportes_data:

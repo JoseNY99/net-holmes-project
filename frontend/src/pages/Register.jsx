@@ -83,11 +83,8 @@ export default function Register() {
     <div className="register-page">
       <div className="register-card glass-card">
         <div className="register-card__header">
-          <div className="register-card__icon-wrapper">
-            <img src="/netholmes-icon.png" alt="Net Holmes" className="register-card__logo-img" />
-          </div>
           <h1 className="register-card__title">Crear Cuenta</h1>
-          <p className="register-card__subtitle">Únete a Net Holmes</p>
+          <p className="register-card__subtitle">Completa los datos para solicitar acceso</p>
         </div>
 
         {error && <div className="error-message" style={{ marginBottom: 20 }}>{error}</div>}

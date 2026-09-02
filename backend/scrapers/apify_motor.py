@@ -18,8 +18,10 @@ class ApifyMotorFase2:
         self.ml_scraper = MercadoLibreScraper()
 
     async def execute(self, keyword: str, plataformas: List[str], provincias: List[str], limite: int) -> AsyncGenerator[Dict[str, Any], None]:
-        if not settings.APIFY_API_TOKEN:
-            cron_logger.log("❌ [Apify Premium] Error: APIFY_API_TOKEN no configurado.")
+        from services.api_key_service import get_active_api_key
+        apify_token = get_active_api_key("apify") or settings.APIFY_API_TOKEN
+        if not apify_token:
+            cron_logger.log("❌ [Apify Premium] Error: APIFY_API_TOKEN no configurado en DB ni en .env.")
             return
 
         cron_logger.log(f"🚀 [Apify Premium] Iniciando escaneo para '{keyword}' en {len(provincias)} provincias. Límite: {limite}")

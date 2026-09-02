@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from database import get_db
 from models.user import User
-from schemas.reporte import ReporteResponse, ReporteCreate, ReporteUpdate, ReporteDetail, PaginatedReportes
+from schemas.reporte import ReporteResponse, ReporteCreate, ReporteUpdate, ReporteDetail, PaginatedReportes, ReporteQuickEdit
 from schemas.perfil_investigacion import PerfilUpdate, PerfilResponse
 from schemas.audit_log import AuditLogResponse
 
@@ -81,6 +81,13 @@ def update_reporte_status(reporte_id: int, data: ReporteUpdate, db: Session = De
             import logging
             logging.getLogger(__name__).warning(f"Error en correlación profunda al promover a Sospechoso: {e}")
     
+    return result
+
+@router.patch("/{reporte_id}/quick-edit", response_model=ReporteResponse)
+def quick_edit_reporte(reporte_id: int, data: ReporteQuickEdit, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    """Permite editar campos de Fase 1 (precio, moneda, teléfono, calle, notas) sin cambiar de fase."""
+    update_data = data.model_dump(exclude_unset=True)
+    result = reports_defense_service.quick_update_reporte(db, reporte_id, update_data)
     return result
 
 class ManualScanRequest(BaseModel):

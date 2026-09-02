@@ -15,8 +15,14 @@ from config import settings
 
 class InstagramApifyScraper:
     def __init__(self):
-        self.client = ApifyClientAsync(token=settings.APIFY_API_TOKEN)
         self.actor_id = settings.APIFY_ACTOR_IG  # "apify/instagram-scraper"
+
+    def _get_client(self):
+        from services.api_key_service import get_active_api_key
+        token = get_active_api_key("apify") or settings.APIFY_API_TOKEN
+        if not token:
+            return None
+        return ApifyClientAsync(token=token)
         
     async def scrape(self, keyword: str, city_name: str = None):
         """Ejecuta el actor de Apify para Instagram y normaliza los resultados."""
@@ -28,8 +34,9 @@ class InstagramApifyScraper:
         
         cron_logger.log(f"[IG Apify] Iniciando búsqueda para '#{hashtag}' (Límite: {settings.APIFY_MAX_ITEMS} items)")
         
-        if not settings.APIFY_API_TOKEN:
-            cron_logger.log("[IG Apify] ❌ ERROR: Falta APIFY_API_TOKEN.")
+        client = self._get_client()
+        if not client:
+            cron_logger.log("[IG Apify] ❌ ERROR: Falta APIFY_API_TOKEN en DB o .env.")
             return
 
         fetch_limit = max(settings.APIFY_MAX_ITEMS * 2, 5)
@@ -51,11 +58,11 @@ class InstagramApifyScraper:
         
         try:
             run = await asyncio.wait_for(
-                self.client.actor(self.actor_id).call(run_input=run_input),
+                client.actor(self.actor_id).call(run_input=run_input),
                 timeout=timeout_val
             )
             
-            async for item in self.client.dataset(run.default_dataset_id).iterate_items():
+            async for item in client.dataset(run.default_dataset_id).iterate_items():
                 try:
                     # Extraer datos del post
                     caption = item.get("caption", "") or ""

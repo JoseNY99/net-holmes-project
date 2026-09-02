@@ -108,15 +108,15 @@ export default function Navbar() {
                 >
                   Dashboard
                 </NavLink>
-                  <NavLink
-                    to="/scan-results"
-                    className={({ isActive }) =>
-                      `navbar__link ${isActive ? 'navbar__link--active' : ''}`
-                    }
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    Escaneos
-                  </NavLink>
+                <NavLink
+                  to="/investigation"
+                  className={({ isActive }) =>
+                    `navbar__link ${isActive ? 'navbar__link--active' : ''}`
+                  }
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Investigaciones
+                </NavLink>
                   <NavLink
                     to="/manual-scan"
                     className={({ isActive }) =>
@@ -125,24 +125,6 @@ export default function Navbar() {
                     onClick={() => setMenuOpen(false)}
                   >
                     Scraping Manual
-                  </NavLink>
-                  <NavLink
-                    to="/investigation"
-                    className={({ isActive }) =>
-                      `navbar__link ${isActive ? 'navbar__link--active' : ''}`
-                    }
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    Investigación
-                  </NavLink>
-                  <NavLink
-                    to="/reports"
-                    className={({ isActive }) =>
-                      `navbar__link ${isActive ? 'navbar__link--active' : ''}`
-                    }
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    Reportes
                   </NavLink>
                   <NavLink
                     to="/chat"
@@ -181,6 +163,15 @@ export default function Navbar() {
                       onClick={() => setMenuOpen(false)}
                     >
                       Cron
+                    </NavLink>
+                    <NavLink
+                      to="/admin/scrapers"
+                      className={({ isActive }) =>
+                        `navbar__link ${isActive ? 'navbar__link--active' : ''}`
+                      }
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      Scrapers & APIs
                     </NavLink>
                     <NavLink
                       to="/admin/whatsapp-settings"
@@ -248,12 +239,12 @@ export default function Navbar() {
                 Dashboard
               </NavLink>
               <NavLink
-                to="/scan-results"
+                to="/investigation"
                 className={({ isActive }) =>
                   `navbar__link ${isActive ? 'navbar__link--active' : ''}`
                 }
               >
-                Escaneos
+                Investigaciones
               </NavLink>
               <NavLink
                 to="/manual-scan"
@@ -262,22 +253,6 @@ export default function Navbar() {
                 }
               >
                 Scraping Manual
-              </NavLink>
-              <NavLink
-                to="/investigation"
-                className={({ isActive }) =>
-                  `navbar__link ${isActive ? 'navbar__link--active' : ''}`
-                }
-              >
-                Investigación
-              </NavLink>
-              <NavLink
-                to="/reports"
-                className={({ isActive }) =>
-                  `navbar__link ${isActive ? 'navbar__link--active' : ''}`
-                }
-              >
-                Reportes
               </NavLink>
               <NavLink
                 to="/chat"
@@ -312,6 +287,14 @@ export default function Navbar() {
                     }
                   >
                     Cron
+                  </NavLink>
+                  <NavLink
+                    to="/admin/scrapers"
+                    className={({ isActive }) =>
+                      `navbar__link ${isActive ? 'navbar__link--active' : ''}`
+                    }
+                  >
+                    Scrapers & APIs
                   </NavLink>
                   <NavLink
                     to="/admin/whatsapp-settings"

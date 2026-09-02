@@ -15,11 +15,13 @@ from .chat import Conversation, Message
 from .correlation_cluster import CorrelationCluster
 from .correlation_link import CorrelationLink
 from .marca_cuenta_oficial import MarcaCuentaOficial
+from .api_key_setting import ApiKeySetting
 
 __all__ = [
     "User", "Brand", "Product", "CronConfig", "Comportamiento", 
     "brand_comportamientos", "RagMemory", "PerfilInvestigacion", 
     "AuditLog", "ReporteBrandDefense", "ReporteFacebookData", 
     "ReporteInstagramData", "ReporteTiktokData", "ReporteMercadoLibreData",
-    "CorrelationCluster", "CorrelationLink", "MarcaCuentaOficial"
+    "CorrelationCluster", "CorrelationLink", "MarcaCuentaOficial",
+    "ApiKeySetting"
 ]

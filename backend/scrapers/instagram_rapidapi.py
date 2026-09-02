@@ -19,8 +19,11 @@ class InstagramRapidAPIScraper:
         
         cron_logger.log(f"[IG RapidAPI] Iniciando búsqueda para hashtag '{keyword}' en {target_city} (Límite: {settings.APIFY_MAX_ITEMS} items)")
         
-        if not self.api_key:
-            cron_logger.log("[IG RapidAPI] ❌ ERROR: Falta RAPIDAPI_KEY en el entorno.")
+        from services.api_key_service import get_active_api_key
+        api_key = get_active_api_key("rapidapi") or self.api_key
+
+        if not api_key:
+            cron_logger.log("[IG RapidAPI] ❌ ERROR: Falta RAPIDAPI_KEY en DB o entorno.")
             return
 
         # Removing # if present in keyword
@@ -30,7 +33,7 @@ class InstagramRapidAPIScraper:
         url = f"https://{self.host}/v1/hashtag?hashtag={encoded_query}"
         
         headers = {
-            "x-rapidapi-key": self.api_key,
+            "x-rapidapi-key": api_key,
             "x-rapidapi-host": self.host
         }
 

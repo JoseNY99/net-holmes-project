@@ -30,6 +30,7 @@ class ReporteBrandDefense(Base):
     descripcion_post = Column(Text, nullable=True)
     
     precio_publico = Column(Float, nullable=True)
+    moneda = Column(String(10), nullable=True, default="ARS") # ARS, USD, EUR, etc.
     direccion_publica = Column(String(255), nullable=True)
     telefono_publico = Column(String(100), nullable=True)
     seguidores_infractor = Column(Integer, nullable=True)

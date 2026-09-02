@@ -28,10 +28,12 @@ class SerperGoogleScraper:
         cron_logger.log(f"🌐 [Google/Serper OSINT] Buscando para {platform} ({keyword}): {dork}")
         collected = 0
 
-        if settings.SERPER_API_KEY:
+        from services.api_key_service import get_active_api_key
+        serper_key = get_active_api_key("serper")
+        if serper_key:
             cron_logger.log("🔑 [Serper.dev] Ejecutando Google Dorking via Serper API...")
             try:
-                headers = {"X-API-KEY": settings.SERPER_API_KEY, "Content-Type": "application/json"}
+                headers = {"X-API-KEY": serper_key, "Content-Type": "application/json"}
                 payload = {"q": dork, "gl": "ar", "hl": "es-419", "num": min(max(limit * 2, 10), 50)}
                 async with httpx.AsyncClient(timeout=20.0) as client:
                     resp = await client.post(self.SERPER_ENDPOINT, headers=headers, json=payload)

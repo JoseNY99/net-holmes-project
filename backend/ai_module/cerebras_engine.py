@@ -5,13 +5,17 @@ from config import settings
 
 class CerebrasEngine:
     def __init__(self):
-        self.api_key = settings.CEREBRAS_API_KEY
-        if self.api_key:
-            self.client = Cerebras(api_key=self.api_key)
-        else:
-            self.client = None
-            
         self._keywords_cache: dict[str, list[str]] = {}
+
+    def _get_client(self):
+        from services.api_key_service import get_active_api_key
+        key = get_active_api_key("cerebras") or settings.CEREBRAS_API_KEY
+        if key:
+            try:
+                return Cerebras(api_key=key)
+            except Exception:
+                return None
+        return None
 
     def analyze_scraped_data(self, raw_text: str, platform: str, db=None) -> dict:
         """

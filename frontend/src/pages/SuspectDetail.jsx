@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getSuspectDetail, updateSuspect, getPerfil, updatePerfil, getAuditLogs, exportPdf, exportWord, exportCbnPdf, exportFase1PreviewPdf, captureScreenshot } from '../services/suspectService';
+import { getSuspectDetail, updateSuspect, quickEditSuspect, getPerfil, updatePerfil, getAuditLogs, exportPdf, exportWord, exportCbnPdf, exportFase1PreviewPdf, captureScreenshot } from '../services/suspectService';
 import correlationService from '../services/correlationService';
 import chatService from '../services/chatService';
-import { FaArrowLeft, FaBoxOpen, FaSave, FaCheckCircle, FaExclamationTriangle, FaHistory, FaLock, FaUnlock, FaNetworkWired, FaFilePdf, FaFileWord, FaCommentDots, FaRobot, FaUserEdit, FaPaperPlane, FaWhatsapp, FaBrain, FaLink, FaCamera } from 'react-icons/fa';
+import { FaArrowLeft, FaBoxOpen, FaSave, FaCheckCircle, FaExclamationTriangle, FaHistory, FaLock, FaUnlock, FaNetworkWired, FaFilePdf, FaFileWord, FaCommentDots, FaRobot, FaUserEdit, FaPaperPlane, FaWhatsapp, FaBrain, FaLink, FaCamera, FaEdit, FaTimes } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 import './SuspectDetail.css';
 
@@ -15,6 +15,17 @@ export default function SuspectDetail() {
   const [reporte, setReporte] = useState(null);
   const [estado, setEstado] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // Edición Manual Fase 1 (Precio, Moneda, Teléfono, Dirección)
+  const [isEditingFase1, setIsEditingFase1] = useState(false);
+  const [fase1Form, setFase1Form] = useState({
+    precio_publico: '',
+    moneda: 'ARS',
+    telefono_publico: '',
+    direccion_publica: '',
+    titular_cuenta: ''
+  });
+  const [savingFase1, setSavingFase1] = useState(false);
   
   // Fase 2 State (ABM)
   const [perfil, setPerfil] = useState({
@@ -113,6 +124,40 @@ export default function SuspectDetail() {
       setConversation(chatRes.data);
     } catch (error) {
       console.error("Error fetching perfil/audit/chat", error);
+    }
+  };
+
+  const openEditFase1 = () => {
+    if (!reporte) return;
+    setFase1Form({
+      precio_publico: reporte.precio_publico !== null && reporte.precio_publico !== undefined ? reporte.precio_publico : '',
+      moneda: reporte.moneda || 'ARS',
+      telefono_publico: reporte.telefono_publico || '',
+      direccion_publica: reporte.direccion_publica || '',
+      titular_cuenta: reporte.titular_cuenta || ''
+    });
+    setIsEditingFase1(true);
+  };
+
+  const handleSaveFase1 = async (e) => {
+    e.preventDefault();
+    setSavingFase1(true);
+    try {
+      const payload = {
+        precio_publico: fase1Form.precio_publico !== '' && !isNaN(parseFloat(fase1Form.precio_publico)) ? parseFloat(fase1Form.precio_publico) : null,
+        moneda: fase1Form.moneda || 'ARS',
+        telefono_publico: fase1Form.telefono_publico.trim() || null,
+        direccion_publica: fase1Form.direccion_publica.trim() || null,
+        titular_cuenta: fase1Form.titular_cuenta.trim() || undefined
+      };
+      const res = await quickEditSuspect(id, payload);
+      setReporte(prev => ({ ...prev, ...res.data }));
+      setIsEditingFase1(false);
+      setMessage({ type: 'success', text: 'Datos de Fase 1 (Precio, Moneda, Teléfono, Calle) actualizados correctamente.' });
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Error al actualizar los datos de Fase 1.' });
+    } finally {
+      setSavingFase1(false);
     }
   };
 
@@ -361,19 +406,124 @@ export default function SuspectDetail() {
       <div className="detail-grid split-view">
         {/* COLUMNA IZQUIERDA: FASE 1 DE LA INVESTIGACION */}
         <div className="glass-card detail-panel">
-          <h3 style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px', marginBottom: '15px' }}>
-            Fase 1 de la investigación
-          </h3>
-          <ul className="info-list read-only-list">
-            <li><strong>País Origen:</strong> {reporte.pais}</li>
-            <li><strong>Catálogo Afectado:</strong> {reporte.producto_catalogo}</li>
-            <li><strong>Titular de Cuenta:</strong> {reporte.titular_cuenta}</li>
-            <li><strong>Seguidores (Aprox):</strong> {reporte.seguidores_infractor !== null && reporte.seguidores_infractor !== undefined ? reporte.seguidores_infractor.toLocaleString() : 'No detectado'}</li>
-            <li><strong>Precio Público:</strong> {reporte.precio_publico ? `$${reporte.precio_publico}` : 'No detectado'}</li>
-            <li><strong>Teléfono Público:</strong> {reporte.telefono_publico || 'No detectado'}</li>
-            <li><strong>Dirección Pública:</strong> {reporte.direccion_publica || 'No detectada'}</li>
-            <li><strong>Fecha Captura:</strong> {new Date(reporte.fecha_captura).toLocaleString('es-AR')}</li>
-          </ul>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px', marginBottom: '15px' }}>
+            <h3 style={{ margin: 0 }}>Fase 1 de la investigación</h3>
+            {!isEditingFase1 && (
+              <button 
+                type="button" 
+                className="btn-secondary btn-sm"
+                onClick={openEditFase1}
+                style={{ fontSize: '0.8rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                title="Editar precio, moneda, teléfono o calle sin necesidad de cambiar de fase"
+              >
+                <FaEdit /> Editar Datos
+              </button>
+            )}
+          </div>
+
+          {isEditingFase1 ? (
+            <form onSubmit={handleSaveFase1} className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '15px' }}>
+              <div>
+                <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Titular / Vendedor</label>
+                <input 
+                  type="text" 
+                  className="input-field"
+                  value={fase1Form.titular_cuenta}
+                  onChange={(e) => setFase1Form(prev => ({ ...prev, titular_cuenta: e.target.value }))}
+                  placeholder="Nombre de la cuenta o vendedor"
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Precio Detectado</label>
+                  <input 
+                    type="number" 
+                    step="any"
+                    className="input-field"
+                    value={fase1Form.precio_publico}
+                    onChange={(e) => setFase1Form(prev => ({ ...prev, precio_publico: e.target.value }))}
+                    placeholder="Ej: 45000"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Moneda</label>
+                  <select 
+                    className="input-field"
+                    value={fase1Form.moneda}
+                    onChange={(e) => setFase1Form(prev => ({ ...prev, moneda: e.target.value }))}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="ARS">ARS ($)</option>
+                    <option value="USD">USD (US$)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="BRL">BRL (R$)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Teléfono Público / WhatsApp</label>
+                <input 
+                  type="text" 
+                  className="input-field"
+                  value={fase1Form.telefono_publico}
+                  onChange={(e) => setFase1Form(prev => ({ ...prev, telefono_publico: e.target.value }))}
+                  placeholder="Ej: +54 9 11 1234-5678"
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Dirección / Calle Pública</label>
+                <input 
+                  type="text" 
+                  className="input-field"
+                  value={fase1Form.direccion_publica}
+                  onChange={(e) => setFase1Form(prev => ({ ...prev, direccion_publica: e.target.value }))}
+                  placeholder="Ej: Av. Corrientes 1234, CABA"
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '6px' }}>
+                <button 
+                  type="button" 
+                  className="btn-ghost btn-sm" 
+                  onClick={() => setIsEditingFase1(false)}
+                  style={{ padding: '6px 12px' }}
+                >
+                  <FaTimes /> Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn-primary btn-sm" 
+                  disabled={savingFase1}
+                  style={{ padding: '6px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <FaSave /> {savingFase1 ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <ul className="info-list read-only-list">
+              <li><strong>País Origen:</strong> {reporte.pais}</li>
+              <li><strong>Catálogo Afectado:</strong> {reporte.producto_catalogo}</li>
+              <li><strong>Titular de Cuenta:</strong> {reporte.titular_cuenta}</li>
+              <li><strong>Seguidores (Aprox):</strong> {reporte.seguidores_infractor !== null && reporte.seguidores_infractor !== undefined ? reporte.seguidores_infractor.toLocaleString() : 'No detectado'}</li>
+              <li>
+                <strong>Precio Público:</strong>{' '}
+                {reporte.precio_publico !== null && reporte.precio_publico !== undefined
+                  ? `${reporte.moneda || 'ARS'} $${Number(reporte.precio_publico).toLocaleString()}`
+                  : 'No detectado'}
+              </li>
+              <li><strong>Teléfono Público:</strong> {reporte.telefono_publico || 'No detectado'}</li>
+              <li><strong>Dirección Pública:</strong> {reporte.direccion_publica || 'No detectada'}</li>
+              <li><strong>Fecha Captura:</strong> {new Date(reporte.fecha_captura).toLocaleString('es-AR')}</li>
+            </ul>
+          )}
 
           <div style={{ marginTop: '20px' }}>
             <strong>URL Evidencia:</strong><br/>

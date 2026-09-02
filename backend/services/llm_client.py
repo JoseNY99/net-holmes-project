@@ -71,9 +71,10 @@ def _get_client_and_model():
         config = LLM_CONFIGS["cerebras"]
         provider = "cerebras"
 
-    api_key = getattr(settings, config["api_key_attr"], None)
+    from services.api_key_service import get_active_api_key
+    api_key = get_active_api_key(provider) or getattr(settings, config["api_key_attr"], None)
     if not api_key:
-        cron_logger.log(f"[LLM] ⚠️ API Key no configurada para {provider}. Extracción LLM omitida.")
+        cron_logger.log(f"[LLM] ⚠️ API Key no configurada en DB ni .env para {provider}. Extracción LLM omitida.")
         return None, None
 
     client = AsyncOpenAI(

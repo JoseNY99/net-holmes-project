@@ -68,9 +68,16 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     CRON_HOUR: int = 2
-    CRON_MINUTE: int = 0
-    CORS_ORIGINS: list[str] = ["http://localhost:5173"]
-    CEREBRAS_API_KEY: str | None = None
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://netholmes.tech",
+        "http://netholmes.tech",
+        "https://www.netholmes.tech",
+        "http://www.netholmes.tech",
+        "http://179.199.135.139",
+        "https://179.199.135.139"
+    ]
     RAPIDAPI_KEY: str | None = None
     APIFY_API_TOKEN: str | None = None
     

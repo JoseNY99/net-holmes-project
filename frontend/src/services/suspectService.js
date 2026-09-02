@@ -12,6 +12,7 @@ export const getSuspects = (params = {}) => {
 
 export const getSuspectDetail = (id) => api.get(`/api/reports_defense/${id}`);
 export const updateSuspect = (id, data) => api.patch(`/api/reports_defense/${id}`, data);
+export const quickEditSuspect = (suspectId, data) => api.patch(`/api/reports_defense/${suspectId}/quick-edit`, data);
 export const getPerfil = (suspectId) => api.get(`/api/reports_defense/${suspectId}/perfil`);
 export const updatePerfil = (suspectId, data) => api.patch(`/api/reports_defense/${suspectId}/perfil`, data);
 export const getAuditLogs = (suspectId) => api.get(`/api/reports_defense/${suspectId}/audit`);

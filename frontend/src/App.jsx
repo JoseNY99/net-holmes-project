@@ -19,6 +19,7 @@ import AdminLogs from './pages/AdminLogs';
 import RedCorrelacionesPage from './pages/RedCorrelacionesPage';
 import ChatCenter from './pages/ChatCenter';
 import WhatsAppSettings from './pages/WhatsAppSettings';
+import ScraperSettings from './pages/ScraperSettings';
 
 import { Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
@@ -32,8 +33,8 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/home" replace />} />
-      <Route path="/home" element={<Home />} />
+      <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
+      <Route path="/home" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
       <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
       <Route path="/register" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Register />} />
       <Route
@@ -121,6 +122,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute adminOnly>
             <WhatsAppSettings />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/scrapers"
+        element={
+          <ProtectedRoute adminOnly>
+            <ScraperSettings />
           </ProtectedRoute>
         }
       />

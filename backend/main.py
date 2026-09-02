@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 
 from config import settings
 from database import Base, engine, SessionLocal
-from routers import auth, users, brands, cron, reports_defense, dashboard, admin_logs, correlations, chat, whatsapp_webhook, settings as admin_settings
+from routers import auth, users, brands, cron, reports_defense, dashboard, admin_logs, correlations, chat, whatsapp_webhook, settings as admin_settings, api_keys
 
 # Configurar Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -64,6 +64,13 @@ async def lifespan(app: FastAPI):
         # Migración de Fase 1 para acomodar scrapeo orgánico (Followers)
         try:
             conn.execute(text("ALTER TABLE reportes_brand_defense ADD COLUMN seguidores_infractor INTEGER;"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            pass
+
+        try:
+            conn.execute(text("ALTER TABLE reportes_brand_defense ADD COLUMN moneda VARCHAR(10) DEFAULT 'ARS';"))
             conn.commit()
         except Exception:
             conn.rollback()
@@ -197,6 +204,7 @@ app.include_router(correlations.router)
 app.include_router(chat.router)
 app.include_router(whatsapp_webhook.router)
 app.include_router(admin_settings.router)
+app.include_router(api_keys.router)
 
 # Servir archivos estáticos (Screenshots y Evidencias)
 import os

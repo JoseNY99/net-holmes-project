@@ -8,8 +8,14 @@ from services.cron_logger import cron_logger
 
 class TikTokApifyScraper:
     def __init__(self):
-        self.client = ApifyClientAsync(token=settings.APIFY_API_TOKEN)
         self.actor_id = settings.APIFY_ACTOR_TT
+
+    def _get_client(self):
+        from services.api_key_service import get_active_api_key
+        token = get_active_api_key("apify") or settings.APIFY_API_TOKEN
+        if not token:
+            return None
+        return ApifyClientAsync(token=token)
 
     async def scrape(self, keyword: str, city_name: str = None):
         results_count = 0
@@ -18,8 +24,9 @@ class TikTokApifyScraper:
         
         cron_logger.log(f"[TT Apify] Iniciando búsqueda para '{query}' (Límite: {settings.APIFY_MAX_ITEMS} items)")
         
-        if not settings.APIFY_API_TOKEN:
-            cron_logger.log("[TT Apify] ❌ ERROR: Falta APIFY_API_TOKEN.")
+        client = self._get_client()
+        if not client:
+            cron_logger.log("[TT Apify] ❌ ERROR: Falta APIFY_API_TOKEN en DB o .env.")
             return
 
         fetch_limit = max(settings.APIFY_MAX_ITEMS * 2, 6)
@@ -40,11 +47,11 @@ class TikTokApifyScraper:
         
         try:
             run = await asyncio.wait_for(
-                self.client.actor(self.actor_id).call(run_input=run_input),
+                client.actor(self.actor_id).call(run_input=run_input),
                 timeout=timeout_val
             )
             
-            async for item in self.client.dataset(run.default_dataset_id).iterate_items():
+            async for item in client.dataset(run.default_dataset_id).iterate_items():
                 try:
                     pub_date = None
                     if item.get("createTimeISO"):
