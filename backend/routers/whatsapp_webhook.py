@@ -11,6 +11,7 @@ from sqlalchemy import or_
 from database import get_db
 from config import settings
 from services.cron_logger import cron_logger
+from services.whatsapp_sender import normalize_whatsapp_phone
 
 router = APIRouter(prefix="/webhook", tags=["WhatsApp Webhook"])
 
@@ -121,9 +122,10 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                         cron_logger.log(f"[WhatsApp] 🔄 Mensaje duplicado ignorado: {wa_message_id}")
                         continue
                     
-                    # Extraer solo dígitos para búsqueda flexible (soporta con o sin +, espacios o guiones)
-                    clean_digits = re.sub(r'\D', '', sender_phone)
-                    phone_variants = [sender_phone, clean_digits, f"+{clean_digits}"]
+                    # Normalizar número a E.164 estricto de Meta
+                    clean_digits = normalize_whatsapp_phone(sender_phone)
+                    raw_digits = re.sub(r'\D', '', sender_phone)
+                    phone_variants = list(set([sender_phone, clean_digits, f"+{clean_digits}", raw_digits, f"+{raw_digits}"]))
                     
                     # 1. Buscar conversación existente por cualquiera de las variantes de teléfono o últimos dígitos
                     conversation = None
@@ -207,7 +209,10 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                     db.commit()
                     db.refresh(new_msg)
                     
-                    cron_logger.log(f"[WhatsApp] 💾 Mensaje guardado en conversación #{conversation.id} (Reporte #{conversation.reporte_id})")
+                    cron_logger.log(
+                        f"[AUDITORÍA WHATSAPP] 💾 Mensaje ID {wa_message_id} registrado en Conversación #{conversation.id} "
+                        f"(Reporte #{conversation.reporte_id} - {conversation.whatsapp_phone}): {text_body}"
+                    )
 
                     # Ejecutar pipeline de extracción NLP
                     from services.chat_nlp_engine import analyze_incoming_message

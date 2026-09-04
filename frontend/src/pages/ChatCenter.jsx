@@ -837,13 +837,20 @@ export default function ChatCenter() {
               required
             />
             <small style={{ color: 'var(--text-secondary)' }}>Número con código de país (se sanitiza automáticamente a dígitos).</small>
-            <div style={{ marginTop: '6px' }}>
+            <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="scenario-chip"
+                onClick={() => setAddForm(prev => ({ ...prev, phone: '+595971682207', name: 'Oliver Personal (+595971682207)' }))}
+              >
+                🇵🇾 Oliver Personal (+595971682207)
+              </button>
               <button
                 type="button"
                 className="scenario-chip"
                 onClick={() => setAddForm(prev => ({ ...prev, phone: '+595984716528', name: 'Sujeto de Prueba (+595984716528)' }))}
               >
-                📲 Usar número de prueba (+595984716528)
+                🇵🇾 Sujeto (+595984716528)
               </button>
             </div>
           </div>
@@ -960,6 +967,22 @@ export default function ChatCenter() {
             <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '5px' }}>
               💡 Si el usuario lo metió mal (ej: sin código de país o con un dígito errado), corrígelo aquí para que las respuestas se sincronicen por WhatsApp.
             </small>
+            <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="scenario-chip"
+                onClick={() => setEditForm(prev => ({ ...prev, phone: '+595971682207', titular: prev.titular || 'Oliver Personal' }))}
+              >
+                🇵🇾 Oliver Personal (+595971682207)
+              </button>
+              <button
+                type="button"
+                className="scenario-chip"
+                onClick={() => setEditForm(prev => ({ ...prev, phone: '+595984716528', titular: prev.titular || 'Sujeto de Prueba' }))}
+              >
+                🇵🇾 Sujeto (+595984716528)
+              </button>
+            </div>
           </div>
 
           <div>

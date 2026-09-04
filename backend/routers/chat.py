@@ -17,7 +17,7 @@ from models.reporte import ReporteBrandDefense
 from middleware.auth_middleware import get_current_user, require_admin
 from services.chat_nlp_engine import analyze_incoming_message
 from services.cron_logger import cron_logger
-from services.whatsapp_sender import send_text_message, get_active_whatsapp_credentials
+from services.whatsapp_sender import send_text_message, get_active_whatsapp_credentials, normalize_whatsapp_phone
 
 router = APIRouter(prefix="/api/chat", tags=["Chat Center"])
 
@@ -32,6 +32,7 @@ CURTIS_WELCOME = (
 )
 
 TEST_PHONE_DEFAULT = "+595984716528"
+TEST_PHONE_OLIVER = "+595971682207"
 
 
 def get_time_based_greeting() -> str:
@@ -49,36 +50,42 @@ def get_time_based_greeting() -> str:
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
 def ensure_test_phone_conversation(db: Session):
-    """Asegura que el número de prueba de WhatsApp (+595984716528) esté disponible en Chat Center."""
-    clean = re.sub(r'\D', '', TEST_PHONE_DEFAULT)
-    conv = db.query(Conversation).filter(
-        Conversation.whatsapp_phone.in_([TEST_PHONE_DEFAULT, f"+{clean}", clean])
-    ).first()
+    """Asegura que los números de prueba de WhatsApp (+595971682207 y +595984716528) estén disponibles en Chat Center."""
+    test_numbers = [
+        (TEST_PHONE_OLIVER, "Oliver Personal (+595971682207)"),
+        (TEST_PHONE_DEFAULT, "Sujeto de Prueba (+595984716528)"),
+    ]
+    for phone_raw, titular in test_numbers:
+        clean = normalize_whatsapp_phone(phone_raw)
+        formatted = f"+{clean}"
+        conv = db.query(Conversation).filter(
+            Conversation.whatsapp_phone.in_([formatted, clean, phone_raw])
+        ).first()
 
-    if not conv:
-        reporte = ReporteBrandDefense(
-            pais="Paraguay",
-            producto_catalogo="Contacto WhatsApp de Prueba",
-            marca_afectada="Test WhatsApp",
-            plataforma="WhatsApp",
-            titular_cuenta=f"Sujeto de Prueba ({TEST_PHONE_DEFAULT})",
-            url_evidencia=f"https://wa.me/{clean}",
-            telefono_publico=TEST_PHONE_DEFAULT,
-            estado="Sospechoso",
-        )
-        db.add(reporte)
-        db.commit()
-        db.refresh(reporte)
+        if not conv:
+            reporte = ReporteBrandDefense(
+                pais="Paraguay",
+                producto_catalogo="Contacto WhatsApp de Prueba",
+                marca_afectada="Test WhatsApp PY",
+                plataforma="WhatsApp",
+                titular_cuenta=titular,
+                url_evidencia=f"https://wa.me/{clean}",
+                telefono_publico=formatted,
+                estado="Sospechoso",
+            )
+            db.add(reporte)
+            db.commit()
+            db.refresh(reporte)
 
-        conv = Conversation(
-            reporte_id=reporte.id,
-            mode="bot",
-            is_bot_active=False,  # En espera de la orden de arranque del admin
-            whatsapp_phone=TEST_PHONE_DEFAULT,
-        )
-        db.add(conv)
-        db.commit()
-        cron_logger.log(f"[Chat] 📱 Conversación de prueba para {TEST_PHONE_DEFAULT} preparada en Chat Center.")
+            conv = Conversation(
+                reporte_id=reporte.id,
+                mode="bot",
+                is_bot_active=False,  # En espera de la orden de arranque del admin
+                whatsapp_phone=formatted,
+            )
+            db.add(conv)
+            db.commit()
+            cron_logger.log(f"[Chat] 📱 Conversación de prueba para {formatted} ({titular}) preparada en Chat Center.")
 
 
 def get_or_create_curtis_test_conversation(db: Session) -> Conversation:
@@ -417,11 +424,11 @@ async def add_temporary_number(
     Permite a administradores agregar un número temporal para probar la interacción
     por WhatsApp con personas reales o dispositivos de prueba.
     """
-    clean_phone = re.sub(r'\D', '', data.phone or '')
+    clean_phone = normalize_whatsapp_phone(data.phone or '')
     if len(clean_phone) < 8:
         raise HTTPException(
             status_code=400,
-            detail="El número de teléfono debe contener al menos 8 dígitos numéricos."
+            detail="El número de teléfono debe contener al menos 8 dígitos numéricos válidos."
         )
 
     formatted_phone = f"+{clean_phone}"
@@ -512,7 +519,7 @@ def edit_contact_info(
     Permite corregir o actualizar el número de teléfono y/o el nombre titular
     de un contacto si fue ingresado con errores o cambió.
     """
-    clean = re.sub(r'\D', '', data.phone or '')
+    clean = normalize_whatsapp_phone(data.phone or '')
     if len(clean) < 8:
         raise HTTPException(
             status_code=400,

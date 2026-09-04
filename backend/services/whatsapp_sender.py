@@ -37,12 +37,59 @@ def get_active_whatsapp_credentials(db=None):
     return token, phone_id
 
 
+def normalize_whatsapp_phone(phone: str) -> str:
+    """
+    Normaliza cualquier número de teléfono a formato internacional E.164 (solo dígitos)
+    compatible con Meta WhatsApp Cloud API.
+    Soporta específicamente:
+      - Paraguay (PY +595): +595971..., 0971..., 971..., 5950971...
+      - Argentina (AR +54): +54911..., +5411..., 011..., 11...
+      - Cualquier formato internacional válido.
+    """
+    if not phone:
+        return ""
+    digits = re.sub(r'\D', '', str(phone).strip())
+    if not digits:
+        return ""
+
+    # Caso Paraguay (+595):
+    if digits.startswith("595"):
+        # Si tiene el 0 troncal local (ej: 5950971682207), quitar el 0
+        if len(digits) == 13 and digits.startswith("5950"):
+            digits = "595" + digits[4:]
+        return digits
+
+    # Si escribió formato local paraguayo (ej: 0971682207 o 0984716528 con 10 dígitos)
+    if len(digits) == 10 and digits.startswith("09"):
+        return f"595{digits[1:]}"
+
+    # Si escribió 9 dígitos empezando con 9 (ej: 971682207 o 984716528)
+    if len(digits) == 9 and digits.startswith("9"):
+        return f"595{digits}"
+
+    # Caso Argentina (+54):
+    # Si empieza con 54 pero no tiene el 9 móvil (ej 5411xxxxxxxx con 12 dígitos)
+    if digits.startswith("54") and not digits.startswith("549") and len(digits) == 12:
+        return f"549{digits[2:]}"
+    
+    # Si escribió formato local argentino (ej: 011xxxxxxxx o 11xxxxxxxx)
+    clean_local = digits
+    if clean_local.startswith("0"):
+        clean_local = clean_local[1:]
+    if clean_local.startswith("15"):
+        clean_local = clean_local[2:]
+    if len(clean_local) == 10 and (clean_local.startswith("11") or clean_local.startswith("2") or clean_local.startswith("3")):
+        return f"549{clean_local}"
+
+    return digits
+
+
 async def send_text_message(phone: str, text: str, db=None) -> tuple[bool, str]:
     """
     Envía un mensaje de texto via WhatsApp Cloud API.
     
     Args:
-        phone: Número destino (se sanitiza automáticamente para dejar solo dígitos)
+        phone: Número destino (se normaliza y sanitiza automáticamente para Paraguay, Argentina o Internacional)
         text: Contenido del mensaje
         db: Sesión SQLAlchemy opcional
     
@@ -55,8 +102,8 @@ async def send_text_message(phone: str, text: str, db=None) -> tuple[bool, str]:
         cron_logger.log(f"[WhatsApp Sender] ⚠️ {err}")
         return False, err
 
-    # Sanitizar número: Meta exige estrictamente solo dígitos E.164 (sin +, espacios ni guiones)
-    clean_phone = re.sub(r'\D', '', str(phone or ''))
+    # Normalizar número: E.164 estricto de Meta
+    clean_phone = normalize_whatsapp_phone(phone)
     if not clean_phone or len(clean_phone) < 8:
         err = f"Número de teléfono inválido ('{phone}'). Debe contener al menos 8 dígitos."
         cron_logger.log(f"[WhatsApp Sender] ❌ {err}")
