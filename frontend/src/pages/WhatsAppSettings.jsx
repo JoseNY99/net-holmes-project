@@ -24,7 +24,7 @@ export default function WhatsAppSettings() {
   const fetchSettings = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/settings/whatsapp');
+      const res = await api.get('/api/settings/whatsapp');
       setFormData({
         whatsapp_access_token: res.data.whatsapp_access_token || '',
         whatsapp_phone_number_id: res.data.whatsapp_phone_number_id || '',
@@ -50,7 +50,7 @@ export default function WhatsAppSettings() {
     setMessage(null);
     setTestResult(null);
     try {
-      const res = await api.post('/settings/whatsapp', formData);
+      const res = await api.post('/api/settings/whatsapp', formData);
       setMessage({ type: 'success', text: res.data?.message || 'Configuración guardada en Base de Datos correctamente.' });
       setTimeout(() => setMessage(null), 4000);
       fetchSettings(); // Refresh to get masked token
@@ -67,7 +67,7 @@ export default function WhatsAppSettings() {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await api.post('/settings/whatsapp/test', {
+      const res = await api.post('/api/settings/whatsapp/test', {
         whatsapp_access_token: formData.whatsapp_access_token,
         whatsapp_phone_number_id: formData.whatsapp_phone_number_id
       });
