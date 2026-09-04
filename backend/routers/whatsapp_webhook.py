@@ -4,9 +4,10 @@ Recibe mensajes entrantes del infractor y los enruta al pipeline de extracción.
 Se completará en la Fase 2 con la lógica completa.
 """
 
-from fastapi import APIRouter, Request, Response, Query, HTTPException
+import re
+from fastapi import APIRouter, Request, Response, Query, HTTPException, Depends
 from sqlalchemy.orm import Session
-from fastapi import Depends
+from sqlalchemy import or_
 from database import get_db
 from config import settings
 from services.cron_logger import cron_logger
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/webhook", tags=["WhatsApp Webhook"])
 
 
 @router.get("")
+@router.get("/")
 async def verify_webhook(
     hub_mode: str = Query(None, alias="hub.mode"),
     hub_verify_token: str = Query(None, alias="hub.verify_token"),
@@ -49,6 +51,7 @@ async def verify_webhook(
 
 
 @router.post("")
+@router.post("/")
 async def receive_message(request: Request, db: Session = Depends(get_db)):
     """
     Recibe mensajes entrantes de WhatsApp Cloud API.
@@ -72,7 +75,7 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                         cron_logger.log(f"[WhatsApp] ⏭️ Mensaje no-texto ignorado (tipo: {msg.get('type')})")
                         continue
                     
-                    sender_phone = msg.get("from", "")  # Número E.164 del remitente
+                    sender_phone = str(msg.get("from", "")).strip()  # Número E.164 del remitente (ej. "595984716528")
                     text_body = msg.get("text", {}).get("body", "")
                     wa_message_id = msg.get("id", "")
                     
@@ -90,47 +93,60 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                         cron_logger.log(f"[WhatsApp] 🔄 Mensaje duplicado ignorado: {wa_message_id}")
                         continue
                     
-                    # Buscar conversación por número de WhatsApp
-                    conversation = db.query(Conversation).filter(
-                        Conversation.whatsapp_phone == sender_phone
-                    ).first()
+                    # Extraer solo dígitos para búsqueda flexible (soporta con o sin +, espacios o guiones)
+                    clean_digits = re.sub(r'\D', '', sender_phone)
+                    phone_variants = [sender_phone, clean_digits, f"+{clean_digits}"]
                     
-                    # Si no existe, intentar vincular con un reporte por teléfono público
-                    if not conversation:
-                        # Buscar reportes que tengan este teléfono
+                    # 1. Buscar conversación existente por cualquiera de las variantes de teléfono o últimos dígitos
+                    conversation = None
+                    if clean_digits:
+                        search_filters = [Conversation.whatsapp_phone.in_(phone_variants)]
+                        if len(clean_digits) >= 8:
+                            search_filters.append(Conversation.whatsapp_phone.ilike(f"%{clean_digits[-8:]}"))
+                        
+                        conversation = db.query(Conversation).filter(
+                            or_(*search_filters)
+                        ).order_by(Conversation.id.desc()).first()
+                    
+                    # 2. Si no existe conversación directa, buscar en reportes por teléfono
+                    if not conversation and clean_digits:
+                        report_filters = [ReporteBrandDefense.telefono_publico.in_(phone_variants)]
+                        if len(clean_digits) >= 8:
+                            report_filters.append(ReporteBrandDefense.telefono_publico.ilike(f"%{clean_digits[-8:]}%"))
+
                         reporte = db.query(ReporteBrandDefense).filter(
-                            ReporteBrandDefense.telefono_publico.ilike(f"%{sender_phone[-8:]}%")
-                        ).first()
+                            or_(*report_filters)
+                        ).order_by(ReporteBrandDefense.id.desc()).first()
                         
                         if reporte:
-                            # Verificar si ya tiene conversación
+                            # Verificar si el reporte ya tiene conversación
                             conversation = db.query(Conversation).filter(
                                 Conversation.reporte_id == reporte.id
-                            ).first()
+                            ).order_by(Conversation.id.desc()).first()
+
                             if conversation:
-                                conversation.whatsapp_phone = sender_phone
+                                conversation.whatsapp_phone = f"+{clean_digits}"
                             else:
                                 conversation = Conversation(
                                     reporte_id=reporte.id,
                                     mode="bot",
                                     is_bot_active=True,
-                                    whatsapp_phone=sender_phone,
+                                    whatsapp_phone=f"+{clean_digits}",
                                 )
                                 db.add(conversation)
                             db.commit()
                             db.refresh(conversation)
                             cron_logger.log(f"[WhatsApp] 🔗 Conversación vinculada al Reporte #{reporte.id}")
                         else:
-                            # No hay reporte asociado — Crear reporte y conversación automáticamente para que repercuta en Chat Center
-                            clean_phone = sender_phone.replace("+", "").strip()
+                            # 3. No hay reporte previo — Crear reporte y conversación automáticamente
                             reporte = ReporteBrandDefense(
-                                pais="Argentina",
+                                pais="Contacto WhatsApp",
                                 producto_catalogo="Contacto Directo WhatsApp",
                                 marca_afectada="WhatsApp Inbound",
                                 plataforma="WhatsApp",
-                                titular_cuenta=f"+{clean_phone}",
-                                url_evidencia=f"https://wa.me/{clean_phone}",
-                                telefono_publico=sender_phone,
+                                titular_cuenta=f"+{clean_digits}",
+                                url_evidencia=f"https://wa.me/{clean_digits}",
+                                telefono_publico=f"+{clean_digits}",
                                 estado="Sospechoso",
                             )
                             db.add(reporte)
@@ -141,14 +157,18 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                                 reporte_id=reporte.id,
                                 mode="bot",
                                 is_bot_active=True,
-                                whatsapp_phone=sender_phone,
+                                whatsapp_phone=f"+{clean_digits}",
                             )
                             db.add(conversation)
                             db.commit()
                             db.refresh(conversation)
-                            cron_logger.log(f"[WhatsApp] 🆕 Nuevo reporte #{reporte.id} y conversación creados automáticamente para {sender_phone}")
+                            cron_logger.log(f"[WhatsApp] 🆕 Nuevo reporte #{reporte.id} y conversación creados automáticamente para +{clean_digits}")
                     
-                    # Guardar el mensaje
+                    if not conversation:
+                        cron_logger.log(f"[WhatsApp] ⚠️ No se pudo asignar conversación para {sender_phone}")
+                        continue
+
+                    # Guardar el mensaje del infractor / contacto
                     new_msg = Message(
                         conversation_id=conversation.id,
                         sender="infractor",
@@ -159,11 +179,13 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                     db.commit()
                     db.refresh(new_msg)
                     
+                    cron_logger.log(f"[WhatsApp] 💾 Mensaje guardado en conversación #{conversation.id} (Reporte #{conversation.reporte_id})")
+
                     # Ejecutar pipeline de extracción NLP
                     from services.chat_nlp_engine import analyze_incoming_message
                     analyze_incoming_message(db, new_msg)
                     
-                    # Si el bot está activo, generar respuesta automática
+                    # Si el bot está activo, generar respuesta automática honeypot
                     if conversation.is_bot_active:
                         from services.whatsapp_sender import send_honeypot_reply
                         await send_honeypot_reply(db, conversation, new_msg)

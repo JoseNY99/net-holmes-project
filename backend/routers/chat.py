@@ -183,6 +183,7 @@ def get_all_conversations(
         .all()
     )
 
+    curtis_conv = None
     result = []
     for conv in conversations:
         is_curtis = (
@@ -226,14 +227,22 @@ def get_all_conversations(
             "unread_count": unread_count,
             "last_message": {
                 "text": last_msg.text if last_msg else None,
-                "timestamp": last_msg.timestamp if last_msg else None,
+                "timestamp": last_msg.timestamp.isoformat() if (last_msg and last_msg.timestamp) else None,
             } if last_msg else None
         }
 
         if is_curtis:
-            result.insert(0, conv_dict)  # Fijar al inicio
+            curtis_conv = conv_dict
         else:
             result.append(conv_dict)
+
+    # Ordenar por fecha del último mensaje descendente
+    result.sort(
+        key=lambda x: x["last_message"]["timestamp"] if (x.get("last_message") and x["last_message"].get("timestamp")) else "",
+        reverse=True
+    )
+    if curtis_conv:
+        result.insert(0, curtis_conv)
 
     return {"data": result}
 
@@ -247,7 +256,7 @@ def get_conversation(
     current_user: User = Depends(get_current_user),
 ):
     """Obtiene una conversación vinculada a un reporte o la crea."""
-    conv = db.query(Conversation).filter(Conversation.reporte_id == reporte_id).first()
+    conv = db.query(Conversation).filter(Conversation.reporte_id == reporte_id).order_by(Conversation.id.desc()).first()
     if not conv:
         conv = Conversation(reporte_id=reporte_id, mode="bot", is_bot_active=True)
         db.add(conv)

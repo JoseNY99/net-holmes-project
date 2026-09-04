@@ -91,7 +91,7 @@ export default function ChatCenter() {
 
   useEffect(() => {
     fetchConversations();
-    const interval = setInterval(() => fetchConversations(true), 4000);
+    const interval = setInterval(() => fetchConversations(true), 2500);
     return () => clearInterval(interval);
   }, [activeConvId]);
 
@@ -511,49 +511,50 @@ export default function ChatCenter() {
                   activeConversation.messages.map((msg, idx) => {
                     const entities = parseEntities(msg.extracted_entities);
                     const isCurtisMessage = isCurtisActive && msg.sender === 'bot';
+                    const isInfractor = msg.sender === 'infractor';
 
                     return (
-                      <div key={msg.id || idx} style={{ alignSelf: msg.sender === 'infractor' ? 'flex-start' : 'flex-end', maxWidth: '80%' }}>
-                        <div className={`chat-bubble ${msg.sender === 'bot' || msg.sender === 'analista' ? 'bot' : 'infractor'}`} style={{ 
-                          background: isCurtisMessage
-                            ? 'linear-gradient(135deg, rgba(147, 51, 234, 0.25), rgba(59, 130, 246, 0.25))'
-                            : msg.sender === 'analista' 
-                              ? 'rgba(52, 152, 219, 0.18)' 
-                              : (msg.sender === 'bot' ? 'rgba(90, 46, 152, 0.25)' : 'rgba(255,255,255,0.06)'),
-                          border: isCurtisMessage
-                            ? '1px solid rgba(168, 85, 247, 0.5)'
-                            : msg.sender === 'analista' 
-                              ? '1px solid rgba(52, 152, 219, 0.4)' 
-                              : (msg.sender === 'bot' ? '1px solid rgba(90, 46, 152, 0.4)' : '1px solid rgba(255,255,255,0.1)'),
-                          padding: '12px 16px',
-                          borderRadius: '12px',
-                          borderBottomLeftRadius: msg.sender === 'infractor' ? '2px' : '12px',
-                          borderBottomRightRadius: (msg.sender === 'bot' || msg.sender === 'analista') ? '2px' : '12px',
-                        }}>
+                      <div key={msg.id || idx} style={{ alignSelf: isInfractor ? 'flex-start' : 'flex-end', maxWidth: '82%', width: 'fit-content' }}>
+                        <div 
+                          className={`chat-bubble ${isCurtisMessage ? 'curtis-ai' : (isInfractor ? 'infractor' : 'bot')}`}
+                          style={{
+                            padding: '12px 16px',
+                            borderRadius: '12px',
+                            borderBottomLeftRadius: isInfractor ? '2px' : '12px',
+                            borderBottomRightRadius: !isInfractor ? '2px' : '12px',
+                          }}
+                        >
                           <strong style={{ 
-                            display: 'block', 
+                            display: 'flex', 
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '12px',
                             fontSize: '0.75rem', 
                             marginBottom: '6px', 
                             color: isCurtisMessage 
                               ? '#c084fc' 
                               : msg.sender === 'analista' 
-                                ? '#3498db' 
-                                : (msg.sender === 'bot' ? '#9b66d9' : 'var(--text-secondary)') 
+                                ? '#38bdf8' 
+                                : (msg.sender === 'bot' ? '#10C5C9' : '#f59e0b') 
                           }}>
-                            {isCurtisMessage 
-                              ? '🤖 CURTIS HOLMES (HONEYPOT AI)' 
-                              : msg.sender === 'bot' 
-                                ? '🤖 HONEYPOT AI' 
-                                : msg.sender === 'analista' 
-                                  ? '👤 ANALISTA' 
-                                  : isCurtisActive 
-                                    ? '🎭 VENDEDOR SIMULADO' 
-                                    : '🎯 INFRACTOR'}
-                            <span style={{ opacity: 0.6, marginLeft: '8px', fontWeight: 'normal' }}>
-                              {new Date(msg.timestamp).toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit'})}
+                            <span>
+                              {isCurtisMessage 
+                                ? '🤖 CURTIS HOLMES (HONEYPOT AI)' 
+                                : msg.sender === 'bot' 
+                                  ? '🤖 HONEYPOT AI' 
+                                  : msg.sender === 'analista' 
+                                    ? '👤 ANALISTA' 
+                                    : isCurtisActive 
+                                      ? '🎭 VENDEDOR SIMULADO' 
+                                      : '👤 CONTACTO / INFRACTOR'}
+                            </span>
+                            <span style={{ opacity: 0.65, fontWeight: 'normal', fontSize: '0.72rem' }}>
+                              {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit'}) : ''}
                             </span>
                           </strong>
-                          <span style={{ lineHeight: '1.45', fontSize: '0.92rem' }}>{msg.text || msg.content}</span>
+                          <span style={{ lineHeight: '1.5', fontSize: '0.94rem', display: 'block', wordBreak: 'break-word', color: 'inherit' }}>
+                            {msg.text || msg.content}
+                          </span>
                         </div>
                         
                         {/* Insignias de Extracción NLP */}
@@ -641,14 +642,28 @@ export default function ChatCenter() {
                     </button>
                   </form>
                 </div>
-              ) : !activeConversation.is_bot_active ? (
-                /* Modo Manual para WhatsApp real */
+              ) : (
+                /* Modo WhatsApp Real: Input siempre disponible + banner de estado del bot */
                 <div className="chat-active-input">
+                  {activeConversation.is_bot_active && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '8px 14px', background: 'rgba(16, 197, 201, 0.08)', border: '1px solid rgba(16, 197, 201, 0.25)', borderRadius: '8px', fontSize: '0.82rem' }}>
+                      <span style={{ color: 'var(--text-primary)' }}>
+                        🤖 <strong>Bot Autónomo Activo:</strong> Responderá solo a los mensajes entrantes. Puedes enviar un mensaje manual en cualquier momento.
+                      </span>
+                      <button 
+                        type="button" 
+                        onClick={toggleChatMode} 
+                        style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontWeight: '600', fontSize: '0.82rem', textDecoration: 'underline' }}
+                      >
+                        Pausar Bot (Modo Manual)
+                      </button>
+                    </div>
+                  )}
                   <form onSubmit={handleSendChat} style={{ display: 'flex', gap: '10px' }}>
                     <input
                       type="text"
                       className="input-field"
-                      placeholder="Escribe un mensaje manual (se enviará directamente por WhatsApp)..."
+                      placeholder={activeConversation.is_bot_active ? "Escribe un mensaje para intervenir por WhatsApp..." : "Escribe un mensaje manual (se enviará directamente por WhatsApp)..."}
                       value={chatInput}
                       onChange={e => setChatInput(e.target.value)}
                       disabled={sendingChat}
@@ -663,13 +678,6 @@ export default function ChatCenter() {
                       <FaPaperPlane /> {sendingChat ? '...' : 'Enviar'}
                     </button>
                   </form>
-                </div>
-              ) : (
-                /* Modo Bot Automático para WhatsApp real */
-                <div className="chat-active-input" style={{ textAlign: 'center' }}>
-                  <div className="chat-bot-active-banner">
-                    🤖 El bot está activo respondiendo automáticamente. Cambia a modo manual para intervenir o haz clic en <strong>"Dar Orden de Arrancar al Bot"</strong> para enviarle un nuevo gancho.
-                  </div>
                 </div>
               )}
             </>
