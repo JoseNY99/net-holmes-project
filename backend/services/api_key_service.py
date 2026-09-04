@@ -259,9 +259,39 @@ async def test_service_connection(service_name: str, key_override: str = None, d
                 if resp.status_code == 200:
                     data = resp.json()
                     name = data.get("verified_name") or data.get("display_phone_number") or data.get("name", "Meta App")
-                    return {"success": True, "message": f"Conexión exitosa a Meta WhatsApp ({latency}ms). Identificador: {name}", "latency_ms": latency}
+                    return {
+                        "success": True, 
+                        "message": f"Conexión exitosa con WhatsApp Cloud API. Identificador verificado: {name}", 
+                        "details": f"Endpoint consultado: {test_url}",
+                        "latency_ms": latency
+                    }
                 else:
-                    return {"success": False, "message": f"Error Meta API ({resp.status_code}): {resp.text}", "latency_ms": latency}
+                    detail_msg = resp.text
+                    explanation = "Error desconocido de Meta."
+                    try:
+                        err_json = resp.json().get("error", {})
+                        meta_msg = err_json.get("message", "")
+                        meta_code = err_json.get("code")
+                        meta_subcode = err_json.get("error_subcode")
+                        detail_msg = f"{meta_msg} (Código: {meta_code}, Subcódigo: {meta_subcode})" if meta_subcode else f"{meta_msg} (Código: {meta_code})"
+                        
+                        if meta_code == 190:
+                            explanation = "El WhatsApp Access Token ha expirado, es inválido o fue revocado. Genera uno nuevo en Meta for Developers."
+                        elif meta_code == 100:
+                            explanation = "El Phone Number ID o parámetro ingresado no existe en tu cuenta de Meta."
+                        elif meta_code in (200, 298):
+                            explanation = "El token no tiene los permisos necesarios (whatsapp_business_messaging / whatsapp_business_management)."
+                        else:
+                            explanation = meta_msg or "Meta rechazó la solicitud."
+                    except Exception:
+                        pass
+                    
+                    return {
+                        "success": False, 
+                        "message": explanation, 
+                        "details": detail_msg,
+                        "latency_ms": latency
+                    }
 
             else:
                 return {"success": True, "message": f"Servicio '{srv}' registrado.", "latency_ms": 0}

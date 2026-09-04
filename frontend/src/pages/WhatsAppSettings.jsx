@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { FaWhatsapp, FaEye, FaEyeSlash, FaSave, FaCheckCircle, FaExclamationTriangle, FaVial } from 'react-icons/fa';
+import { FaWhatsapp, FaEye, FaEyeSlash, FaSave, FaCheckCircle, FaExclamationTriangle, FaVial, FaSpinner } from 'react-icons/fa';
 import api from '../services/api';
+import Modal from '../components/Modal';
 
 export default function WhatsAppSettings() {
   const [formData, setFormData] = useState({
@@ -14,8 +15,17 @@ export default function WhatsAppSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState(null);
   const [message, setMessage] = useState(null);
+
+  // Estado del Modal de Resultados (Pruebas y Guardado)
+  const [modal, setModal] = useState({
+    isOpen: false,
+    title: '',
+    type: 'info', // 'success', 'error', 'testing'
+    message: '',
+    details: '',
+    latency_ms: null
+  });
 
   useEffect(() => {
     fetchSettings();
@@ -48,16 +58,28 @@ export default function WhatsAppSettings() {
     e.preventDefault();
     setSaving(true);
     setMessage(null);
-    setTestResult(null);
     try {
       const res = await api.post('/api/settings/whatsapp', formData);
-      setMessage({ type: 'success', text: res.data?.message || 'Configuración guardada en Base de Datos correctamente.' });
-      setTimeout(() => setMessage(null), 4000);
-      fetchSettings(); // Refresh to get masked token
+      fetchSettings(); // Recargar datos
+      setModal({
+        isOpen: true,
+        title: 'Configuración Guardada',
+        type: 'success',
+        message: res.data?.message || 'Las credenciales se guardaron exitosamente en la base de datos PostgreSQL.',
+        details: 'El sistema ya está utilizando estos parámetros para el Webhook y la mensajería activa.',
+        latency_ms: null
+      });
     } catch (err) {
       console.error("Error saving settings:", err);
-      const errorDetail = err.response?.data?.detail || err.message || 'Error al guardar la configuración.';
-      setMessage({ type: 'error', text: errorDetail });
+      const errorDetail = err.response?.data?.detail || err.message || 'Ocurrió un problema al guardar la configuración en la base de datos.';
+      setModal({
+        isOpen: true,
+        title: 'Error al Guardar',
+        type: 'error',
+        message: errorDetail,
+        details: 'Verifique que su usuario cuente con permisos de administrador o intente de nuevo.',
+        latency_ms: null
+      });
     } finally {
       setSaving(false);
     }
@@ -65,18 +87,50 @@ export default function WhatsAppSettings() {
 
   const handleTestConnection = async () => {
     setTesting(true);
-    setTestResult(null);
+    setModal({
+      isOpen: true,
+      title: 'Probando Conexión con Meta',
+      type: 'testing',
+      message: 'Conectando con Meta Graph API (v21.0)...',
+      details: 'Consultando la validez del WhatsApp Access Token y el Phone Number ID en los servidores de Meta.',
+      latency_ms: null
+    });
+
     try {
       const res = await api.post('/api/settings/whatsapp/test', {
         whatsapp_access_token: formData.whatsapp_access_token,
         whatsapp_phone_number_id: formData.whatsapp_phone_number_id
       });
-      setTestResult(res.data);
+
+      if (res.data?.success) {
+        setModal({
+          isOpen: true,
+          title: 'Conexión Exitosa con Meta',
+          type: 'success',
+          message: res.data.message || 'El Access Token y el Phone Number ID son 100% válidos.',
+          details: res.data.details || 'La API de WhatsApp Cloud respondió satisfactoriamente.',
+          latency_ms: res.data.latency_ms
+        });
+      } else {
+        setModal({
+          isOpen: true,
+          title: 'Fallo en la Conexión con Meta',
+          type: 'error',
+          message: res.data?.message || 'Meta rechazó la solicitud de verificación.',
+          details: res.data?.details || 'Compruebe que el Access Token no haya expirado y que el Phone Number ID sea el correcto.',
+          latency_ms: res.data?.latency_ms
+        });
+      }
     } catch (err) {
       console.error("Error testing connection:", err);
-      setTestResult({
-        success: false,
-        message: err.response?.data?.detail || err.message || 'Error al conectar con la API de Meta.'
+      const errorDetail = err.response?.data?.detail || err.message || 'No se pudo contactar con la API de Meta.';
+      setModal({
+        isOpen: true,
+        title: 'Error al Probar Conexión',
+        type: 'error',
+        message: errorDetail,
+        details: 'Revise que los datos ingresados no contengan espacios en blanco o caracteres extraños.',
+        latency_ms: null
       });
     } finally {
       setTesting(false);
@@ -208,33 +262,86 @@ export default function WhatsAppSettings() {
               <FaVial /> {testing ? 'Probando conexión...' : '🧪 Probar Conexión'}
             </button>
           </div>
-
-          {testResult && (
-            <div 
-              style={{ 
-                marginTop: '20px', 
-                padding: '14px 18px', 
-                borderRadius: '8px',
-                backgroundColor: testResult.success ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                border: `1px solid ${testResult.success ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                color: testResult.success ? '#4ade80' : '#f87171',
-                fontSize: '0.92rem'
-              }}
-            >
-              <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                {testResult.success ? <FaCheckCircle /> : <FaExclamationTriangle />}
-                {testResult.success ? 'Conexión Exitosa con Meta' : 'Error en la Conexión'}
-                {testResult.latency_ms > 0 && (
-                  <span style={{ fontSize: '0.8rem', opacity: 0.8, marginLeft: 'auto' }}>
-                    Latencia: {testResult.latency_ms}ms
-                  </span>
-                )}
-              </div>
-              <p style={{ margin: 0, opacity: 0.9 }}>{testResult.message}</p>
-            </div>
-          )}
         </form>
       </div>
+
+      {/* Modal de Resultados (Pruebas y Guardado) */}
+      <Modal
+        isOpen={modal.isOpen}
+        onClose={() => setModal(prev => ({ ...prev, isOpen: false }))}
+        title={modal.title}
+        footer={
+          modal.type !== 'testing' ? (
+            <button
+              type="button"
+              className={modal.type === 'success' ? 'btn-primary' : 'btn-secondary'}
+              onClick={() => setModal(prev => ({ ...prev, isOpen: false }))}
+              style={{ padding: '10px 24px', cursor: 'pointer' }}
+            >
+              {modal.type === 'success' ? 'Aceptar' : 'Entendido / Cerrar'}
+            </button>
+          ) : null
+        }
+      >
+        <div style={{ textAlign: 'center', padding: '15px 10px' }}>
+          {modal.type === 'testing' && (
+            <div>
+              <FaSpinner className="spin" style={{ fontSize: '3rem', color: '#3b82f6', marginBottom: '16px', animation: 'spin 1s linear infinite' }} />
+              <h4 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>{modal.message}</h4>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem' }}>{modal.details}</p>
+            </div>
+          )}
+
+          {modal.type === 'success' && (
+            <div>
+              <FaCheckCircle style={{ fontSize: '3.2rem', color: '#22c55e', marginBottom: '16px' }} />
+              <h4 style={{ fontSize: '1.25rem', color: '#22c55e', marginBottom: '10px' }}>Operación Exitosa</h4>
+              <p style={{ fontSize: '1rem', marginBottom: '12px', fontWeight: '500' }}>{modal.message}</p>
+              {modal.details && (
+                <div style={{
+                  backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                  border: '1px solid rgba(34, 197, 94, 0.25)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: 'var(--text-primary)',
+                  fontSize: '0.9rem',
+                  textAlign: 'left'
+                }}>
+                  <strong>Detalles:</strong>
+                  <p style={{ margin: '4px 0 0 0', opacity: 0.9 }}>{modal.details}</p>
+                </div>
+              )}
+              {modal.latency_ms && (
+                <div style={{ marginTop: '10px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Latencia de respuesta: <strong>{modal.latency_ms} ms</strong>
+                </div>
+              )}
+            </div>
+          )}
+
+          {modal.type === 'error' && (
+            <div>
+              <FaExclamationTriangle style={{ fontSize: '3.2rem', color: '#ef4444', marginBottom: '16px' }} />
+              <h4 style={{ fontSize: '1.25rem', color: '#ef4444', marginBottom: '10px' }}>Se detectó un problema</h4>
+              <p style={{ fontSize: '1rem', marginBottom: '12px', fontWeight: '500', color: '#f87171' }}>{modal.message}</p>
+              {modal.details && (
+                <div style={{
+                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: 'var(--text-primary)',
+                  fontSize: '0.9rem',
+                  textAlign: 'left'
+                }}>
+                  <strong style={{ color: '#f87171' }}>Causa / Detalle técnico:</strong>
+                  <p style={{ margin: '4px 0 0 0', opacity: 0.9, wordBreak: 'break-word' }}>{modal.details}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }
