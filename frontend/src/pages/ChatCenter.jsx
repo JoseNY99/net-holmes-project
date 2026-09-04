@@ -135,6 +135,13 @@ export default function ChatCenter() {
           text: 'Mensaje guardado localmente, pero no pudo entregarse por WhatsApp.',
           detail: res.data.whatsapp_detail
         });
+        setFeedbackModal({
+          isOpen: true,
+          title: 'Aviso de Entrega de WhatsApp',
+          type: 'warning',
+          message: 'El mensaje se guardó en Net Holmes, pero Meta no pudo entregarlo al destinatario.',
+          details: res.data.whatsapp_detail
+        });
       }
     } catch (error) {
       console.error("Error sending chat", error);
@@ -142,6 +149,13 @@ export default function ChatCenter() {
         type: 'error',
         text: 'Error al enviar mensaje.',
         detail: error.response?.data?.detail || error.message
+      });
+      setFeedbackModal({
+        isOpen: true,
+        title: 'Error de Envío',
+        type: 'error',
+        message: 'No se pudo procesar el envío del mensaje.',
+        details: error.response?.data?.detail || error.message
       });
     } finally {
       setSendingChat(false);
@@ -727,6 +741,27 @@ export default function ChatCenter() {
                       >
                         Pausar Bot (Modo Manual)
                       </button>
+                    </div>
+                  )}
+
+                  {deliveryNotice && (
+                    <div style={{
+                      padding: '10px 14px',
+                      marginBottom: '10px',
+                      borderRadius: '8px',
+                      backgroundColor: deliveryNotice.type === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(234, 179, 8, 0.15)',
+                      border: `1px solid ${deliveryNotice.type === 'error' ? 'rgba(239, 68, 68, 0.35)' : 'rgba(234, 179, 8, 0.35)'}`,
+                      color: deliveryNotice.type === 'error' ? '#f87171' : '#facc15',
+                      fontSize: '0.86rem',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <div>
+                        <strong>⚠️ {deliveryNotice.text}</strong>
+                        {deliveryNotice.detail && <p style={{ margin: '3px 0 0 0', opacity: 0.95, fontSize: '0.82rem' }}>{deliveryNotice.detail}</p>}
+                      </div>
+                      <button type="button" onClick={() => setDeliveryNotice(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '1rem', padding: '0 4px' }}>✕</button>
                     </div>
                   )}
                   <form onSubmit={handleSendChat} style={{ display: 'flex', gap: '10px' }}>
