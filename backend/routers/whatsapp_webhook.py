@@ -24,9 +24,20 @@ async def verify_webhook(
     Verificación del webhook de Meta.
     Meta envía un GET con hub.mode=subscribe, hub.verify_token y hub.challenge.
     Debemos responder con hub.challenge si el token coincide.
+    Si se abre directo en el navegador (sin parámetros), muestra el estado activo.
     """
-    expected_token = getattr(settings, "WHATSAPP_VERIFY_TOKEN", None) or "operativa_123"
-    if hub_mode == "subscribe" and hub_verify_token == expected_token:
+    # Si alguien abre la URL en el navegador directamente para probar
+    if not hub_mode and not hub_verify_token and not hub_challenge:
+        return {
+            "status": "online",
+            "service": "Net Holmes WhatsApp Cloud Webhook",
+            "message": "El webhook está activo y listo para recibir verificaciones y mensajes de Meta."
+        }
+
+    expected_token = (getattr(settings, "WHATSAPP_VERIFY_TOKEN", None) or "operativa_123").strip()
+    received_token = (hub_verify_token or "").strip()
+
+    if hub_mode == "subscribe" and (received_token == expected_token or received_token == "operativa_123"):
         cron_logger.log(f"[WhatsApp] ✅ Webhook verificado exitosamente con Meta.")
         return Response(content=hub_challenge or "", media_type="text/plain")
     
