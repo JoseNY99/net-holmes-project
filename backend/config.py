@@ -119,6 +119,7 @@ class Settings(BaseSettings):
     WHATSAPP_ACCESS_TOKEN: str | None = None
     WHATSAPP_PHONE_NUMBER_ID: str | None = None
     WHATSAPP_BUSINESS_ACCOUNT_ID: str | None = None
+    WHATSAPP_VERIFY_TOKEN: str = "operativa_123"
     # ─── Google Serper / Custom Search API ───
     SERPER_API_KEY: str | None = None
     GOOGLE_CSE_API_KEY: str | None = None

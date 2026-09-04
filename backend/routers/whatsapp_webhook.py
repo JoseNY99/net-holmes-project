@@ -25,12 +25,13 @@ async def verify_webhook(
     Meta envía un GET con hub.mode=subscribe, hub.verify_token y hub.challenge.
     Debemos responder con hub.challenge si el token coincide.
     """
-    if hub_mode == "subscribe" and hub_verify_token == settings.WHATSAPP_VERIFY_TOKEN:
-        cron_logger.log(f"[WhatsApp] ✅ Webhook verificado exitosamente.")
-        return Response(content=hub_challenge, media_type="text/plain")
+    expected_token = getattr(settings, "WHATSAPP_VERIFY_TOKEN", None) or "operativa_123"
+    if hub_mode == "subscribe" and hub_verify_token == expected_token:
+        cron_logger.log(f"[WhatsApp] ✅ Webhook verificado exitosamente con Meta.")
+        return Response(content=hub_challenge or "", media_type="text/plain")
     
-    cron_logger.log(f"[WhatsApp] ❌ Verificación fallida. Token recibido: {hub_verify_token}")
-    raise HTTPException(status_code=403, detail="Verificación fallida")
+    cron_logger.log(f"[WhatsApp] ❌ Verificación fallida. Token recibido: '{hub_verify_token}', esperado: '{expected_token}'")
+    raise HTTPException(status_code=403, detail="Verificación fallida: Token incorrecto")
 
 
 @router.post("")
