@@ -133,6 +133,11 @@ def list_all_keys(db: Session) -> list[dict]:
 def upsert_api_key(db: Session, service_name: str, api_key: str, description: str = None, is_active: bool = True, extra_config: dict = None) -> ApiKeySetting:
     """Inserta o actualiza una API key en la base de datos."""
     srv = service_name.lower().strip()
+    if srv == "deepseek" and api_key:
+        api_key = api_key.strip()
+        if not api_key.startswith("sk-") and len(api_key) >= 20:
+            api_key = f"sk-{api_key}"
+
     db_entry = db.query(ApiKeySetting).filter(ApiKeySetting.service_name == srv).first()
 
     extra_str = json.dumps(extra_config) if extra_config is not None else None
@@ -169,13 +174,18 @@ def delete_api_key(db: Session, service_name: str) -> bool:
         return True
     return False
 
-async def test_service_connection(service_name: str, key_override: str = None, db: Session = None) -> dict:
+async def test_service_connection(service_name: str, key_override: str = None, extra_config = None, db: Session = None) -> dict:
     """Ejecuta un test de conectividad en vivo con el proveedor para validar la API Key."""
     srv = service_name.lower().strip()
     key = key_override or get_active_api_key(srv, db=db)
 
     if not key:
         return {"success": False, "message": "No hay ninguna API Key configurada para este servicio.", "latency_ms": 0}
+
+    if extra_config is None and db is not None:
+        setting = db.query(ApiKeySetting).filter(ApiKeySetting.service_name == srv).first()
+        if setting and setting.extra_config:
+            extra_config = setting.extra_config
 
     t0 = time.time()
     try:
@@ -232,9 +242,12 @@ async def test_service_connection(service_name: str, key_override: str = None, d
                     return {"success": False, "message": f"Error Cerebras ({resp.status_code}): {resp.text}", "latency_ms": latency}
 
             elif srv == "deepseek":
+                clean_key = key.strip()
+                if not clean_key.startswith("sk-") and len(clean_key) >= 20:
+                    clean_key = f"sk-{clean_key}"
                 resp = await client.get(
                     "https://api.deepseek.com/models",
-                    headers={"Authorization": f"Bearer {key}"}
+                    headers={"Authorization": f"Bearer {clean_key}"}
                 )
                 latency = int((time.time() - t0) * 1000)
                 if resp.status_code == 200:

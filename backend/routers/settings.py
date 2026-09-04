@@ -59,7 +59,8 @@ def get_whatsapp_settings(
         "whatsapp_access_token": masked_token,
         "whatsapp_phone_number_id": phone_number_id or "",
         "whatsapp_business_account_id": business_account_id or "",
-        "whatsapp_verify_token": verify_token or "operativa_123"
+        "whatsapp_verify_token": verify_token or "operativa_123",
+        "is_configured": bool(access_token and phone_number_id)
     }
 
 @router.post("/whatsapp")
@@ -68,8 +69,29 @@ def update_whatsapp_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Guarda toda la configuración de WhatsApp directamente en la Base de Datos (PostgreSQL)."""
+    """Guarda toda la configuración de WhatsApp directamente en la Base de Datos (PostgreSQL), validando que no esté vacía."""
     setting = db.query(ApiKeySetting).filter(ApiKeySetting.service_name == "meta_whatsapp").first()
+    
+    # Extraer candidatos
+    token_candidate = (data.whatsapp_access_token or "").strip()
+    phone_candidate = (data.whatsapp_phone_number_id or "").strip()
+
+    # Validar que no se guarden registros vacíos
+    is_masked = ("..." in token_candidate or "***" in token_candidate or "••••" in token_candidate)
+    has_existing_token = bool(setting and setting.api_key) or bool(settings.WHATSAPP_ACCESS_TOKEN)
+
+    if not is_masked and not token_candidate and not has_existing_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se pueden guardar campos vacíos. Debe ingresar al menos el WhatsApp Access Token y el Phone Number ID. Si desea eliminar las credenciales, use 'Borrar Datos'."
+        )
+
+    if not phone_candidate and not (setting and setting.extra_config and "whatsapp_phone_number_id" in setting.extra_config):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El Phone Number ID es obligatorio para operar el bot de WhatsApp. Ingrese el ID numérico proporcionado por Meta."
+        )
+
     if not setting:
         setting = ApiKeySetting(
             service_name="meta_whatsapp",
@@ -87,16 +109,13 @@ def update_whatsapp_settings(
             extra = {}
 
     # Actualizar token si no viene enmascarado
-    if data.whatsapp_access_token and "..." not in data.whatsapp_access_token and "***" not in data.whatsapp_access_token:
-        clean_token = data.whatsapp_access_token.strip()
-        if clean_token:
-            setting.api_key = clean_token
-            settings.WHATSAPP_ACCESS_TOKEN = clean_token
+    if token_candidate and not is_masked:
+        setting.api_key = token_candidate
+        settings.WHATSAPP_ACCESS_TOKEN = token_candidate
 
-    if data.whatsapp_phone_number_id is not None:
-        clean_phone = data.whatsapp_phone_number_id.strip()
-        extra["whatsapp_phone_number_id"] = clean_phone
-        settings.WHATSAPP_PHONE_NUMBER_ID = clean_phone
+    if data.whatsapp_phone_number_id is not None and phone_candidate:
+        extra["whatsapp_phone_number_id"] = phone_candidate
+        settings.WHATSAPP_PHONE_NUMBER_ID = phone_candidate
 
     if data.whatsapp_business_account_id is not None:
         clean_biz = data.whatsapp_business_account_id.strip()
@@ -105,8 +124,9 @@ def update_whatsapp_settings(
 
     if data.whatsapp_verify_token is not None:
         clean_verify = data.whatsapp_verify_token.strip()
-        extra["whatsapp_verify_token"] = clean_verify
-        settings.WHATSAPP_VERIFY_TOKEN = clean_verify
+        if clean_verify:
+            extra["whatsapp_verify_token"] = clean_verify
+            settings.WHATSAPP_VERIFY_TOKEN = clean_verify
 
     setting.extra_config = json.dumps(extra)
     setting.is_active = True
@@ -133,6 +153,30 @@ def update_whatsapp_settings(
     return {"status": "ok", "message": "Configuración de WhatsApp guardada correctamente en la Base de Datos"}
 
 
+@router.delete("/whatsapp")
+def delete_whatsapp_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Elimina las credenciales de WhatsApp de la base de datos y resetea la configuración."""
+    setting = db.query(ApiKeySetting).filter(ApiKeySetting.service_name == "meta_whatsapp").first()
+    if setting:
+        db.delete(setting)
+        db.commit()
+
+    # Limpiar configuración en memoria
+    settings.WHATSAPP_ACCESS_TOKEN = None
+    settings.WHATSAPP_PHONE_NUMBER_ID = None
+    settings.WHATSAPP_BUSINESS_ACCOUNT_ID = None
+
+    cron_logger.log(f"[Settings] 🗑️ Credenciales de WhatsApp eliminadas de la BD por {current_user.correo}.")
+
+    return {
+        "status": "ok",
+        "message": "Credenciales de WhatsApp eliminadas correctamente de la base de datos."
+    }
+
+
 class WhatsAppTestRequest(BaseModel):
     whatsapp_access_token: Optional[str] = None
     whatsapp_phone_number_id: Optional[str] = None
@@ -157,7 +201,22 @@ async def test_whatsapp_connection_endpoint(
     if not token:
         return {"success": False, "message": "No hay un WhatsApp Access Token configurado para probar.", "latency_ms": 0}
 
-    phone_id = data.whatsapp_phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
-    res = await test_service_connection("meta_whatsapp", token, {"whatsapp_phone_number_id": phone_id})
+    phone_id = data.whatsapp_phone_number_id
+    if (not phone_id or "..." in phone_id) and setting and setting.extra_config:
+        try:
+            cfg = json.loads(setting.extra_config)
+            phone_id = cfg.get("whatsapp_phone_number_id") or cfg.get("phone_number_id")
+        except Exception:
+            pass
+
+    if not phone_id:
+        phone_id = settings.WHATSAPP_PHONE_NUMBER_ID
+
+    res = await test_service_connection(
+        service_name="meta_whatsapp",
+        key_override=token,
+        extra_config={"whatsapp_phone_number_id": phone_id},
+        db=db
+    )
     return res
 

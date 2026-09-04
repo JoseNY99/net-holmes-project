@@ -10,6 +10,7 @@ DeepSeek (backup):  Económico, buena calidad pero más lento (~2-5s).
 
 import re
 import json
+from datetime import datetime
 from openai import AsyncOpenAI
 from typing import Optional, Dict, Any
 from config import settings
@@ -67,14 +68,36 @@ def _get_client_and_model():
     config = LLM_CONFIGS.get(provider)
 
     if not config:
-        cron_logger.log(f"[LLM] ❌ Proveedor desconocido: {provider}. Usando cerebras como fallback.")
         config = LLM_CONFIGS["cerebras"]
         provider = "cerebras"
 
     from services.api_key_service import get_active_api_key
+    
+    def _clean_key(prov: str, k: str) -> str:
+        if not k:
+            return k
+        k = k.strip()
+        if prov == "deepseek" and not k.startswith("sk-") and len(k) >= 20:
+            return f"sk-{k}"
+        return k
+
+    # 1. Intentar con el proveedor preferido (desde DB o .env)
     api_key = get_active_api_key(provider) or getattr(settings, config["api_key_attr"], None)
+    if api_key:
+        api_key = _clean_key(provider, api_key)
+
+    # 2. Si no hay key para el proveedor preferido, intentar con el alternativo (DeepSeek o Cerebras)
     if not api_key:
-        cron_logger.log(f"[LLM] ⚠️ API Key no configurada en DB ni .env para {provider}. Extracción LLM omitida.")
+        other_provider = "deepseek" if provider == "cerebras" else "cerebras"
+        other_config = LLM_CONFIGS[other_provider]
+        other_key = get_active_api_key(other_provider) or getattr(settings, other_config["api_key_attr"], None)
+        if other_key:
+            other_key = _clean_key(other_provider, other_key)
+            cron_logger.log(f"[LLM] 🔄 Usando proveedor secundario {other_provider.upper()} con credencial activa.")
+            client = AsyncOpenAI(api_key=other_key, base_url=other_config["base_url"])
+            return client, other_config["model"]
+
+        cron_logger.log(f"[LLM] ℹ️ Sin API Key de LLM (Cerebras/DeepSeek) activa en DB. Se usarán respuestas heurísticas de contingencia.")
         return None, None
 
     client = AsyncOpenAI(
@@ -210,9 +233,48 @@ async def generate_honeypot_response(conversation_history: list, target_info: di
             cron_logger.log(f"[Honeypot LLM] 🛡️ Mensaje adversarial/tarea/acoso detectado ('{last_msg[:40]}'). El bot se queda en silencio.")
             return ""
 
+def _generate_contingency_reply(conversation_history: list, target_info: dict) -> str:
+    """Genera respuestas inteligentes de contingencia según la hora del sistema y el contexto cuando el LLM no está activo."""
+    hour = datetime.now().hour
+    if 6 <= hour < 13:
+        saludo = "Buenos días"
+    elif 13 <= hour < 20:
+        saludo = "Buenas tardes"
+    else:
+        saludo = "Buenas noches"
+
+    last_text = ""
+    if conversation_history:
+        last_text = (conversation_history[-1].get("text", "") or "").lower().strip()
+
+    if any(k in last_text for k in ["alias", "cbu", "cvu", "mercadopago", "cuenta", "banco", "transfer"]):
+        return "¡Buenísimo! ¿A nombre de quién está la cuenta o alias para verificar la transferencia?"
+    elif any(k in last_text for k in ["precio", "sale", "cuesta", "cuanto", "total", "$", "pesos", "dolar"]):
+        return "Dale impecable, me sirve el precio. ¿Qué Alias o CVU de MercadoPago me pasás para hacerte el pago?"
+    elif any(k in last_text for k in ["zona", "donde", "local", "showroom", "retirar", "envio", "envíos", "moto"]):
+        return "¿Por qué zona están para pasar a retirar en persona o cómo hacen con los envíos?"
+    elif any(k in last_text for k in ["talle", "stock", "color", "modelo", "disponible", "quedan"]):
+        return "¿Te queda stock disponible? ¿Cómo hacemos para coordinar el pago y la entrega?"
+    elif len(conversation_history) <= 1:
+        return f"¡Hola! {saludo}, vi tu publicación. ¿Sigue disponible? ¿Cuánto sale y cómo hacemos para coordinar?"
+    else:
+        return "Dale joya, ¿cómo hacemos para coordinar el pago y retiro?"
+
+
+async def generate_honeypot_response(conversation_history: list, target_info: dict) -> str:
+    """
+    Genera una respuesta honeypot contextual usando el LLM o heurística de contingencia.
+    Diseñada para que el infractor revele más datos (financieros, identidad, ubicación).
+    """
+    if conversation_history:
+        last_msg = conversation_history[-1].get("text", "")
+        if _is_adversarial_or_strange(last_msg):
+            cron_logger.log(f"[Honeypot LLM] 🛡️ Mensaje adversarial/tarea/acoso detectado ('{last_msg[:40]}'). El bot se queda en silencio.")
+            return ""
+
     client, model = _get_client_and_model()
     if not client:
-        return "Hola! Me interesa, ¿cómo hacemos para coordinar? ¿Tenés MercadoPago?"
+        return _generate_contingency_reply(conversation_history, target_info)
 
     system_prompt = f"""Eres un comprador argentino interesado ÚNICAMENTE en comprar un producto publicado ({target_info.get('marca', 'ropa/calzado')}). Estás hablando por WhatsApp o mensaje privado con el vendedor.
 
@@ -268,5 +330,5 @@ Tu único objetivo y comportamiento es ser un cliente real que quiere coordinar 
         return reply
 
     except Exception as e:
-        cron_logger.log(f"[Honeypot LLM] ❌ Error generando respuesta: {e}")
-        return "Dale joya, ¿cómo hacemos para coordinar el pago y envío?"
+        cron_logger.log(f"[Honeypot LLM] ❌ Error en LLM ({e}). Usando contingencia contextual.")
+        return _generate_contingency_reply(conversation_history, target_info)

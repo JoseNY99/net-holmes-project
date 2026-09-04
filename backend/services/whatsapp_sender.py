@@ -3,6 +3,7 @@ Servicio de envío de mensajes vía WhatsApp Cloud API.
 Incluye el motor de respuesta Honeypot con LLM contextual.
 """
 
+import re
 import json
 import httpx
 from config import settings
@@ -36,21 +37,30 @@ def get_active_whatsapp_credentials(db=None):
     return token, phone_id
 
 
-async def send_text_message(phone: str, text: str, db=None) -> bool:
+async def send_text_message(phone: str, text: str, db=None) -> tuple[bool, str]:
     """
     Envía un mensaje de texto via WhatsApp Cloud API.
     
     Args:
-        phone: Número destino en formato E.164 (ej: 5491112345678)
+        phone: Número destino (se sanitiza automáticamente para dejar solo dígitos)
         text: Contenido del mensaje
+        db: Sesión SQLAlchemy opcional
     
     Returns:
-        True si se envió exitosamente, False en caso contrario
+        tuple (success: bool, detail: str)
     """
     token, phone_id = get_active_whatsapp_credentials(db)
     if not token or not phone_id:
-        cron_logger.log("[WhatsApp Sender] ⚠️ Credenciales de WhatsApp no configuradas en BD ni .env. Mensaje NO enviado.")
-        return False
+        err = "Credenciales de WhatsApp (Token o Phone Number ID) no configuradas en BD."
+        cron_logger.log(f"[WhatsApp Sender] ⚠️ {err}")
+        return False, err
+
+    # Sanitizar número: Meta exige estrictamente solo dígitos E.164 (sin +, espacios ni guiones)
+    clean_phone = re.sub(r'\D', '', str(phone or ''))
+    if not clean_phone or len(clean_phone) < 8:
+        err = f"Número de teléfono inválido ('{phone}'). Debe contener al menos 8 dígitos."
+        cron_logger.log(f"[WhatsApp Sender] ❌ {err}")
+        return False, err
 
     url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
     headers = {
@@ -59,7 +69,7 @@ async def send_text_message(phone: str, text: str, db=None) -> bool:
     }
     payload = {
         "messaging_product": "whatsapp",
-        "to": phone,
+        "to": clean_phone,
         "type": "text",
         "text": {"body": text},
     }
@@ -67,12 +77,34 @@ async def send_text_message(phone: str, text: str, db=None) -> bool:
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            cron_logger.log(f"[WhatsApp Sender] ✅ Mensaje enviado a {phone}: {text[:50]}...")
-            return True
+            resp_data = response.json() if "application/json" in response.headers.get("content-type", "") else {}
+
+            if response.status_code == 200 and "messages" in resp_data:
+                msg_id = resp_data["messages"][0].get("id", "OK")
+                cron_logger.log(f"[WhatsApp Sender] ✅ Mensaje enviado exitosamente a {clean_phone} (Meta ID: {msg_id}): {text[:50]}...")
+                return True, f"Mensaje enviado exitosamente (Meta ID: {msg_id})"
+            else:
+                error_info = resp_data.get("error", {})
+                error_msg = error_info.get("message", response.text)
+                error_code = error_info.get("code")
+                error_subcode = error_info.get("error_subcode")
+                
+                # Humanizar errores frecuentes de Meta para el usuario/analista
+                human_reason = error_msg
+                if error_code == 131030:
+                    human_reason = f"El número {clean_phone} no está en la lista de destinatarios permitidos (To) de tu cuenta de Meta for Developers. Agrégalo en el panel de Meta antes de enviar mensajes de prueba."
+                elif error_code == 131047:
+                    human_reason = f"Han pasado más de 24 horas desde la última interacción de {clean_phone}. Meta exige que la persona envíe un mensaje primero a tu número de WhatsApp para abrir la ventana de atención."
+                elif error_code == 190:
+                    human_reason = "El Access Token de WhatsApp ha expirado o no es válido. Genere o guarde un token nuevo en Ajustes de WhatsApp."
+                elif error_code == 100:
+                    human_reason = f"Phone Number ID incorrecto o parámetro inválido en Meta ({error_msg})."
+                
+                cron_logger.log(f"[WhatsApp Sender] ❌ Error Meta ({error_code}/{error_subcode}) al enviar a {clean_phone}: {human_reason}")
+                return False, human_reason
     except Exception as e:
-        cron_logger.log(f"[WhatsApp Sender] ❌ Error enviando mensaje a {phone}: {e}")
-        return False
+        cron_logger.log(f"[WhatsApp Sender] ❌ Error de red enviando a {clean_phone}: {e}")
+        return False, str(e)
 
 
 async def send_honeypot_reply(db, conversation, incoming_message):
@@ -118,9 +150,23 @@ async def send_honeypot_reply(db, conversation, incoming_message):
 
     # Generar respuesta con LLM
     reply_text = await generate_honeypot_response(history, target_info)
+    if not reply_text:
+        return None
+
+    # Si es el chat de prueba @curtis_holmes, no enviamos a Meta Cloud API, solo guardamos en DB
+    if conversation.whatsapp_phone == "@curtis_holmes" or (conversation.reporte and conversation.reporte.titular_cuenta == "@curtis_holmes"):
+        bot_msg = Message(
+            conversation_id=conversation.id,
+            sender="bot",
+            text=reply_text,
+        )
+        db.add(bot_msg)
+        db.commit()
+        cron_logger.log(f"[Curtis Holmes AI] 🤖 Respuesta de prueba generada: {reply_text[:60]}...")
+        return reply_text
 
     # Enviar por WhatsApp
-    success = await send_text_message(conversation.whatsapp_phone, reply_text)
+    success, _detail = await send_text_message(conversation.whatsapp_phone, reply_text, db=db)
 
     if success:
         # Guardar la respuesta del bot en la conversación
@@ -132,5 +178,7 @@ async def send_honeypot_reply(db, conversation, incoming_message):
         db.add(bot_msg)
         db.commit()
         cron_logger.log(f"[Honeypot] 🤖 Respuesta bot enviada y registrada: {reply_text[:60]}...")
+        return reply_text
     else:
         cron_logger.log(f"[Honeypot] ⚠️ Respuesta generada pero no se pudo enviar por WhatsApp.")
+        return None

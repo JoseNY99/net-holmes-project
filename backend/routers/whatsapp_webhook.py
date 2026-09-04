@@ -121,9 +121,32 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                             db.refresh(conversation)
                             cron_logger.log(f"[WhatsApp] 🔗 Conversación vinculada al Reporte #{reporte.id}")
                         else:
-                            # No hay reporte asociado — loguear y continuar
-                            cron_logger.log(f"[WhatsApp] ⚠️ No se encontró reporte para el número {sender_phone}. Mensaje descartado.")
-                            continue
+                            # No hay reporte asociado — Crear reporte y conversación automáticamente para que repercuta en Chat Center
+                            clean_phone = sender_phone.replace("+", "").strip()
+                            reporte = ReporteBrandDefense(
+                                pais="Argentina",
+                                producto_catalogo="Contacto Directo WhatsApp",
+                                marca_afectada="WhatsApp Inbound",
+                                plataforma="WhatsApp",
+                                titular_cuenta=f"+{clean_phone}",
+                                url_evidencia=f"https://wa.me/{clean_phone}",
+                                telefono_publico=sender_phone,
+                                estado="Sospechoso",
+                            )
+                            db.add(reporte)
+                            db.commit()
+                            db.refresh(reporte)
+
+                            conversation = Conversation(
+                                reporte_id=reporte.id,
+                                mode="bot",
+                                is_bot_active=True,
+                                whatsapp_phone=sender_phone,
+                            )
+                            db.add(conversation)
+                            db.commit()
+                            db.refresh(conversation)
+                            cron_logger.log(f"[WhatsApp] 🆕 Nuevo reporte #{reporte.id} y conversación creados automáticamente para {sender_phone}")
                     
                     # Guardar el mensaje
                     new_msg = Message(

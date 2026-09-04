@@ -25,6 +25,26 @@ const chatService = {
   linkWhatsApp: (reporteId, whatsappPhone) => {
     return api.post(`/api/chat/${reporteId}/link-whatsapp`, { whatsapp_phone: whatsappPhone });
   },
+
+  // Enviar mensaje en simulación @curtis_holmes (solo admin/sup_admin)
+  sendCurtisMessage: (text, sender = 'infractor') => {
+    return api.post('/api/chat/curtis/message', { text, sender });
+  },
+
+  // Reiniciar chat de prueba @curtis_holmes (solo admin/sup_admin)
+  resetCurtis: () => {
+    return api.post('/api/chat/curtis/reset');
+  },
+
+  // Agregar número temporal para pruebas por WhatsApp (solo admin/sup_admin)
+  addTemporaryNumber: (payload) => {
+    return api.post('/api/chat/add-number', payload);
+  },
+
+  // Dar orden de arrancar al bot en una conversación
+  startBot: (reporteId, customMessage = null) => {
+    return api.post(`/api/chat/${reporteId}/start-bot`, { custom_message: customMessage });
+  },
 };
 
 export default chatService;

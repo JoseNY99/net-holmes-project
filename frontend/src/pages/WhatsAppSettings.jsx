@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { FaWhatsapp, FaEye, FaEyeSlash, FaSave, FaCheckCircle, FaExclamationTriangle, FaVial, FaSpinner } from 'react-icons/fa';
+import { 
+  FaWhatsapp, FaEye, FaEyeSlash, FaSave, FaCheckCircle, 
+  FaExclamationTriangle, FaVial, FaSpinner, FaEdit, FaTrash, FaTimes, FaLock 
+} from 'react-icons/fa';
 import api from '../services/api';
 import Modal from '../components/Modal';
 
@@ -14,7 +17,11 @@ export default function WhatsAppSettings() {
   const [showToken, setShowToken] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [isConfigured, setIsConfigured] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [message, setMessage] = useState(null);
 
   // Estado del Modal de Resultados (Pruebas y Guardado)
@@ -35,15 +42,19 @@ export default function WhatsAppSettings() {
     try {
       setLoading(true);
       const res = await api.get('/api/settings/whatsapp');
+      const hasConfig = Boolean(res.data?.is_configured || (res.data?.whatsapp_access_token && res.data?.whatsapp_phone_number_id));
+      setIsConfigured(hasConfig);
+      setIsEditing(!hasConfig); // Si no hay nada configurado, arranca en modo edición directa
+
       setFormData({
         whatsapp_access_token: res.data.whatsapp_access_token || '',
         whatsapp_phone_number_id: res.data.whatsapp_phone_number_id || '',
         whatsapp_business_account_id: res.data.whatsapp_business_account_id || '',
-        whatsapp_verify_token: res.data.whatsapp_verify_token || ''
+        whatsapp_verify_token: res.data.whatsapp_verify_token || 'operativa_123'
       });
     } catch (err) {
       console.error("Error fetching settings:", err);
-      setMessage({ type: 'error', text: 'No se pudo cargar la configuración actual.' });
+      setMessage({ type: 'error', text: 'No se pudo cargar la configuración actual de WhatsApp.' });
     } finally {
       setLoading(false);
     }
@@ -56,11 +67,42 @@ export default function WhatsAppSettings() {
 
   const handleSave = async (e) => {
     e.preventDefault();
+
+    // 1. Validación de campos vacíos
+    const token = (formData.whatsapp_access_token || '').trim();
+    const phoneId = (formData.whatsapp_phone_number_id || '').trim();
+    const isMasked = token.includes('...') || token.includes('***') || token.includes('••••');
+
+    if (!isMasked && !token) {
+      setModal({
+        isOpen: true,
+        title: 'Campos Vacíos',
+        type: 'error',
+        message: 'No se pueden guardar credenciales vacías.',
+        details: 'El campo WhatsApp Access Token es obligatorio. Si deseas borrar las credenciales existentes, haz clic en "Borrar Datos".',
+        latency_ms: null
+      });
+      return;
+    }
+
+    if (!phoneId) {
+      setModal({
+        isOpen: true,
+        title: 'Campos Incompletos',
+        type: 'error',
+        message: 'El Phone Number ID es obligatorio.',
+        details: 'Debes proporcionar el identificador numérico de tu teléfono registrado en Meta para poder operar el bot.',
+        latency_ms: null
+      });
+      return;
+    }
+
     setSaving(true);
     setMessage(null);
     try {
       const res = await api.post('/api/settings/whatsapp', formData);
-      fetchSettings(); // Recargar datos
+      await fetchSettings();
+      setIsEditing(false);
       setModal({
         isOpen: true,
         title: 'Configuración Guardada',
@@ -77,7 +119,7 @@ export default function WhatsAppSettings() {
         title: 'Error al Guardar',
         type: 'error',
         message: errorDetail,
-        details: 'Verifique que su usuario cuente con permisos de administrador o intente de nuevo.',
+        details: 'Verifique los datos ingresados o revise que el servidor esté activo.',
         latency_ms: null
       });
     } finally {
@@ -85,14 +127,65 @@ export default function WhatsAppSettings() {
     }
   };
 
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await api.delete('/api/settings/whatsapp');
+      setShowDeleteConfirm(false);
+      setFormData({
+        whatsapp_access_token: '',
+        whatsapp_phone_number_id: '',
+        whatsapp_business_account_id: '',
+        whatsapp_verify_token: 'operativa_123'
+      });
+      setIsConfigured(false);
+      setIsEditing(true);
+      setModal({
+        isOpen: true,
+        title: 'Credenciales Eliminadas',
+        type: 'success',
+        message: res.data?.message || 'Las credenciales de WhatsApp fueron eliminadas de la base de datos.',
+        details: 'El sistema ha restablecido la configuración a valores vacíos. Puedes volver a ingresar nuevas credenciales.',
+        latency_ms: null
+      });
+    } catch (err) {
+      console.error("Error deleting settings:", err);
+      const errorDetail = err.response?.data?.detail || err.message || 'Error al eliminar credenciales.';
+      setShowDeleteConfirm(false);
+      setModal({
+        isOpen: true,
+        title: 'Error al Eliminar',
+        type: 'error',
+        message: errorDetail,
+        details: 'No se pudo completar la eliminación en la base de datos.',
+        latency_ms: null
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleTestConnection = async () => {
+    // Si no hay token ni phoneId ingresados, avisar
+    if (!formData.whatsapp_access_token?.trim() && !formData.whatsapp_phone_number_id?.trim()) {
+      setModal({
+        isOpen: true,
+        title: 'Sin Credenciales',
+        type: 'error',
+        message: 'No hay credenciales ingresadas para probar.',
+        details: 'Ingresa al menos el WhatsApp Access Token o guarda la configuración primero para poder probar la conexión interna.',
+        latency_ms: null
+      });
+      return;
+    }
+
     setTesting(true);
     setModal({
       isOpen: true,
-      title: 'Probando Conexión con Meta',
+      title: 'Probando Conexión Interna',
       type: 'testing',
-      message: 'Conectando con Meta Graph API (v21.0)...',
-      details: 'Consultando la validez del WhatsApp Access Token y el Phone Number ID en los servidores de Meta.',
+      message: 'Verificando comunicación con Meta Graph API (v21.0)...',
+      details: 'Consultando la validez del Access Token y el Phone Number ID en los servidores oficiales de Meta.',
       latency_ms: null
     });
 
@@ -141,12 +234,31 @@ export default function WhatsAppSettings() {
 
   return (
     <div className="page-container fade-in">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
-        <div className="avatar-large"><FaWhatsapp /></div>
-        <div>
-          <h2>Configuración de WhatsApp Cloud API</h2>
-          <p className="text-secondary">Credenciales para el Chat Center y Webhook de Meta</p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <div className="avatar-large"><FaWhatsapp /></div>
+          <div>
+            <h2>Configuración de WhatsApp Cloud API</h2>
+            <p className="text-secondary">Credenciales para el Chat Center y Webhook de Meta</p>
+          </div>
         </div>
+
+        {isConfigured && !isEditing && (
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: 'rgba(34, 197, 94, 0.15)',
+            color: '#4ade80',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            padding: '6px 14px',
+            borderRadius: '20px',
+            fontSize: '0.85rem',
+            fontWeight: '600'
+          }}>
+            <FaLock /> Credenciales Activas en BD
+          </span>
+        )}
       </div>
 
       {message && (
@@ -167,8 +279,14 @@ export default function WhatsAppSettings() {
                 value={formData.whatsapp_access_token}
                 onChange={handleChange}
                 placeholder="EAAA..."
+                disabled={isConfigured && !isEditing}
                 autoComplete="current-password"
-                style={{ width: '100%', paddingRight: '40px' }}
+                style={{ 
+                  width: '100%', 
+                  paddingRight: '40px',
+                  opacity: (isConfigured && !isEditing) ? 0.75 : 1,
+                  cursor: (isConfigured && !isEditing) ? 'not-allowed' : 'text'
+                }}
               />
               <button 
                 type="button" 
@@ -199,7 +317,12 @@ export default function WhatsAppSettings() {
               value={formData.whatsapp_phone_number_id}
               onChange={handleChange}
               placeholder="Ej: 123456789012345"
-              style={{ width: '100%' }}
+              disabled={isConfigured && !isEditing}
+              style={{ 
+                width: '100%',
+                opacity: (isConfigured && !isEditing) ? 0.75 : 1,
+                cursor: (isConfigured && !isEditing) ? 'not-allowed' : 'text'
+              }}
             />
             <small style={{ color: 'var(--text-secondary)' }}>Identificador único del número de teléfono remitente.</small>
           </div>
@@ -213,7 +336,12 @@ export default function WhatsAppSettings() {
               value={formData.whatsapp_business_account_id}
               onChange={handleChange}
               placeholder="Ej: 109876543210987"
-              style={{ width: '100%' }}
+              disabled={isConfigured && !isEditing}
+              style={{ 
+                width: '100%',
+                opacity: (isConfigured && !isEditing) ? 0.75 : 1,
+                cursor: (isConfigured && !isEditing) ? 'not-allowed' : 'text'
+              }}
             />
           </div>
 
@@ -226,20 +354,70 @@ export default function WhatsAppSettings() {
               value={formData.whatsapp_verify_token}
               onChange={handleChange}
               placeholder="Ej: mi_secreto_seguro_123"
-              style={{ width: '100%' }}
+              disabled={isConfigured && !isEditing}
+              style={{ 
+                width: '100%',
+                opacity: (isConfigured && !isEditing) ? 0.75 : 1,
+                cursor: (isConfigured && !isEditing) ? 'not-allowed' : 'text'
+              }}
             />
             <small style={{ color: 'var(--text-secondary)' }}>El mismo token que pegarás en la configuración del Webhook de Meta.</small>
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
-            <button 
-              type="submit" 
-              className="btn-primary" 
-              disabled={saving}
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '1rem', cursor: 'pointer' }}
-            >
-              <FaSave /> {saving ? 'Guardando en BD...' : 'Guardar Configuración'}
-            </button>
+            {isConfigured && !isEditing ? (
+              <>
+                <button 
+                  type="button" 
+                  onClick={() => setIsEditing(true)}
+                  className="btn-primary" 
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '1rem', cursor: 'pointer' }}
+                >
+                  <FaEdit /> Editar Datos
+                </button>
+
+                <button 
+                  type="button" 
+                  onClick={() => setShowDeleteConfirm(true)}
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    padding: '12px 20px', 
+                    fontSize: '1rem',
+                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    color: '#f87171',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <FaTrash /> Borrar Datos
+                </button>
+              </>
+            ) : (
+              <>
+                <button 
+                  type="submit" 
+                  className="btn-primary" 
+                  disabled={saving}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '1rem', cursor: 'pointer' }}
+                >
+                  <FaSave /> {saving ? 'Guardando...' : (isConfigured ? 'Guardar Cambios' : 'Guardar Configuración')}
+                </button>
+
+                {isConfigured && (
+                  <button 
+                    type="button" 
+                    onClick={() => { setIsEditing(false); fetchSettings(); }}
+                    className="btn-secondary"
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', fontSize: '1rem', cursor: 'pointer' }}
+                  >
+                    <FaTimes /> Cancelar
+                  </button>
+                )}
+              </>
+            )}
 
             <button 
               type="button" 
@@ -256,14 +434,52 @@ export default function WhatsAppSettings() {
                 border: '1px solid rgba(59, 130, 246, 0.4)',
                 color: '#60a5fa',
                 borderRadius: '8px',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                marginLeft: 'auto'
               }}
             >
-              <FaVial /> {testing ? 'Probando conexión...' : '🧪 Probar Conexión'}
+              <FaVial /> {testing ? 'Probando...' : '🧪 Probar Conexión'}
             </button>
           </div>
         </form>
       </div>
+
+      {/* Modal de Confirmación de Borrado */}
+      <Modal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        title="Confirmar Eliminación"
+        footer={
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', width: '100%' }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={deleting}
+              style={{ padding: '8px 16px', cursor: 'pointer' }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleDelete}
+              disabled={deleting}
+              style={{ padding: '8px 16px', backgroundColor: '#ef4444', borderColor: '#ef4444', cursor: 'pointer' }}
+            >
+              {deleting ? 'Borrando...' : 'Sí, Borrar Credenciales'}
+            </button>
+          </div>
+        }
+      >
+        <div style={{ textAlign: 'center', padding: '15px 10px' }}>
+          <FaTrash style={{ fontSize: '3rem', color: '#ef4444', marginBottom: '16px' }} />
+          <h4 style={{ fontSize: '1.2rem', marginBottom: '10px' }}>¿Eliminar credenciales de WhatsApp?</h4>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+            Esta acción eliminará el Access Token y el Phone Number ID de la base de datos PostgreSQL. El bot dejará de recibir y responder mensajes hasta que vuelvas a configurarlo.
+          </p>
+        </div>
+      </Modal>
 
       {/* Modal de Resultados (Pruebas y Guardado) */}
       <Modal
