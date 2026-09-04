@@ -6,7 +6,7 @@ import Modal from '../components/Modal';
 import { 
   FaSearch, FaRobot, FaUserEdit, FaCommentDots, FaArrowLeft, 
   FaPaperPlane, FaWhatsapp, FaBrain, FaPlus, FaRocket, FaRedo, 
-  FaTrash, FaCheckCircle, FaExclamationTriangle, FaShieldAlt, FaSpinner 
+  FaTrash, FaCheckCircle, FaExclamationTriangle, FaShieldAlt, FaSpinner, FaEdit 
 } from 'react-icons/fa';
 import './ChatCenter.css';
 
@@ -33,6 +33,11 @@ export default function ChatCenter() {
     send_opening_message: true,
     custom_opening_text: ''
   });
+
+  // Modal Editar Contacto / Número
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingContact, setEditingContact] = useState(false);
+  const [editForm, setEditForm] = useState({ phone: '', titular: '' });
 
   const [startingBot, setStartingBot] = useState(false);
   const [deliveryNotice, setDeliveryNotice] = useState(null);
@@ -255,6 +260,49 @@ export default function ChatCenter() {
     }
   };
 
+  // Abrir modal de edición con los datos del chat activo
+  const openEditModal = () => {
+    if (!activeConversation) return;
+    setEditForm({
+      phone: activeConversation.whatsapp_phone || activeConversation.reporte?.telefono_publico || '',
+      titular: activeConversation.reporte?.titular_cuenta || ''
+    });
+    setShowEditModal(true);
+  };
+
+  // Guardar corrección de número / contacto
+  const handleSaveEditedContact = async (e) => {
+    if (e) e.preventDefault();
+    if (!editForm.phone?.trim() || !activeConvId) return;
+    setEditingContact(true);
+    try {
+      const res = await chatService.editContact(activeConvId, editForm);
+      setShowEditModal(false);
+      await fetchConversations(true);
+      const chatRes = await chatService.getConversation(activeConvId);
+      setActiveConversation(chatRes.data);
+
+      setFeedbackModal({
+        isOpen: true,
+        title: 'Número / Contacto Actualizado',
+        type: 'success',
+        message: res.data?.message || 'El número se corrigió con éxito.',
+        details: `Nuevo teléfono configurado: ${res.data?.whatsapp_phone}`
+      });
+    } catch (error) {
+      console.error("Error editing contact", error);
+      setFeedbackModal({
+        isOpen: true,
+        title: 'Error al Corregir Número',
+        type: 'error',
+        message: 'No se pudo actualizar el número.',
+        details: error.response?.data?.detail || error.message
+      });
+    } finally {
+      setEditingContact(false);
+    }
+  };
+
   const toggleChatMode = async () => {
     if (!activeConversation || !activeConvId) return;
     try {
@@ -400,14 +448,36 @@ export default function ChatCenter() {
                     ) : (
                       <>
                         <FaWhatsapp color="#25D366" />
-                        {activeConversation.whatsapp_phone || activeConversation.reporte?.titular_cuenta || 'Chat WhatsApp'}
+                        <span>{activeConversation.whatsapp_phone || activeConversation.reporte?.telefono_publico || 'Chat WhatsApp'}</span>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={openEditModal}
+                            title="Editar número o titular si fue ingresado con error"
+                            style={{ 
+                              background: 'rgba(16, 197, 201, 0.12)', 
+                              border: '1px solid rgba(16, 197, 201, 0.35)', 
+                              color: 'var(--accent-primary)', 
+                              cursor: 'pointer', 
+                              padding: '4px 10px', 
+                              borderRadius: '6px', 
+                              fontSize: '0.78rem',
+                              fontWeight: '600',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px'
+                            }}
+                          >
+                            <FaEdit size={12} /> Corregir Número
+                          </button>
+                        )}
                       </>
                     )}
                   </h3>
-                  <small style={{ color: 'var(--text-secondary)' }}>
+                  <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '2px' }}>
                     {isCurtisActive 
                       ? 'Simulador de Honeypot y extracción NLP (Solo Administradores)'
-                      : `Vinculado a Reporte #${activeConvId} • ${activeConversation.reporte?.marca_afectada || 'Inbound'}`}
+                      : `${activeConversation.reporte?.titular_cuenta ? `${activeConversation.reporte.titular_cuenta} • ` : ''}Vinculado a Reporte #${activeConvId} • ${activeConversation.reporte?.marca_afectada || 'Inbound'}`}
                   </small>
                 </div>
                 
@@ -806,6 +876,69 @@ export default function ChatCenter() {
                 </small>
               </div>
             )}
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Editar Número o Titular de Contacto */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="Editar Número o Titular de Contacto"
+        footer={
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', width: '100%' }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setShowEditModal(false)}
+              disabled={editingContact}
+              style={{ padding: '8px 18px' }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleSaveEditedContact}
+              disabled={editingContact || !editForm.phone?.trim()}
+              style={{ padding: '8px 22px', display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              {editingContact ? <><FaSpinner className="spin" /> Guardando...</> : 'Guardar Cambios'}
+            </button>
+          </div>
+        }
+      >
+        <form onSubmit={handleSaveEditedContact} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>
+              Número de Teléfono WhatsApp (E.164 con código de país) *
+            </label>
+            <input
+              type="text"
+              className="input-field"
+              placeholder="Ej: +595984716528 o +5491133334444"
+              value={editForm.phone}
+              onChange={e => setEditForm(prev => ({ ...prev, phone: e.target.value }))}
+              required
+              style={{ width: '100%' }}
+            />
+            <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '5px' }}>
+              💡 Si el usuario lo metió mal (ej: sin código de país o con un dígito errado), corrígelo aquí para que las respuestas se sincronicen por WhatsApp.
+            </small>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>
+              Nombre o Titular Identificado
+            </label>
+            <input
+              type="text"
+              className="input-field"
+              placeholder="Ej: Vendedor Calzados o Juan Pérez"
+              value={editForm.titular}
+              onChange={e => setEditForm(prev => ({ ...prev, titular: e.target.value }))}
+              style={{ width: '100%' }}
+            />
           </div>
         </form>
       </Modal>

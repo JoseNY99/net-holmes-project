@@ -70,16 +70,44 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                 messages = value.get("messages", [])
                 
                 for msg in messages:
-                    # Solo procesamos mensajes de texto por ahora
-                    if msg.get("type") != "text":
-                        cron_logger.log(f"[WhatsApp] ⏭️ Mensaje no-texto ignorado (tipo: {msg.get('type')})")
-                        continue
-                    
+                    msg_type = msg.get("type", "text")
                     sender_phone = str(msg.get("from", "")).strip()  # Número E.164 del remitente (ej. "595984716528")
-                    text_body = msg.get("text", {}).get("body", "")
                     wa_message_id = msg.get("id", "")
                     
-                    cron_logger.log(f"[WhatsApp] 📩 Mensaje recibido de {sender_phone}: {text_body[:60]}...")
+                    text_body = ""
+                    if msg_type == "text":
+                        text_body = msg.get("text", {}).get("body", "")
+                    elif msg_type == "interactive":
+                        interactive = msg.get("interactive", {})
+                        text_body = (
+                            interactive.get("button_reply", {}).get("title") or
+                            interactive.get("list_reply", {}).get("title") or
+                            "[Respuesta interactiva]"
+                        )
+                    elif msg_type == "image":
+                        caption = msg.get("image", {}).get("caption", "")
+                        text_body = f"[📷 Foto]: {caption}" if caption else "[📷 Foto recibida]"
+                    elif msg_type in ("audio", "voice"):
+                        text_body = "[🎤 Mensaje de voz recibido]"
+                    elif msg_type == "video":
+                        caption = msg.get("video", {}).get("caption", "")
+                        text_body = f"[🎥 Video]: {caption}" if caption else "[🎥 Video recibido]"
+                    elif msg_type == "document":
+                        doc_name = msg.get("document", {}).get("filename", "archivo")
+                        text_body = f"[📄 Documento: {doc_name}]"
+                    elif msg_type == "location":
+                        loc = msg.get("location", {})
+                        text_body = f"[📍 Ubicación: {loc.get('latitude')}, {loc.get('longitude')}]"
+                    elif msg_type == "reaction":
+                        emoji = msg.get("reaction", {}).get("emoji", "👍")
+                        text_body = f"[Reacción: {emoji}]"
+                    else:
+                        text_body = f"[{msg_type.capitalize()} recibido]"
+
+                    if not text_body:
+                        continue
+                    
+                    cron_logger.log(f"[WhatsApp] 📩 Mensaje ({msg_type}) recibido de {sender_phone}: {text_body[:60]}...")
 
                     # Importar aquí para evitar circular imports
                     from models.chat import Conversation, Message

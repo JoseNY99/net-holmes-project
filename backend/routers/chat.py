@@ -159,6 +159,10 @@ class AddTemporaryNumberRequest(BaseModel):
 class StartBotRequest(BaseModel):
     custom_message: Optional[str] = None
 
+class EditContactRequest(BaseModel):
+    phone: str
+    titular: Optional[str] = None
+
 
 # ─── GET Todas las Conversaciones ───────────────────────────────────────────
 
@@ -492,6 +496,52 @@ async def add_temporary_number(
         "whatsapp_sent": wa_sent,
         "whatsapp_detail": wa_detail,
         "message": f"Número {conv.whatsapp_phone} incorporado exitosamente al Chat Center."
+    }
+
+
+# ─── PUT Editar Número o Titular de Contacto ──────────────────────────────
+
+@router.put("/{reporte_id}/edit-contact")
+def edit_contact_info(
+    reporte_id: int,
+    data: EditContactRequest,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """
+    Permite corregir o actualizar el número de teléfono y/o el nombre titular
+    de un contacto si fue ingresado con errores o cambió.
+    """
+    clean = re.sub(r'\D', '', data.phone or '')
+    if len(clean) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="El número debe contener al menos 8 dígitos numéricos válidos (incluyendo código de país)."
+        )
+    formatted_phone = f"+{clean}"
+
+    conv = db.query(Conversation).filter(Conversation.reporte_id == reporte_id).order_by(Conversation.id.desc()).first()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada.")
+
+    conv.whatsapp_phone = formatted_phone
+
+    if conv.reporte:
+        conv.reporte.telefono_publico = formatted_phone
+        conv.reporte.url_evidencia = f"https://wa.me/{clean}"
+        if data.titular and data.titular.strip():
+            conv.reporte.titular_cuenta = data.titular.strip()
+
+    db.commit()
+    db.refresh(conv)
+
+    cron_logger.log(f"[Chat] ✏️ Contacto #{reporte_id} actualizado por {_admin.nombre}: Teléfono {formatted_phone}, Titular {conv.reporte.titular_cuenta if conv.reporte else 'N/A'}")
+    return {
+        "status": "success",
+        "message": f"Número corregido a {formatted_phone} exitosamente.",
+        "whatsapp_phone": conv.whatsapp_phone,
+        "titular_cuenta": conv.reporte.titular_cuenta if conv.reporte else None,
+        "reporte_id": reporte_id
     }
 
 

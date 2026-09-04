@@ -45,6 +45,11 @@ const chatService = {
   startBot: (reporteId, customMessage = null) => {
     return api.post(`/api/chat/${reporteId}/start-bot`, { custom_message: customMessage });
   },
+
+  // Editar número de teléfono o titular de contacto
+  editContact: (reporteId, payload) => {
+    return api.put(`/api/chat/${reporteId}/edit-contact`, payload);
+  },
 };
 
 export default chatService;
