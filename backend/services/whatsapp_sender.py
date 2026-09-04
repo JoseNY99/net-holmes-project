@@ -3,12 +3,40 @@ Servicio de envío de mensajes vía WhatsApp Cloud API.
 Incluye el motor de respuesta Honeypot con LLM contextual.
 """
 
+import json
 import httpx
 from config import settings
 from services.cron_logger import cron_logger
 
 
-async def send_text_message(phone: str, text: str) -> bool:
+def get_active_whatsapp_credentials(db=None):
+    """Obtiene el access token y phone number ID activos desde PostgreSQL o fallback settings."""
+    token = settings.WHATSAPP_ACCESS_TOKEN
+    phone_id = settings.WHATSAPP_PHONE_NUMBER_ID
+    try:
+        from database import SessionLocal
+        from models.api_key_setting import ApiKeySetting
+        session = db or SessionLocal()
+        try:
+            setting = session.query(ApiKeySetting).filter(
+                ApiKeySetting.service_name == "meta_whatsapp",
+                ApiKeySetting.is_active == True
+            ).first()
+            if setting:
+                if setting.api_key:
+                    token = setting.api_key
+                if setting.extra_config:
+                    cfg = json.loads(setting.extra_config)
+                    phone_id = cfg.get("whatsapp_phone_number_id") or phone_id
+        finally:
+            if not db:
+                session.close()
+    except Exception:
+        pass
+    return token, phone_id
+
+
+async def send_text_message(phone: str, text: str, db=None) -> bool:
     """
     Envía un mensaje de texto via WhatsApp Cloud API.
     
@@ -19,13 +47,14 @@ async def send_text_message(phone: str, text: str) -> bool:
     Returns:
         True si se envió exitosamente, False en caso contrario
     """
-    if not settings.WHATSAPP_ACCESS_TOKEN or not settings.WHATSAPP_PHONE_NUMBER_ID:
-        cron_logger.log("[WhatsApp Sender] ⚠️ Credenciales no configuradas. Mensaje NO enviado.")
+    token, phone_id = get_active_whatsapp_credentials(db)
+    if not token or not phone_id:
+        cron_logger.log("[WhatsApp Sender] ⚠️ Credenciales de WhatsApp no configuradas en BD ni .env. Mensaje NO enviado.")
         return False
 
-    url = f"https://graph.facebook.com/v21.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
     headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
     payload = {

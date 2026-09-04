@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaWhatsapp, FaEye, FaEyeSlash, FaSave, FaCheckCircle, FaExclamationTriangle } from 'react-icons/fa';
+import { FaWhatsapp, FaEye, FaEyeSlash, FaSave, FaCheckCircle, FaExclamationTriangle, FaVial } from 'react-icons/fa';
 import api from '../services/api';
 
 export default function WhatsAppSettings() {
@@ -13,6 +13,8 @@ export default function WhatsAppSettings() {
   const [showToken, setShowToken] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
@@ -46,16 +48,38 @@ export default function WhatsAppSettings() {
     e.preventDefault();
     setSaving(true);
     setMessage(null);
+    setTestResult(null);
     try {
-      await api.post('/settings/whatsapp', formData);
-      setMessage({ type: 'success', text: 'Configuración guardada correctamente.' });
-      setTimeout(() => setMessage(null), 3000);
+      const res = await api.post('/settings/whatsapp', formData);
+      setMessage({ type: 'success', text: res.data?.message || 'Configuración guardada en Base de Datos correctamente.' });
+      setTimeout(() => setMessage(null), 4000);
       fetchSettings(); // Refresh to get masked token
     } catch (err) {
       console.error("Error saving settings:", err);
-      setMessage({ type: 'error', text: 'Error al guardar la configuración.' });
+      const errorDetail = err.response?.data?.detail || err.message || 'Error al guardar la configuración.';
+      setMessage({ type: 'error', text: errorDetail });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await api.post('/settings/whatsapp/test', {
+        whatsapp_access_token: formData.whatsapp_access_token,
+        whatsapp_phone_number_id: formData.whatsapp_phone_number_id
+      });
+      setTestResult(res.data);
+    } catch (err) {
+      console.error("Error testing connection:", err);
+      setTestResult({
+        success: false,
+        message: err.response?.data?.detail || err.message || 'Error al conectar con la API de Meta.'
+      });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -153,14 +177,62 @@ export default function WhatsAppSettings() {
             <small style={{ color: 'var(--text-secondary)' }}>El mismo token que pegarás en la configuración del Webhook de Meta.</small>
           </div>
 
-          <button 
-            type="submit" 
-            className="btn-primary" 
-            disabled={saving}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '1rem' }}
-          >
-            <FaSave /> {saving ? 'Guardando...' : 'Guardar Configuración'}
-          </button>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
+            <button 
+              type="submit" 
+              className="btn-primary" 
+              disabled={saving}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '1rem', cursor: 'pointer' }}
+            >
+              <FaSave /> {saving ? 'Guardando en BD...' : 'Guardar Configuración'}
+            </button>
+
+            <button 
+              type="button" 
+              onClick={handleTestConnection}
+              disabled={testing || saving}
+              className="btn-secondary"
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                padding: '12px 20px', 
+                fontSize: '1rem',
+                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                color: '#60a5fa',
+                borderRadius: '8px',
+                cursor: 'pointer'
+              }}
+            >
+              <FaVial /> {testing ? 'Probando conexión...' : '🧪 Probar Conexión'}
+            </button>
+          </div>
+
+          {testResult && (
+            <div 
+              style={{ 
+                marginTop: '20px', 
+                padding: '14px 18px', 
+                borderRadius: '8px',
+                backgroundColor: testResult.success ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                border: `1px solid ${testResult.success ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                color: testResult.success ? '#4ade80' : '#f87171',
+                fontSize: '0.92rem'
+              }}
+            >
+              <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                {testResult.success ? <FaCheckCircle /> : <FaExclamationTriangle />}
+                {testResult.success ? 'Conexión Exitosa con Meta' : 'Error en la Conexión'}
+                {testResult.latency_ms > 0 && (
+                  <span style={{ fontSize: '0.8rem', opacity: 0.8, marginLeft: 'auto' }}>
+                    Latencia: {testResult.latency_ms}ms
+                  </span>
+                )}
+              </div>
+              <p style={{ margin: 0, opacity: 0.9 }}>{testResult.message}</p>
+            </div>
+          )}
         </form>
       </div>
     </div>

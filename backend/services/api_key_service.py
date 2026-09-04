@@ -243,15 +243,23 @@ async def test_service_connection(service_name: str, key_override: str = None, d
                     return {"success": False, "message": f"Error DeepSeek ({resp.status_code}): {resp.text}", "latency_ms": latency}
 
             elif srv == "meta_whatsapp":
-                resp = await client.get(
-                    "https://graph.facebook.com/v21.0/me",
-                    headers={"Authorization": f"Bearer {key}"}
-                )
+                phone_id = None
+                if extra_config:
+                    if isinstance(extra_config, str):
+                        try:
+                            extra_config = json.loads(extra_config)
+                        except Exception:
+                            extra_config = {}
+                    if isinstance(extra_config, dict):
+                        phone_id = extra_config.get("whatsapp_phone_number_id") or extra_config.get("phone_number_id")
+
+                test_url = f"https://graph.facebook.com/v21.0/{phone_id}" if phone_id else "https://graph.facebook.com/v21.0/me"
+                resp = await client.get(test_url, headers={"Authorization": f"Bearer {key}"})
                 latency = int((time.time() - t0) * 1000)
                 if resp.status_code == 200:
                     data = resp.json()
-                    name = data.get("name", "Meta App")
-                    return {"success": True, "message": f"Conexión exitosa a Meta Cloud ({latency}ms). App: {name}", "latency_ms": latency}
+                    name = data.get("verified_name") or data.get("display_phone_number") or data.get("name", "Meta App")
+                    return {"success": True, "message": f"Conexión exitosa a Meta WhatsApp ({latency}ms). Identificador: {name}", "latency_ms": latency}
                 else:
                     return {"success": False, "message": f"Error Meta API ({resp.status_code}): {resp.text}", "latency_ms": latency}
 
