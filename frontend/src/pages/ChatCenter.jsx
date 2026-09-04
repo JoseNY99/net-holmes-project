@@ -40,6 +40,7 @@ export default function ChatCenter() {
   const [editForm, setEditForm] = useState({ phone: '', titular: '' });
 
   const [startingBot, setStartingBot] = useState(false);
+  const [sendingTemplate, setSendingTemplate] = useState(false);
   const [deliveryNotice, setDeliveryNotice] = useState(null);
   const [feedbackModal, setFeedbackModal] = useState({
     isOpen: false,
@@ -227,6 +228,38 @@ export default function ChatCenter() {
       });
     } finally {
       setStartingBot(false);
+    }
+  };
+
+  // Enviar plantilla oficial de apertura (hello_world)
+  const handleSendTemplate = async () => {
+    if (!activeConvId || sendingTemplate) return;
+    setSendingTemplate(true);
+    try {
+      const res = await chatService.sendTemplate(activeConvId, 'hello_world', 'en_US');
+      const chatRes = await chatService.getConversation(activeConvId);
+      setActiveConversation(chatRes.data);
+
+      setFeedbackModal({
+        isOpen: true,
+        title: 'Plantilla de Apertura Meta Enviada',
+        type: res.data?.whatsapp_sent ? 'success' : 'warning',
+        message: res.data?.message || 'Plantilla procesada por Meta Cloud API.',
+        details: res.data?.whatsapp_detail || (res.data?.whatsapp_sent 
+          ? 'La plantilla oficial fue enviada con éxito. En cuanto el contacto responda, se desbloqueará la sesión completa de 24 horas para Curtis AI.' 
+          : 'Revisa que el número esté autorizado en Meta Developers si estás en modo Desarrollo.')
+      });
+    } catch (error) {
+      console.error("Error sending template", error);
+      setFeedbackModal({
+        isOpen: true,
+        title: 'Error de Plantilla',
+        type: 'error',
+        message: 'No se pudo enviar la plantilla oficial de Meta.',
+        details: error.response?.data?.detail || error.message
+      });
+    } finally {
+      setSendingTemplate(false);
     }
   };
 
@@ -519,6 +552,31 @@ export default function ChatCenter() {
                       title="Envía el mensaje de apertura por WhatsApp y activa al bot para responder automáticamente"
                     >
                       <FaRocket /> {startingBot ? 'Arrancando...' : 'Dar Orden de Arrancar al Bot'}
+                    </button>
+                  )}
+
+                  {/* Botón Abrir con Plantilla Meta (para superar el límite de 24h) */}
+                  {!isCurtisActive && isAdmin && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={handleSendTemplate}
+                      disabled={sendingTemplate}
+                      title="Envía una plantilla oficial pre-aprobada por Meta para abrir la sesión de 24h cuando el contacto nunca nos habló"
+                      style={{ 
+                        padding: '8px 14px', 
+                        borderRadius: '20px', 
+                        fontSize: '0.84rem', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        cursor: 'pointer',
+                        border: '1px solid rgba(16, 197, 201, 0.4)',
+                        background: 'rgba(16, 197, 201, 0.08)',
+                        color: 'var(--accent-primary)'
+                      }}
+                    >
+                      <FaWhatsapp size={14} /> {sendingTemplate ? 'Enviando...' : 'Abrir con Plantilla Meta'}
                     </button>
                   )}
 

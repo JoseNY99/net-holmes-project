@@ -84,14 +84,84 @@ def normalize_whatsapp_phone(phone: str) -> str:
     return digits
 
 
-async def send_text_message(phone: str, text: str, db=None) -> tuple[bool, str]:
+async def send_template_message(
+    phone: str,
+    template_name: str = "hello_world",
+    language_code: str = "en_US",
+    components: list | None = None,
+    db=None
+) -> tuple[bool, str]:
+    """
+    Envía una plantilla de mensaje (Message Template) vía WhatsApp Cloud API.
+    Requerido por Meta para iniciar conversaciones fuera de la ventana de 24 horas.
+    """
+    token, phone_id = get_active_whatsapp_credentials(db)
+    if not token or not phone_id:
+        err = "Credenciales de WhatsApp (Token o Phone Number ID) no configuradas en BD."
+        cron_logger.log(f"[WhatsApp Sender] ⚠️ {err}")
+        return False, err
+
+    clean_phone = normalize_whatsapp_phone(phone)
+    if not clean_phone or len(clean_phone) < 8:
+        err = f"Número de teléfono inválido ('{phone}'). Debe contener al menos 8 dígitos."
+        cron_logger.log(f"[WhatsApp Sender] ❌ {err}")
+        return False, err
+
+    url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    template_body = {
+        "name": template_name,
+        "language": {"code": language_code},
+    }
+    if components:
+        template_body["components"] = components
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": clean_phone,
+        "type": "template",
+        "template": template_body,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            resp_data = response.json() if "application/json" in response.headers.get("content-type", "") else {}
+
+            if response.status_code == 200 and "messages" in resp_data:
+                msg_id = resp_data["messages"][0].get("id", "OK")
+                cron_logger.log(f"[WhatsApp Sender] ✅ Plantilla '{template_name}' enviada a {clean_phone} (Meta ID: {msg_id})")
+                return True, f"Plantilla '{template_name}' enviada con éxito (Meta ID: {msg_id})"
+            else:
+                error_info = resp_data.get("error", {})
+                error_msg = error_info.get("message", response.text)
+                error_code = error_info.get("code")
+                human_reason = error_msg
+                if error_code == 131030:
+                    human_reason = f"El número {clean_phone} no está en la lista de destinatarios permitidos (To) de tu cuenta de Meta Developers. Agrégalo en el panel de Meta para pruebas."
+                elif error_code == 132000:
+                    human_reason = f"La plantilla '{template_name}' no existe o no está aprobada en tu WhatsApp Business Account."
+                cron_logger.log(f"[WhatsApp Sender] ❌ Error Meta ({error_code}) al enviar plantilla a {clean_phone}: {human_reason}")
+                return False, human_reason
+    except Exception as e:
+        cron_logger.log(f"[WhatsApp Sender] ❌ Error de red enviando plantilla a {clean_phone}: {e}")
+        return False, str(e)
+
+
+async def send_text_message(phone: str, text: str, db=None, allow_template_fallback: bool = True) -> tuple[bool, str]:
     """
     Envía un mensaje de texto via WhatsApp Cloud API.
+    Si la ventana de 24h está cerrada (error 131047), intenta automáticamente enviar
+    una plantilla oficial de apertura (hello_world) para desbloquear la sesión.
     
     Args:
-        phone: Número destino (se normaliza y sanitiza automáticamente para Paraguay, Argentina o Internacional)
+        phone: Número destino (se normaliza automáticamente a E.164 estricto)
         text: Contenido del mensaje
         db: Sesión SQLAlchemy opcional
+        allow_template_fallback: Si es True, recurre a plantillas si Meta rechaza texto libre
     
     Returns:
         tuple (success: bool, detail: str)
@@ -136,16 +206,33 @@ async def send_text_message(phone: str, text: str, db=None) -> tuple[bool, str]:
                 error_code = error_info.get("code")
                 error_subcode = error_info.get("error_subcode")
                 
-                # Humanizar errores frecuentes de Meta para el usuario/analista
-                human_reason = error_msg
-                if error_code == 131030:
+                # Si falló por ventana de 24h cerrada, intentar fallback automático a plantilla oficial
+                if error_code == 131047:
+                    if allow_template_fallback:
+                        cron_logger.log(
+                            f"[WhatsApp Sender] 🔄 Ventana de 24h cerrada para {clean_phone}. "
+                            f"Intentando enviar plantilla oficial 'hello_world' para abrir la sesión..."
+                        )
+                        tpl_ok, tpl_detail = await send_template_message(
+                            phone=clean_phone,
+                            template_name="hello_world",
+                            language_code="en_US",
+                            db=db
+                        )
+                        if tpl_ok:
+                            return True, f"Ventana de 24h no iniciada por el usuario. Se envió plantilla oficial de apertura a {clean_phone} para abrir la conversación."
+                        else:
+                            human_reason = f"Ventana de 24h cerrada y falló envío de plantilla: {tpl_detail}"
+                    else:
+                        human_reason = f"Han pasado más de 24 horas desde la última interacción de {clean_phone}. Meta exige que la persona envíe un mensaje primero o usar una plantilla."
+                elif error_code == 131030:
                     human_reason = f"El número {clean_phone} no está en la lista de destinatarios permitidos (To) de tu cuenta de Meta for Developers. Agrégalo en el panel de Meta antes de enviar mensajes de prueba."
-                elif error_code == 131047:
-                    human_reason = f"Han pasado más de 24 horas desde la última interacción de {clean_phone}. Meta exige que la persona envíe un mensaje primero a tu número de WhatsApp para abrir la ventana de atención."
                 elif error_code == 190:
                     human_reason = "El Access Token de WhatsApp ha expirado o no es válido. Genere o guarde un token nuevo en Ajustes de WhatsApp."
                 elif error_code == 100:
                     human_reason = f"Phone Number ID incorrecto o parámetro inválido en Meta ({error_msg})."
+                else:
+                    human_reason = error_msg
                 
                 cron_logger.log(f"[WhatsApp Sender] ❌ Error Meta ({error_code}/{error_subcode}) al enviar a {clean_phone}: {human_reason}")
                 return False, human_reason

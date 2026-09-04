@@ -17,7 +17,7 @@ from models.reporte import ReporteBrandDefense
 from middleware.auth_middleware import get_current_user, require_admin
 from services.chat_nlp_engine import analyze_incoming_message
 from services.cron_logger import cron_logger
-from services.whatsapp_sender import send_text_message, get_active_whatsapp_credentials, normalize_whatsapp_phone
+from services.whatsapp_sender import send_text_message, send_template_message, get_active_whatsapp_credentials, normalize_whatsapp_phone
 
 router = APIRouter(prefix="/api/chat", tags=["Chat Center"])
 
@@ -169,6 +169,10 @@ class StartBotRequest(BaseModel):
 class EditContactRequest(BaseModel):
     phone: str
     titular: Optional[str] = None
+
+class SendTemplateRequest(BaseModel):
+    template_name: Optional[str] = "hello_world"
+    language_code: Optional[str] = "en_US"
 
 
 # ─── GET Todas las Conversaciones ───────────────────────────────────────────
@@ -677,6 +681,59 @@ async def analyst_send_message(
         "whatsapp_sent": wa_sent,
         "whatsapp_detail": wa_detail,
     }
+
+
+# ─── POST Enviar Plantilla Oficial (Message Template) ──────────────────────
+
+@router.post("/{reporte_id}/send-template")
+async def send_template_to_contact(
+    reporte_id: int,
+    data: Optional[SendTemplateRequest] = None,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """
+    Envía una plantilla oficial de WhatsApp (Message Template) al contacto.
+    Permite abrir la ventana de 24 horas con números nuevos o inactivos.
+    """
+    conv = db.query(Conversation).filter(Conversation.reporte_id == reporte_id).order_by(Conversation.id.desc()).first()
+    if not conv or not conv.whatsapp_phone:
+        raise HTTPException(status_code=404, detail="Conversación o número de WhatsApp no encontrado.")
+
+    tpl_name = (data.template_name if (data and data.template_name) else "hello_world").strip()
+    lang_code = (data.language_code if (data and data.language_code) else "en_US").strip()
+
+    success, detail = await send_template_message(
+        phone=conv.whatsapp_phone,
+        template_name=tpl_name,
+        language_code=lang_code,
+        db=db,
+    )
+
+    if success:
+        # Registrar en la conversación que se envió la plantilla de apertura
+        new_msg = Message(
+            conversation_id=conv.id,
+            sender="bot",
+            text=f"[📲 Plantilla de Apertura Enviada: {tpl_name}]",
+        )
+        db.add(new_msg)
+        db.commit()
+
+    cron_logger.log(
+        f"[Chat] 📲 {_user.nombre} envió plantilla '{tpl_name}' a {conv.whatsapp_phone}: "
+        f"{'✅ Éxito' if success else '❌ Falló'} ({detail})"
+    )
+
+    return {
+        "status": "success" if success else "error",
+        "whatsapp_sent": success,
+        "whatsapp_detail": detail,
+        "template_name": tpl_name,
+        "phone": conv.whatsapp_phone,
+        "message": f"Plantilla '{tpl_name}' enviada con éxito." if success else f"Error al enviar plantilla: {detail}",
+    }
+
 
 
 # ─── POST Toggle Bot/Analista ──────────────────────────────────────────────

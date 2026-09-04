@@ -50,6 +50,14 @@ const chatService = {
   editContact: (reporteId, payload) => {
     return api.put(`/api/chat/${reporteId}/edit-contact`, payload);
   },
+
+  // Enviar plantilla oficial de WhatsApp (Message Template) para abrir ventana de 24h
+  sendTemplate: (reporteId, templateName = 'hello_world', languageCode = 'en_US') => {
+    return api.post(`/api/chat/${reporteId}/send-template`, {
+      template_name: templateName,
+      language_code: languageCode
+    });
+  },
 };
 
 export default chatService;
