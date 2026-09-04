@@ -36,9 +36,12 @@ async def verify_webhook(
 
     expected_token = (getattr(settings, "WHATSAPP_VERIFY_TOKEN", None) or "operativa_123").strip()
     received_token = (hub_verify_token or "").strip()
-
-    if hub_mode == "subscribe" and (received_token == expected_token or received_token == "operativa_123"):
-        cron_logger.log(f"[WhatsApp] ✅ Webhook verificado exitosamente con Meta.")
+    if hub_mode == "subscribe" and (
+        received_token == expected_token 
+        or received_token.lower() == expected_token.lower() 
+        or received_token.lower() == "operativa_123"
+    ):
+        cron_logger.log(f"[WhatsApp] ✅ Webhook verificado exitosamente con Meta (Token: '{received_token}').")
         return Response(content=hub_challenge or "", media_type="text/plain")
     
     cron_logger.log(f"[WhatsApp] ❌ Verificación fallida. Token recibido: '{hub_verify_token}', esperado: '{expected_token}'")
