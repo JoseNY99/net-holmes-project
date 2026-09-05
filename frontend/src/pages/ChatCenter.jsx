@@ -697,6 +697,80 @@ export default function ChatCenter() {
                           <span style={{ lineHeight: '1.5', fontSize: '0.94rem', display: 'block', wordBreak: 'break-word', color: 'inherit' }}>
                             {msg.text || msg.content}
                           </span>
+
+                          {/* Renderizado de Multimedia Comprimida (Imágenes, Audios, Videos, Docs) */}
+                          {msg.media_url && (
+                            <div className="chat-media-attachment" style={{ marginTop: '8px' }}>
+                              {/* Imagen con compresión WebP */}
+                              {/\.(webp|jpg|jpeg|png|gif)$/i.test(msg.media_url) && (
+                                <img 
+                                  src={msg.media_url} 
+                                  alt="Evidencia adjunta" 
+                                  style={{ 
+                                    maxWidth: '100%', 
+                                    maxHeight: '280px', 
+                                    borderRadius: '8px', 
+                                    objectFit: 'cover', 
+                                    cursor: 'pointer',
+                                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                    display: 'block'
+                                  }} 
+                                  onClick={() => window.open(msg.media_url, '_blank')}
+                                  title="Click para ver evidencia en tamaño completo"
+                                />
+                              )}
+
+                              {/* Audio o Nota de Voz con reproductor nativo */}
+                              {/\.(ogg|mp3|wav|m4a|aac)$/i.test(msg.media_url) && (
+                                <div style={{ background: 'rgba(0,0,0,0.12)', padding: '6px 8px', borderRadius: '8px' }}>
+                                  <audio 
+                                    controls 
+                                    src={msg.media_url} 
+                                    style={{ width: '100%', minWidth: '220px', height: '36px' }} 
+                                  />
+                                </div>
+                              )}
+
+                              {/* Video comprimido */}
+                              {/\.(mp4|mov|webm|3gp)$/i.test(msg.media_url) && (
+                                <video 
+                                  controls 
+                                  src={msg.media_url} 
+                                  preload="metadata"
+                                  style={{ 
+                                    maxWidth: '100%', 
+                                    maxHeight: '260px', 
+                                    borderRadius: '8px', 
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                                    display: 'block'
+                                  }} 
+                                />
+                              )}
+
+                              {/* Documento o Archivo */}
+                              {!/\.(webp|jpg|jpeg|png|gif|ogg|mp3|wav|m4a|aac|mp4|mov|webm|3gp)$/i.test(msg.media_url) && (
+                                <a 
+                                  href={msg.media_url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  style={{ 
+                                    display: 'inline-flex', 
+                                    alignItems: 'center', 
+                                    gap: '6px', 
+                                    padding: '6px 12px', 
+                                    background: 'rgba(255, 255, 255, 0.1)', 
+                                    borderRadius: '6px', 
+                                    color: 'inherit', 
+                                    textDecoration: 'underline',
+                                    fontSize: '0.85rem' 
+                                  }}
+                                >
+                                  📄 Abrir Documento Adjunto
+                                </a>
+                              )}
+                            </div>
+                          )}
                         </div>
                         
                         {/* Insignias de Extracción NLP */}

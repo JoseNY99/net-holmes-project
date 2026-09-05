@@ -64,48 +64,47 @@ JSON:"""
 
 def _get_client_and_model():
     """Retorna una instancia de AsyncOpenAI y el modelo a utilizar basado en la configuración."""
-    provider = settings.LLM_PROVIDER.lower()
-    config = LLM_CONFIGS.get(provider)
-
-    if not config:
-        config = LLM_CONFIGS["cerebras"]
-        provider = "cerebras"
-
     from services.api_key_service import get_active_api_key
-    
+
     def _clean_key(prov: str, k: str) -> str:
         if not k:
-            return k
+            return ""
         k = k.strip()
         if prov == "deepseek" and not k.startswith("sk-") and len(k) >= 20:
             return f"sk-{k}"
         return k
 
-    # 1. Intentar con el proveedor preferido (desde DB o .env)
-    api_key = get_active_api_key(provider) or getattr(settings, config["api_key_attr"], None)
-    if api_key:
-        api_key = _clean_key(provider, api_key)
+    # 1. Verificar si DeepSeek está configurado en Base de Datos o en entorno
+    deepseek_db_key = get_active_api_key("deepseek")
+    deepseek_env_key = getattr(settings, "DEEPSEEK_API_KEY", None)
+    deepseek_key = _clean_key("deepseek", deepseek_db_key or deepseek_env_key or "")
 
-    # 2. Si no hay key para el proveedor preferido, intentar con el alternativo (DeepSeek o Cerebras)
-    if not api_key:
-        other_provider = "deepseek" if provider == "cerebras" else "cerebras"
-        other_config = LLM_CONFIGS[other_provider]
-        other_key = get_active_api_key(other_provider) or getattr(settings, other_config["api_key_attr"], None)
-        if other_key:
-            other_key = _clean_key(other_provider, other_key)
-            cron_logger.log(f"[LLM] 🔄 Usando proveedor secundario {other_provider.upper()} con credencial activa.")
-            client = AsyncOpenAI(api_key=other_key, base_url=other_config["base_url"])
-            return client, other_config["model"]
+    preferred = (getattr(settings, "LLM_PROVIDER", None) or "deepseek").lower().strip()
 
-        cron_logger.log(f"[LLM] ℹ️ Sin API Key de LLM (Cerebras/DeepSeek) activa en DB. Se usarán respuestas heurísticas de contingencia.")
-        return None, None
+    # Si hay clave de DeepSeek activa en DB o es el preferido:
+    if deepseek_key and (preferred == "deepseek" or deepseek_db_key or not get_active_api_key("cerebras")):
+        config = LLM_CONFIGS["deepseek"]
+        cron_logger.log(f"[LLM] 🧠 Consumiendo API de DEEPSEEK ({config['model']}) para Honeypot y Extracción.")
+        client = AsyncOpenAI(api_key=deepseek_key, base_url=config["base_url"])
+        return client, config["model"]
 
-    client = AsyncOpenAI(
-        api_key=api_key,
-        base_url=config["base_url"]
-    )
-    
-    return client, config["model"]
+    # 2. Comprobar Cerebras
+    cerebras_key = get_active_api_key("cerebras") or getattr(settings, "CEREBRAS_API_KEY", None)
+    if cerebras_key and cerebras_key.strip():
+        config = LLM_CONFIGS["cerebras"]
+        cron_logger.log(f"[LLM] 🧠 Consumiendo API de CEREBRAS ({config['model']}).")
+        client = AsyncOpenAI(api_key=cerebras_key.strip(), base_url=config["base_url"])
+        return client, config["model"]
+
+    # 3. Fallback a DeepSeek si hay alguna clave disponible
+    if deepseek_key:
+        config = LLM_CONFIGS["deepseek"]
+        cron_logger.log(f"[LLM] 🧠 Consumiendo API de DEEPSEEK ({config['model']}) como fallback.")
+        client = AsyncOpenAI(api_key=deepseek_key, base_url=config["base_url"])
+        return client, config["model"]
+
+    cron_logger.log("[LLM] ℹ️ Sin API Key de DeepSeek/Cerebras activa en DB. Se usarán respuestas de contingencia contextual.")
+    return None, None
 
 
 # ─── Cliente Unificado ──────────────────────────────────────────────────────

@@ -75,7 +75,10 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                     sender_phone = str(msg.get("from", "")).strip()  # Número E.164 del remitente (ej. "595984716528")
                     wa_message_id = msg.get("id", "")
                     
-                    text_body = ""
+                    media_id = None
+                    mime_hint = ""
+                    filename_hint = ""
+
                     if msg_type == "text":
                         text_body = msg.get("text", {}).get("body", "")
                     elif msg_type == "interactive":
@@ -86,16 +89,28 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                             "[Respuesta interactiva]"
                         )
                     elif msg_type == "image":
-                        caption = msg.get("image", {}).get("caption", "")
+                        img_data = msg.get("image", {})
+                        media_id = img_data.get("id")
+                        mime_hint = img_data.get("mime_type", "image/jpeg")
+                        caption = img_data.get("caption", "")
                         text_body = f"[📷 Foto]: {caption}" if caption else "[📷 Foto recibida]"
                     elif msg_type in ("audio", "voice"):
+                        aud_data = msg.get("audio", {}) or msg.get("voice", {})
+                        media_id = aud_data.get("id")
+                        mime_hint = aud_data.get("mime_type", "audio/ogg")
                         text_body = "[🎤 Mensaje de voz recibido]"
                     elif msg_type == "video":
-                        caption = msg.get("video", {}).get("caption", "")
+                        vid_data = msg.get("video", {})
+                        media_id = vid_data.get("id")
+                        mime_hint = vid_data.get("mime_type", "video/mp4")
+                        caption = vid_data.get("caption", "")
                         text_body = f"[🎥 Video]: {caption}" if caption else "[🎥 Video recibido]"
                     elif msg_type == "document":
-                        doc_name = msg.get("document", {}).get("filename", "archivo")
-                        text_body = f"[📄 Documento: {doc_name}]"
+                        doc_data = msg.get("document", {})
+                        media_id = doc_data.get("id")
+                        mime_hint = doc_data.get("mime_type", "application/pdf")
+                        filename_hint = doc_data.get("filename", "archivo")
+                        text_body = f"[📄 Documento: {filename_hint}]"
                     elif msg_type == "location":
                         loc = msg.get("location", {})
                         text_body = f"[📍 Ubicación: {loc.get('latitude')}, {loc.get('longitude')}]"
@@ -198,20 +213,37 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                         cron_logger.log(f"[WhatsApp] ⚠️ No se pudo asignar conversación para {sender_phone}")
                         continue
 
-                    # Guardar el mensaje del infractor / contacto
+                    # Descarga y compresión máxima de archivos adjuntos (imágenes, audios, videos, documentos)
+                    saved_media_url = None
+                    if media_id:
+                        try:
+                            from services.media_compressor import download_and_save_whatsapp_media
+                            saved_media_url, _local_path = await download_and_save_whatsapp_media(
+                                media_id=media_id,
+                                media_type=msg_type if msg_type != "voice" else "audio",
+                                mime_type_hint=mime_hint,
+                                filename_hint=filename_hint,
+                                db=db
+                            )
+                        except Exception as media_err:
+                            cron_logger.log(f"[WhatsApp] ⚠️ Error procesando multimedia {media_id}: {media_err}")
+
+                    # Guardar el mensaje del infractor / contacto con URL de multimedia comprimida
                     new_msg = Message(
                         conversation_id=conversation.id,
                         sender="infractor",
                         text=text_body,
+                        media_url=saved_media_url,
                         whatsapp_message_id=wa_message_id,
                     )
                     db.add(new_msg)
                     db.commit()
                     db.refresh(new_msg)
                     
+                    media_tag = f" [Multimedia comprimida: {saved_media_url}]" if saved_media_url else ""
                     cron_logger.log(
                         f"[AUDITORÍA WHATSAPP] 💾 Mensaje ID {wa_message_id} registrado en Conversación #{conversation.id} "
-                        f"(Reporte #{conversation.reporte_id} - {conversation.whatsapp_phone}): {text_body}"
+                        f"(Reporte #{conversation.reporte_id} - {conversation.whatsapp_phone}): {text_body}{media_tag}"
                     )
 
                     # Ejecutar pipeline de extracción NLP

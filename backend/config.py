@@ -115,6 +115,11 @@ class Settings(BaseSettings):
     MAX_PUBLICATIONS_PER_CITY: int = 100
     MAX_COMMENTS_PER_PUBLICATION: int = 50
 
+    # ─── LLM Honeypot & NLP Engine (DeepSeek / Cerebras) ───
+    LLM_PROVIDER: str = "deepseek"
+    DEEPSEEK_API_KEY: str | None = None
+    CEREBRAS_API_KEY: str | None = None
+
     # ─── WhatsApp Cloud API (Meta Business Platform) ───
     WHATSAPP_ACCESS_TOKEN: str | None = None
     WHATSAPP_PHONE_NUMBER_ID: str | None = None
