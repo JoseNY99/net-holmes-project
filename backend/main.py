@@ -220,3 +220,34 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 def health_check():
     """Endpoint de verificación de salud del servicio."""
     return {"status": "ok", "service": "Net Holmes API"}
+
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/privacy", response_class=HTMLResponse, tags=["Legal"])
+def privacy_policy():
+    """Política de privacidad pública requerida por Meta for Developers para pasar a Modo En Vivo."""
+    return """
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Net Holmes - Política de Privacidad</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #1e293b; }
+            h1 { color: #0B3256; }
+            h2 { color: #0369a1; margin-top: 24px; }
+        </style>
+    </head>
+    <body>
+        <h1>Política de Privacidad de Net Holmes</h1>
+        <p><strong>Última actualización:</strong> Septiembre 2026</p>
+        <p>Net Holmes es una plataforma de defensa de marca, ciberseguridad y prevención de infracciones comerciales online. Los canales de mensajería (incluyendo WhatsApp Business Platform) se gestionan de forma estrictamente confidencial para verificación de autenticidad de productos y transacciones.</p>
+        <h2>Tratamiento y Protección de Datos</h2>
+        <p>Los datos procesados se custodian bajo estándares de seguridad para fines exclusivos de auditoría judicial y peritaje de propiedad industrial. No vendemos ni compartimos datos con terceros con fines publicitarios.</p>
+        <h2>Contacto</h2>
+        <p>Para consultas sobre el tratamiento de datos o solicitudes de supresión: <strong>compliance@netholmes.tech</strong></p>
+    </body>
+    </html>
+    """
+
