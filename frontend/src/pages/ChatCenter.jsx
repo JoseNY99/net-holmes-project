@@ -58,6 +58,15 @@ export default function ChatCenter() {
     audio.play().catch(() => {});
   };
 
+  const getMediaUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) {
+      return url;
+    }
+    const backendBase = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
+    return `${backendBase}${url}`;
+  };
+
   const fetchConversations = async (isPolling = false) => {
     try {
       if (!isPolling) setLoading(true);
@@ -704,7 +713,7 @@ export default function ChatCenter() {
                               {/* Imagen con compresión WebP */}
                               {/\.(webp|jpg|jpeg|png|gif)$/i.test(msg.media_url) && (
                                 <img 
-                                  src={msg.media_url} 
+                                  src={getMediaUrl(msg.media_url)} 
                                   alt="Evidencia adjunta" 
                                   style={{ 
                                     maxWidth: '100%', 
@@ -716,7 +725,7 @@ export default function ChatCenter() {
                                     boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                                     display: 'block'
                                   }} 
-                                  onClick={() => window.open(msg.media_url, '_blank')}
+                                  onClick={() => window.open(getMediaUrl(msg.media_url), '_blank')}
                                   title="Click para ver evidencia en tamaño completo"
                                 />
                               )}
@@ -726,7 +735,7 @@ export default function ChatCenter() {
                                 <div style={{ background: 'rgba(0,0,0,0.12)', padding: '6px 8px', borderRadius: '8px' }}>
                                   <audio 
                                     controls 
-                                    src={msg.media_url} 
+                                    src={getMediaUrl(msg.media_url)} 
                                     style={{ width: '100%', minWidth: '220px', height: '36px' }} 
                                   />
                                 </div>
@@ -736,7 +745,7 @@ export default function ChatCenter() {
                               {/\.(mp4|mov|webm|3gp)$/i.test(msg.media_url) && (
                                 <video 
                                   controls 
-                                  src={msg.media_url} 
+                                  src={getMediaUrl(msg.media_url)} 
                                   preload="metadata"
                                   style={{ 
                                     maxWidth: '100%', 
@@ -751,7 +760,7 @@ export default function ChatCenter() {
                               {/* Documento o Archivo */}
                               {!/\.(webp|jpg|jpeg|png|gif|ogg|mp3|wav|m4a|aac|mp4|mov|webm|3gp)$/i.test(msg.media_url) && (
                                 <a 
-                                  href={msg.media_url} 
+                                  href={getMediaUrl(msg.media_url)} 
                                   target="_blank" 
                                   rel="noopener noreferrer"
                                   style={{ 
