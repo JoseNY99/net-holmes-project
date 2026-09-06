@@ -615,9 +615,14 @@ export default function ChatCenter() {
                     type="button"
                     className={`switch-btn ${!activeConversation.is_bot_active ? 'manual' : ''}`} 
                     onClick={toggleChatMode}
-                    style={{ padding: '8px 15px', borderRadius: '20px' }}
+                    style={{ padding: '8px 15px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    title={activeConversation.is_bot_active ? 'Haz clic para pausar el bot y chatear tú como analista humano' : 'Haz clic para activar el bot automático'}
                   >
-                    {activeConversation.is_bot_active ? <><FaRobot/> Tomar Control (Manual)</> : <><FaUserEdit/> Reactivar Bot</>}
+                    {activeConversation.is_bot_active ? (
+                      <><FaUserEdit /> Cambiar a Modo Manual (Analista)</>
+                    ) : (
+                      <><FaRobot /> Activar Bot Autónomo</>
+                    )}
                   </button>
                 </div>
               </div>
