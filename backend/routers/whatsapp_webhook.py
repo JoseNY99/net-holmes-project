@@ -68,6 +68,24 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
         for entry in body.get("entry", []):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
+
+                # Registrar estados de entrega emitidos por Meta (sent, delivered, read, failed)
+                statuses = value.get("statuses", [])
+                for status_obj in statuses:
+                    wa_status = status_obj.get("status")
+                    recipient = status_obj.get("recipient_id")
+                    st_id = status_obj.get("id")
+                    errors = status_obj.get("errors", [])
+                    if wa_status == "failed" or errors:
+                        err_msg = errors[0].get("message") if errors else "Falla desconocida de entrega"
+                        err_code = errors[0].get("code") if errors else "N/A"
+                        cron_logger.log(
+                            f"[WhatsApp Delivery ❌] Meta NO pudo entregar el mensaje {st_id} a {recipient}. "
+                            f"Error ({err_code}): {err_msg}"
+                        )
+                    else:
+                        cron_logger.log(f"[WhatsApp Delivery ℹ️] Mensaje {st_id} a {recipient}: estado '{wa_status}'")
+
                 messages = value.get("messages", [])
                 
                 for msg in messages:
