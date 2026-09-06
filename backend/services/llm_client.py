@@ -321,8 +321,15 @@ Tu único objetivo y comportamiento es ser un cliente real que quiere coordinar 
 
     messages = [{"role": "system", "content": system_prompt}]
     for msg in conversation_history[-10:]:  # Últimos 10 mensajes para contexto
-        role = "assistant" if msg["sender"] in ("bot", "analista") else "user"
-        messages.append({"role": role, "content": msg["text"]})
+        txt = (msg.get("text") or "").strip()
+        if not txt:
+            continue
+        role = "assistant" if msg.get("sender") == "bot" else "user"
+        messages.append({"role": role, "content": txt})
+
+    if len(messages) == 1 or messages[-1]["role"] != "user":
+        last_txt = conversation_history[-1].get("text", "").strip() if conversation_history else "Hola"
+        messages.append({"role": "user", "content": last_txt or "Hola"})
 
     try:
         response = await client.chat.completions.create(
@@ -367,8 +374,15 @@ async def generate_seller_simulation_response(conversation_history: list, target
 
     messages = [{"role": "system", "content": SELLER_SIMULATION_SYSTEM_PROMPT}]
     for msg in conversation_history[-10:]:
-        role = "assistant" if msg["sender"] in ("infractor", "seller") else "user"
-        messages.append({"role": role, "content": msg["text"]})
+        txt = (msg.get("text") or "").strip()
+        if not txt:
+            continue
+        role = "assistant" if msg.get("sender") in ("infractor", "seller") else "user"
+        messages.append({"role": role, "content": txt})
+
+    if len(messages) == 1 or messages[-1]["role"] != "user":
+        last_txt = conversation_history[-1].get("text", "").strip() if conversation_history else "¿Cuánto sale?"
+        messages.append({"role": "user", "content": last_txt or "¿Cuánto sale?"})
 
     try:
         response = await client.chat.completions.create(

@@ -349,65 +349,87 @@ async def send_curtis_simulation_message(
 
     user_sender = (data.sender or "infractor").lower()
 
-    # 1. Guardar mensaje ingresado por el usuario
-    new_msg = Message(
-        conversation_id=conv.id,
-        sender=user_sender,
-        text=data.text.strip(),
-    )
-    db.add(new_msg)
-    db.commit()
-    db.refresh(new_msg)
+    try:
+        # 1. Guardar mensaje ingresado por el usuario
+        new_msg = Message(
+            conversation_id=conv.id,
+            sender=user_sender,
+            text=data.text.strip(),
+        )
+        db.add(new_msg)
+        db.commit()
+        db.refresh(new_msg)
+    except Exception as e:
+        cron_logger.log(f"[Curtis Holmes] ❌ Error guardando mensaje del usuario: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error guardando mensaje en la base de datos: {str(e)}"
+        )
 
     bot_reply_text = None
     llm_error = None
 
-    from services.llm_client import generate_honeypot_response, generate_seller_simulation_response
+    try:
+        from services.llm_client import generate_honeypot_response, generate_seller_simulation_response
 
-    # Historial de conversación
-    messages = (
-        db.query(Message)
-        .filter(Message.conversation_id == conv.id)
-        .order_by(Message.timestamp.asc())
-        .all()
-    )
-    history = [{"sender": m.sender, "text": m.text} for m in messages]
-    target_info = {
-        "marca": "Nike / Zapatillas (Simulador)",
-        "plataforma": "Simulador AI",
-        "titular": CURTIS_TITULAR,
-    }
+        # Historial de conversación
+        messages = (
+            db.query(Message)
+            .filter(Message.conversation_id == conv.id)
+            .order_by(Message.timestamp.asc())
+            .all()
+        )
+        history = [{"sender": m.sender, "text": m.text} for m in messages]
+        target_info = {
+            "marca": "Nike / Zapatillas (Simulador)",
+            "plataforma": "Simulador AI",
+            "titular": CURTIS_TITULAR,
+        }
 
-    if user_sender == "analista" or data.bot_role == "seller":
-        # El usuario actúa como Analista -> El Bot responde como Vendedor Infractor
-        bot_reply_text, llm_error = await generate_seller_simulation_response(history, target_info)
-        if bot_reply_text:
-            bot_msg = Message(
-                conversation_id=conv.id,
-                sender="infractor",
-                text=bot_reply_text,
-            )
-            db.add(bot_msg)
-            db.commit()
-            db.refresh(bot_msg)
-            # Analizar con NLP la respuesta del vendedor simulado para extraer Alias/CBU/Precios automáticamente
-            analyze_incoming_message(db, bot_msg)
-            cron_logger.log(f"[Curtis Holmes AI - Vendedor] 🎭 Respuesta generada: {bot_reply_text[:60]}...")
-    else:
-        # El usuario actúa como Infractor -> Analizar mensaje del usuario con NLP
-        analyze_incoming_message(db, new_msg)
-        # El Bot responde como Analista Honeypot Comprador
-        bot_reply_text, llm_error = await generate_honeypot_response(history, target_info)
-        if bot_reply_text:
-            bot_msg = Message(
-                conversation_id=conv.id,
-                sender="bot",
-                text=bot_reply_text,
-            )
-            db.add(bot_msg)
-            db.commit()
-            db.refresh(bot_msg)
-            cron_logger.log(f"[Curtis Holmes AI - Honeypot] 🤖 Respuesta generada: {bot_reply_text[:60]}...")
+        if user_sender == "analista" or data.bot_role == "seller":
+            # El usuario actúa como Analista -> El Bot responde como Vendedor Infractor
+            bot_reply_text, llm_error = await generate_seller_simulation_response(history, target_info)
+            if bot_reply_text:
+                bot_msg = Message(
+                    conversation_id=conv.id,
+                    sender="infractor",
+                    text=bot_reply_text,
+                )
+                db.add(bot_msg)
+                db.commit()
+                db.refresh(bot_msg)
+                # Analizar con NLP la respuesta del vendedor simulado de forma segura
+                try:
+                    analyze_incoming_message(db, bot_msg)
+                except Exception as nlp_err:
+                    cron_logger.log(f"[Curtis Holmes NLP] ⚠️ {nlp_err}")
+                cron_logger.log(f"[Curtis Holmes AI - Vendedor] 🎭 Respuesta generada: {bot_reply_text[:60]}...")
+        else:
+            # El usuario actúa como Infractor -> Analizar mensaje del usuario con NLP de forma segura
+            try:
+                analyze_incoming_message(db, new_msg)
+            except Exception as nlp_err:
+                cron_logger.log(f"[Curtis Holmes NLP] ⚠️ {nlp_err}")
+
+            # El Bot responde como Analista Honeypot Comprador
+            bot_reply_text, llm_error = await generate_honeypot_response(history, target_info)
+            if bot_reply_text:
+                bot_msg = Message(
+                    conversation_id=conv.id,
+                    sender="bot",
+                    text=bot_reply_text,
+                )
+                db.add(bot_msg)
+                db.commit()
+                db.refresh(bot_msg)
+                cron_logger.log(f"[Curtis Holmes AI - Honeypot] 🤖 Respuesta generada: {bot_reply_text[:60]}...")
+
+    except Exception as e:
+        cron_logger.log(f"[Curtis Holmes] ❌ Error generando respuesta bot: {e}")
+        db.rollback()
+        llm_error = str(e)
+        bot_reply_text = "Disculpa, ocurrió un error temporal al procesar la respuesta con la IA."
 
     return {
         "status": "success",

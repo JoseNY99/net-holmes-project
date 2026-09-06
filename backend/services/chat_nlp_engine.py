@@ -142,9 +142,16 @@ def analyze_incoming_message(db: Session, message: Message):
 
     # ═══ AUTO-UPSERT en PerfilInvestigacion ═══
     if merged:
-        _upsert_perfil(db, message, merged)
+        try:
+            _upsert_perfil(db, message, merged)
+        except Exception as e:
+            cron_logger.log(f"[NLP] ⚠️ Error en _upsert_perfil: {e}")
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        cron_logger.log(f"[NLP] ⚠️ Error al guardar entidades de mensaje: {e}")
+        db.rollback()
 
 
 def _run_async_extraction(text: str) -> dict:
@@ -167,7 +174,7 @@ def _upsert_perfil(db: Session, message: Message, entities: dict):
     conversation = db.query(Conversation).filter(
         Conversation.id == message.conversation_id
     ).first()
-    if not conversation:
+    if not conversation or not conversation.reporte_id:
         return
 
     reporte_id = conversation.reporte_id
@@ -194,6 +201,20 @@ def _upsert_perfil(db: Session, message: Message, entities: dict):
         "banco": "banco",
     }
 
+    # Buscar un user_id válido en la base de datos para no violar la Foreign Key de audit_logs
+    valid_user_id = None
+    try:
+        from models.user import User
+        admin_user = db.query(User).filter(User.rol.in_(["sup_admin", "admin"])).first()
+        if admin_user:
+            valid_user_id = admin_user.id
+        else:
+            first_u = db.query(User.id).first()
+            if first_u:
+                valid_user_id = first_u[0]
+    except Exception:
+        valid_user_id = None
+
     updated_fields = []
     for entity_key, db_field in FIELD_MAP.items():
         if entity_key in entities and hasattr(perfil, db_field):
@@ -205,16 +226,19 @@ def _upsert_perfil(db: Session, message: Message, entities: dict):
                 setattr(perfil, db_field, new_value)
                 updated_fields.append(db_field)
 
-                # Audit trail
-                audit = AuditLog(
-                    reporte_id=reporte_id,
-                    user_id=0,  # 0 = Sistema/Bot NLP
-                    campo=db_field,
-                    valor_anterior=str(old_value),
-                    valor_nuevo=new_value,
-                )
-                audit.user_nombre = "🤖 Bot NLP"
-                db.add(audit)
+                # Audit trail seguro
+                if valid_user_id:
+                    try:
+                        audit = AuditLog(
+                            reporte_id=reporte_id,
+                            user_id=valid_user_id,
+                            campo=db_field,
+                            valor_anterior=str(old_value),
+                            valor_nuevo=new_value,
+                        )
+                        db.add(audit)
+                    except Exception as err:
+                        cron_logger.log(f"[NLP AuditLog] ⚠️ {err}")
 
     if updated_fields:
         cron_logger.log(f"[NLP → Perfil] ✅ Campos actualizados en Reporte #{reporte_id}: {updated_fields}")
