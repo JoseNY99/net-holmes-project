@@ -282,8 +282,10 @@ async def send_honeypot_reply(db, conversation, incoming_message):
                 "titular": reporte.titular_cuenta,
             }
 
-    # Generar respuesta con LLM
-    reply_text = await generate_honeypot_response(history, target_info)
+    # Generar respuesta con LLM DeepSeek
+    reply_text, llm_err = await generate_honeypot_response(history, target_info)
+    if llm_err:
+        cron_logger.log(f"[Honeypot LLM] ⚠️ Error reportado por DeepSeek: {llm_err}")
     if not reply_text:
         return None
 

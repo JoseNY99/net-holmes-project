@@ -260,20 +260,38 @@ def _generate_contingency_reply(conversation_history: list, target_info: dict) -
         return "Dale joya, ¿cómo hacemos para coordinar el pago y retiro?"
 
 
-async def generate_honeypot_response(conversation_history: list, target_info: dict) -> str:
+SELLER_SIMULATION_SYSTEM_PROMPT = """Eres un vendedor informal argentino que comercializa calzado, zapatillas, indumentaria y réplicas de marcas reconocidas por WhatsApp, Marketplace e Instagram.
+
+Estás hablando con un cliente interesado en comprar tus productos:
+
+🎯 TUS OBJETIVOS COMO VENDEDOR SIMULADO:
+1. Actúa como un vendedor real y amigable con lenguaje coloquial argentino ("Hola genio/a!", "Sí rey/reina, nos queda stock en talle 40 y 41", "Te sale $65.000 de promo").
+2. Si te preguntan el PRECIO: Da un precio entre $45.000 y $85.000 ARS y ofrece descuento por transferencia.
+3. Si te preguntan MEDIO DE PAGO / CÓMO PAGAR: Pasa de inmediato datos de cobro realistas para que el peritaje OSINT los detecte:
+   - Alias: "calzados.directo.mp" o "zapas.outlet.arg"
+   - CBU/CVU: "0000003100012345678901"
+   - Titular: "Juan Carlos Pérez"
+   - CUIT/CUIL: "20-38123456-8"
+4. Si te preguntan DÓNDE ESTÁN O RETIRO: Di que tienen showroom/depósito en la zona comercial de Flores (cerca de Nazca y Av. Avellaneda) o en Once, o que hacen envíos por motomensajería a todo el país.
+5. Mantén respuestas ágiles de 1 a 2 oraciones. NUNCA digas que eres una IA o simulación."""
+
+
+async def generate_honeypot_response(conversation_history: list, target_info: dict) -> tuple[str, str | None]:
     """
-    Genera una respuesta honeypot contextual usando el LLM o heurística de contingencia.
-    Diseñada para que el infractor revele más datos (financieros, identidad, ubicación).
+    Genera una respuesta honeypot contextual (rol Comprador/Analista) usando DeepSeek/LLM.
+    Returns:
+        tuple (reply_text: str, error_detail: str | None)
     """
     if conversation_history:
         last_msg = conversation_history[-1].get("text", "")
         if _is_adversarial_or_strange(last_msg):
             cron_logger.log(f"[Honeypot LLM] 🛡️ Mensaje adversarial/tarea/acoso detectado ('{last_msg[:40]}'). El bot se queda en silencio.")
-            return ""
+            return "", None
 
     client, model = _get_client_and_model()
     if not client:
-        return _generate_contingency_reply(conversation_history, target_info)
+        err = "No hay API Key de DeepSeek/Cerebras activa en Base de Datos."
+        return _generate_contingency_reply(conversation_history, target_info), err
 
     system_prompt = f"""Eres un comprador argentino interesado ÚNICAMENTE en comprar un producto publicado ({target_info.get('marca', 'ropa/calzado')}). Estás hablando por WhatsApp o mensaje privado con el vendedor.
 
@@ -323,11 +341,50 @@ Tu único objetivo y comportamiento es ser un cliente real que quiere coordinar 
         # Si el modelo determinó SILENCIO o el vendedor fue hostil/extraño, no enviar nada
         if reply.upper().strip() in ("SILENCIO", "SILENCIO.", "[SILENCIO]"):
             cron_logger.log(f"[Honeypot LLM] 🤫 Comportamiento no comercial detectado. El bot permanece en silencio.")
-            return ""
+            return "", None
 
         cron_logger.log(f"[Honeypot LLM] 🤖 Respuesta generada: {reply[:80]}...")
-        return reply
+        return reply, None
 
     except Exception as e:
-        cron_logger.log(f"[Honeypot LLM] ❌ Error en LLM ({e}). Usando contingencia contextual.")
-        return _generate_contingency_reply(conversation_history, target_info)
+        err_msg = str(e)
+        cron_logger.log(f"[Honeypot LLM] ❌ Error en LLM ({err_msg}). Usando contingencia contextual.")
+        return _generate_contingency_reply(conversation_history, target_info), f"Error DeepSeek: {err_msg}"
+
+
+async def generate_seller_simulation_response(conversation_history: list, target_info: dict) -> tuple[str, str | None]:
+    """
+    Genera la respuesta del VENDEDOR SIMULADO (infractor) usando DeepSeek.
+    El bot asume el papel de vendedor informal ofreciendo réplicas y pasando datos bancarios.
+    Returns:
+        tuple (reply_text: str, error_detail: str | None)
+    """
+    client, model = _get_client_and_model()
+    if not client:
+        err = "No hay API Key de DeepSeek/Cerebras activa en Base de Datos."
+        fallback = "¡Hola genio! Sí, tenemos stock en todos los talles a $65.000. Si querés te paso el alias de MercadoPago calzados.directo.mp para coordinar la transferencia."
+        return fallback, err
+
+    messages = [{"role": "system", "content": SELLER_SIMULATION_SYSTEM_PROMPT}]
+    for msg in conversation_history[-10:]:
+        role = "assistant" if msg["sender"] in ("infractor", "seller") else "user"
+        messages.append({"role": role, "content": msg["text"]})
+
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.8,
+            max_tokens=200,
+        )
+        reply = response.choices[0].message.content.strip()
+        if reply.startswith('"') and reply.endswith('"'):
+            reply = reply[1:-1]
+        cron_logger.log(f"[Vendedor Simulacro DeepSeek] 🎭 Respuesta generada: {reply[:80]}...")
+        return reply, None
+
+    except Exception as e:
+        err_msg = str(e)
+        cron_logger.log(f"[Vendedor Simulacro DeepSeek] ❌ Error en API DeepSeek: {err_msg}")
+        fallback = "¡Hola! Sí, nos quedan los últimos pares en promo a $65.000. Te paso el alias calzados.directo.mp si querés asegurar el tuyo."
+        return fallback, f"Error DeepSeek: {err_msg}"

@@ -27,8 +27,8 @@ const chatService = {
   },
 
   // Enviar mensaje en simulación @curtis_holmes (solo admin/sup_admin)
-  sendCurtisMessage: (text, sender = 'infractor') => {
-    return api.post('/api/chat/curtis/message', { text, sender });
+  sendCurtisMessage: (text, sender = 'infractor', bot_role = null) => {
+    return api.post('/api/chat/curtis/message', { text, sender, bot_role });
   },
 
   // Reiniciar chat de prueba @curtis_holmes (solo admin/sup_admin)

@@ -180,17 +180,38 @@ export default function ChatCenter() {
     const textToSend = chatInput.trim();
     setChatInput('');
     setSendingChat(true);
-
-    if (simSender === 'infractor') {
-      setCurtisTyping(true);
-    }
+    setCurtisTyping(true);
 
     try {
-      await chatService.sendCurtisMessage(textToSend, simSender);
+      const res = await chatService.sendCurtisMessage(
+        textToSend, 
+        simSender, 
+        simSender === 'analista' ? 'seller' : 'honeypot'
+      );
+
+      // Si el backend reporta error de DeepSeek/LLM, mostrar modal informativo
+      if (res?.data?.llm_error) {
+        setFeedbackModal({
+          isOpen: true,
+          title: 'Aviso del Motor de IA (DeepSeek)',
+          type: 'error',
+          message: 'Falla al conectar con DeepSeek API',
+          details: `${res.data.llm_error}. Se utilizó una respuesta contextual de respaldo.`
+        });
+      }
+
       const chatRes = await chatService.getConversation(activeConvId);
       setActiveConversation(chatRes.data);
     } catch (error) {
       console.error("Error sending curtis message", error);
+      const errMsg = error.response?.data?.detail || error.message || "Error al enviar mensaje de simulación";
+      setFeedbackModal({
+        isOpen: true,
+        title: 'Error de Simulación',
+        type: 'error',
+        message: 'No se pudo enviar el mensaje al simulador',
+        details: errMsg
+      });
     } finally {
       setSendingChat(false);
       setCurtisTyping(false);
@@ -624,35 +645,72 @@ export default function ChatCenter() {
               {/* Chips de Escenarios Rápidos para @curtis_holmes */}
               {isCurtisActive && (
                 <div className="scenario-chips-container">
-                  <span style={{ fontSize: '0.75rem', color: '#c084fc', fontWeight: 'bold' }}>Simular rápido:</span>
-                  <button 
-                    type="button" 
-                    className="scenario-chip"
-                    onClick={() => setChatInput("Tengo zapatillas Nike a $65.000, transferime al alias fer.indumentaria.mp o CVU 0000003100012345678901")}
-                  >
-                    🏷️ Pasar Alias y CBU ($65.000)
-                  </button>
-                  <button 
-                    type="button" 
-                    className="scenario-chip"
-                    onClick={() => setChatInput("Hola! ¿Por qué zona están para retirar en persona hoy? ¿Tienen showroom o local en Flores?")}
-                  >
-                    📍 Pedir Retiro en Local
-                  </button>
-                  <button 
-                    type="button" 
-                    className="scenario-chip"
-                    onClick={() => setChatInput("¿Quién te dio mi número? ¿Sos de la policía o por qué tantas preguntas?")}
-                  >
-                    🛡️ Prueba Hostil / Evasiva
-                  </button>
-                  <button 
-                    type="button" 
-                    className="scenario-chip"
-                    onClick={() => setChatInput("Mi DNI es 37.890.123 y el CUIT 20-37890123-4. ¿Cuánto sale el envío a Capital?")}
-                  >
-                    🆔 DNI y CUIT
-                  </button>
+                  <span style={{ fontSize: '0.75rem', color: '#c084fc', fontWeight: 'bold' }}>
+                    {simSender === 'analista' ? 'Preguntar al Vendedor:' : 'Simular como Vendedor:'}
+                  </span>
+                  {simSender === 'analista' ? (
+                    <>
+                      <button 
+                        type="button" 
+                        className="scenario-chip"
+                        onClick={() => setChatInput("¡Hola! ¿Cuánto salen las zapatillas y qué talles tenés disponibles?")}
+                      >
+                        👟 Preguntar Precio y Talles
+                      </button>
+                      <button 
+                        type="button" 
+                        className="scenario-chip"
+                        onClick={() => setChatInput("Dale me sirve, ¿qué Alias o CBU me pasás para hacerte la transferencia ahora?")}
+                      >
+                        💳 Pedir Alias / CBU
+                      </button>
+                      <button 
+                        type="button" 
+                        className="scenario-chip"
+                        onClick={() => setChatInput("¿Por qué zona están para pasar a retirar en persona hoy? ¿Tienen local?")}
+                      >
+                        📍 Preguntar Zona / Showroom
+                      </button>
+                      <button 
+                        type="button" 
+                        className="scenario-chip"
+                        onClick={() => setChatInput("¿Hacés envíos en el día por motomensajería a Capital Federal?")}
+                      >
+                        📦 Consultar Envíos
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button 
+                        type="button" 
+                        className="scenario-chip"
+                        onClick={() => setChatInput("Tengo zapatillas Nike a $65.000, transferime al alias fer.indumentaria.mp o CVU 0000003100012345678901")}
+                      >
+                        🏷️ Pasar Alias y CBU ($65.000)
+                      </button>
+                      <button 
+                        type="button" 
+                        className="scenario-chip"
+                        onClick={() => setChatInput("Estamos en Flores cerca de Nazca y Avellaneda, atendemos de lunes a sábado.")}
+                      >
+                        📍 Showroom en Flores
+                      </button>
+                      <button 
+                        type="button" 
+                        className="scenario-chip"
+                        onClick={() => setChatInput("¿Quién te dio mi número? ¿Sos de la policía o por qué tantas preguntas?")}
+                      >
+                        🛡️ Prueba Hostil / Evasiva
+                      </button>
+                      <button 
+                        type="button" 
+                        className="scenario-chip"
+                        onClick={() => setChatInput("Mi DNI es 37.890.123 y el CUIT 20-37890123-4. Transferime y te las separo.")}
+                      >
+                        🆔 DNI y CUIT
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -827,22 +885,24 @@ export default function ChatCenter() {
               {isCurtisActive ? (
                 /* Input especial para el simulador @curtis_holmes */
                 <div className="chat-active-input">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Hablar en simulación como:</span>
-                    <div className="sim-sender-toggle">
-                      <button 
-                        type="button" 
-                        className={`sim-sender-btn ${simSender === 'infractor' ? 'active' : ''}`}
-                        onClick={() => setSimSender('infractor')}
-                      >
-                        🎭 Vendedor / Infractor (para que el Bot responda)
-                      </button>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Rol activo en simulación:</span>
+                    <div className="sim-sender-toggle" style={{ display: 'flex', gap: '6px' }}>
                       <button 
                         type="button" 
                         className={`sim-sender-btn ${simSender === 'analista' ? 'active' : ''}`}
                         onClick={() => setSimSender('analista')}
+                        title="Tú investigas como Analista y DeepSeek responde como Vendedor infractor"
                       >
-                        👤 Analista
+                        🎭 Bot es Vendedor Simulado (Tú investigas)
+                      </button>
+                      <button 
+                        type="button" 
+                        className={`sim-sender-btn ${simSender === 'infractor' ? 'active' : ''}`}
+                        onClick={() => setSimSender('infractor')}
+                        title="Tú eres el vendedor y DeepSeek responde como Analista Honeypot"
+                      >
+                        🤖 Bot es Analista Honeypot (Tú vendes)
                       </button>
                     </div>
                   </div>
@@ -851,7 +911,11 @@ export default function ChatCenter() {
                     <input
                       type="text"
                       className="input-field"
-                      placeholder={simSender === 'infractor' ? "Escribe como vendedor para que Curtis Holmes te extraiga datos..." : "Escribe como analista..."}
+                      placeholder={
+                        simSender === 'analista' 
+                          ? "Pregúntale al vendedor simulado (ej: ¿Cuánto salen las zapas? ¿Tenés CBU o Alias?)..." 
+                          : "Escribe como vendedor informal para que Curtis te interrogue (ej: Sale $65.000, alias calzados.mp)..."
+                      }
                       value={chatInput}
                       onChange={e => setChatInput(e.target.value)}
                       disabled={sendingChat || curtisTyping}

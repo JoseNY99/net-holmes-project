@@ -155,6 +155,7 @@ class LinkWhatsApp(BaseModel):
 class CurtisMessageCreate(BaseModel):
     text: str
     sender: Optional[str] = "infractor"  # "infractor" para que Curtis responda con IA, o "analista"
+    bot_role: Optional[str] = None  # "seller" (vendedor simulacro) o "honeypot" (analista comprador)
 
 class AddTemporaryNumberRequest(BaseModel):
     phone: str
@@ -333,14 +334,25 @@ async def send_curtis_simulation_message(
 ):
     """
     Envía un mensaje de prueba al chat @curtis_holmes.
-    Si se envía como 'infractor', dispara extracción NLP y respuesta inmediata del Honeypot AI.
+    - Si el usuario actúa como 'analista', el Bot asume el rol de VENDEDOR SIMULACRO (infractor),
+      responde cotizando réplicas con Alias/CBU para que el analista practique la investigación OSINT.
+    - Si el usuario actúa como 'infractor', el Bot asume el rol de ANALISTA HONEYPOT (comprador),
+      interroga al usuario para extraer datos.
+    Retorna llm_error si DeepSeek reportó alguna falla (falta de crédito, API key inválida, etc).
     """
     conv = get_or_create_curtis_test_conversation(db)
 
-    # 1. Guardar mensaje ingresado
+    # Asegurar que el bot esté activo en la conversación de simulación
+    if not conv.is_bot_active:
+        conv.is_bot_active = True
+        db.commit()
+
+    user_sender = (data.sender or "infractor").lower()
+
+    # 1. Guardar mensaje ingresado por el usuario
     new_msg = Message(
         conversation_id=conv.id,
-        sender=data.sender or "infractor",
+        sender=user_sender,
         text=data.text.strip(),
     )
     db.add(new_msg)
@@ -348,43 +360,60 @@ async def send_curtis_simulation_message(
     db.refresh(new_msg)
 
     bot_reply_text = None
+    llm_error = None
 
-    # 2. Si es mensaje de infractor, ejecutar NLP y generar respuesta del Bot si está activo
-    if new_msg.sender.lower() == "infractor":
-        analyze_incoming_message(db, new_msg)
+    from services.llm_client import generate_honeypot_response, generate_seller_simulation_response
 
-        if conv.is_bot_active:
-            from services.llm_client import generate_honeypot_response
+    # Historial de conversación
+    messages = (
+        db.query(Message)
+        .filter(Message.conversation_id == conv.id)
+        .order_by(Message.timestamp.asc())
+        .all()
+    )
+    history = [{"sender": m.sender, "text": m.text} for m in messages]
+    target_info = {
+        "marca": "Nike / Zapatillas (Simulador)",
+        "plataforma": "Simulador AI",
+        "titular": CURTIS_TITULAR,
+    }
 
-            messages = (
-                db.query(Message)
-                .filter(Message.conversation_id == conv.id)
-                .order_by(Message.timestamp.asc())
-                .all()
+    if user_sender == "analista" or data.bot_role == "seller":
+        # El usuario actúa como Analista -> El Bot responde como Vendedor Infractor
+        bot_reply_text, llm_error = await generate_seller_simulation_response(history, target_info)
+        if bot_reply_text:
+            bot_msg = Message(
+                conversation_id=conv.id,
+                sender="infractor",
+                text=bot_reply_text,
             )
-            history = [{"sender": m.sender, "text": m.text} for m in messages]
-            target_info = {
-                "marca": "Nike / Zapatillas (Simulador)",
-                "plataforma": "Simulador AI",
-                "titular": CURTIS_TITULAR,
-            }
-
-            bot_reply_text = await generate_honeypot_response(history, target_info)
-            if bot_reply_text:
-                bot_msg = Message(
-                    conversation_id=conv.id,
-                    sender="bot",
-                    text=bot_reply_text,
-                )
-                db.add(bot_msg)
-                db.commit()
-                db.refresh(bot_msg)
-                cron_logger.log(f"[Curtis Holmes AI] 🤖 Respuesta de prueba generada: {bot_reply_text[:60]}...")
+            db.add(bot_msg)
+            db.commit()
+            db.refresh(bot_msg)
+            # Analizar con NLP la respuesta del vendedor simulado para extraer Alias/CBU/Precios automáticamente
+            analyze_incoming_message(db, bot_msg)
+            cron_logger.log(f"[Curtis Holmes AI - Vendedor] 🎭 Respuesta generada: {bot_reply_text[:60]}...")
+    else:
+        # El usuario actúa como Infractor -> Analizar mensaje del usuario con NLP
+        analyze_incoming_message(db, new_msg)
+        # El Bot responde como Analista Honeypot Comprador
+        bot_reply_text, llm_error = await generate_honeypot_response(history, target_info)
+        if bot_reply_text:
+            bot_msg = Message(
+                conversation_id=conv.id,
+                sender="bot",
+                text=bot_reply_text,
+            )
+            db.add(bot_msg)
+            db.commit()
+            db.refresh(bot_msg)
+            cron_logger.log(f"[Curtis Holmes AI - Honeypot] 🤖 Respuesta generada: {bot_reply_text[:60]}...")
 
     return {
         "status": "success",
         "message_id": new_msg.id,
         "bot_reply": bot_reply_text,
+        "llm_error": llm_error,
     }
 
 
