@@ -1,17 +1,18 @@
 """
 Cliente LLM Unificado Agnóstico — Cerebras / DeepSeek.
 
-Utiliza la librería oficial de `openai` de Python configurando la `base_url`.
-Lee LLM_PROVIDER del .env para decidir en runtime qué backend usar.
+Consume directamente la REST API compatible con Chat Completions vía `httpx`,
+eliminando dependencias de librerías externas como `openai`.
+Lee LLM_PROVIDER del .env o de la base de datos para decidir qué proveedor usar.
 
-Cerebras (default): Ultra-rápido (~200ms), ideal para honeypot en tiempo real.
-DeepSeek (backup):  Económico, buena calidad pero más lento (~2-5s).
+Cerebras: Ultra-rápido (~200ms), ideal para honeypot en tiempo real.
+DeepSeek (por defecto): Inteligente, económico, excelente para simulación y extracción.
 """
 
 import re
 import json
+import httpx
 from datetime import datetime
-from openai import AsyncOpenAI
 from typing import Optional, Dict, Any
 from config import settings
 from services.cron_logger import cron_logger
@@ -62,8 +63,8 @@ Mensaje: "{message_text}"
 JSON:"""
 
 
-def _get_client_and_model():
-    """Retorna una instancia de AsyncOpenAI y el modelo a utilizar basado en la configuración."""
+def _get_llm_config_and_key():
+    """Retorna (base_url, model, api_key, provider_name) según configuración en DB o entorno."""
     from services.api_key_service import get_active_api_key
 
     def _clean_key(prov: str, k: str) -> str:
@@ -85,26 +86,73 @@ def _get_client_and_model():
     if deepseek_key and (preferred == "deepseek" or deepseek_db_key or not get_active_api_key("cerebras")):
         config = LLM_CONFIGS["deepseek"]
         cron_logger.log(f"[LLM] 🧠 Consumiendo API de DEEPSEEK ({config['model']}) para Honeypot y Extracción.")
-        client = AsyncOpenAI(api_key=deepseek_key, base_url=config["base_url"])
-        return client, config["model"]
+        return config["base_url"], config["model"], deepseek_key, "deepseek"
 
     # 2. Comprobar Cerebras
     cerebras_key = get_active_api_key("cerebras") or getattr(settings, "CEREBRAS_API_KEY", None)
     if cerebras_key and cerebras_key.strip():
         config = LLM_CONFIGS["cerebras"]
         cron_logger.log(f"[LLM] 🧠 Consumiendo API de CEREBRAS ({config['model']}).")
-        client = AsyncOpenAI(api_key=cerebras_key.strip(), base_url=config["base_url"])
-        return client, config["model"]
+        return config["base_url"], config["model"], cerebras_key.strip(), "cerebras"
 
     # 3. Fallback a DeepSeek si hay alguna clave disponible
     if deepseek_key:
         config = LLM_CONFIGS["deepseek"]
         cron_logger.log(f"[LLM] 🧠 Consumiendo API de DEEPSEEK ({config['model']}) como fallback.")
-        client = AsyncOpenAI(api_key=deepseek_key, base_url=config["base_url"])
-        return client, config["model"]
+        return config["base_url"], config["model"], deepseek_key, "deepseek"
 
     cron_logger.log("[LLM] ℹ️ Sin API Key de DeepSeek/Cerebras activa en DB. Se usarán respuestas de contingencia contextual.")
-    return None, None
+    return None, None, None, None
+
+
+async def call_llm_chat_completion(
+    messages: list,
+    temperature: float = 0.7,
+    max_tokens: int = 200,
+) -> tuple[str, str | None]:
+    """
+    Realiza la llamada HTTP a DeepSeek o Cerebras usando httpx nativo sin requerir la librería openai.
+    Returns:
+        tuple (reply_text: str, error_detail: str | None)
+    """
+    base_url, model, api_key, provider = _get_llm_config_and_key()
+    if not api_key:
+        return "", "No hay API Key de DeepSeek/Cerebras activa en la Base de Datos."
+
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    try:
+        cron_logger.log(f"[LLM] 🧠 Enviando petición HTTP a {provider.upper()} ({model})...")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices and "message" in choices[0]:
+                    reply = choices[0]["message"].get("content", "").strip()
+                    return reply, None
+                return "", f"Respuesta inesperada de {provider}: no se encontró contenido"
+            else:
+                try:
+                    err_json = resp.json()
+                    err_detail = err_json.get("error", {}).get("message") or resp.text
+                except Exception:
+                    err_detail = resp.text
+                return "", f"Error HTTP {resp.status_code} ({provider}): {err_detail}"
+    except httpx.TimeoutException:
+        return "", f"Timeout (30s) al conectar con {provider}."
+    except Exception as e:
+        return "", f"Falla de red con {provider}: {str(e)}"
 
 
 # ─── Cliente Unificado ──────────────────────────────────────────────────────
@@ -116,59 +164,41 @@ async def extract_entities_llm(message_text: str) -> dict:
     Returns:
         dict con las entidades encontradas, o {} si no encontró nada.
     """
-    client, model = _get_client_and_model()
-    if not client:
-        return {}
-        
-    provider = settings.LLM_PROVIDER.lower()
-
     messages = [
         {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
         {"role": "user", "content": EXTRACTION_USER_TEMPLATE.format(message_text=message_text)},
     ]
 
+    content, err = await call_llm_chat_completion(messages, temperature=0.1, max_tokens=500)
+    if not content:
+        if err:
+            cron_logger.log(f"[LLM Extracción] ⚠️ {err}")
+        return {}
+
+    # Limpiar posible markdown wrapping
+    if content.startswith("```json"):
+        content = content[7:]
+    if content.startswith("```"):
+        content = content[3:]
+    if content.endswith("```"):
+        content = content[:-3]
+    content = content.strip()
+
     try:
-        cron_logger.log(f"[LLM] 🧠 Consultando {provider.upper()} ({model}) para extracción de entidades...")
-
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.1,  # Baja temperatura para extracción precisa
-            max_tokens=500,
-        )
-
-        content = response.choices[0].message.content.strip()
-
-        # Limpiar posible markdown wrapping
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        content = content.strip()
-
         entities = json.loads(content)
-
         if not isinstance(entities, dict):
             cron_logger.log(f"[LLM] ⚠️ Respuesta no es un dict: {content[:100]}")
             return {}
 
-        # Filtrar claves vacías o None
         entities = {k: v for k, v in entities.items() if v is not None and v != ""}
-
         if entities:
-            cron_logger.log(f"[LLM] 🎯 Entidades extraídas por {provider.upper()}: {entities}")
-        else:
-            cron_logger.log(f"[LLM] ℹ️ No se encontraron entidades en el mensaje.")
-
+            cron_logger.log(f"[LLM] 🎯 Entidades extraídas: {entities}")
         return entities
-
     except json.JSONDecodeError as e:
         cron_logger.log(f"[LLM] ⚠️ Error parseando JSON del LLM: {e}")
         return {}
     except Exception as e:
-        cron_logger.log(f"[LLM] ❌ Error inesperado en extracción LLM ({provider}): {e}")
+        cron_logger.log(f"[LLM] ❌ Error inesperado en extracción LLM: {e}")
         return {}
 
 
@@ -288,11 +318,6 @@ async def generate_honeypot_response(conversation_history: list, target_info: di
             cron_logger.log(f"[Honeypot LLM] 🛡️ Mensaje adversarial/tarea/acoso detectado ('{last_msg[:40]}'). El bot se queda en silencio.")
             return "", None
 
-    client, model = _get_client_and_model()
-    if not client:
-        err = "No hay API Key de DeepSeek/Cerebras activa en Base de Datos."
-        return _generate_contingency_reply(conversation_history, target_info), err
-
     system_prompt = f"""Eres un comprador argentino interesado ÚNICAMENTE en comprar un producto publicado ({target_info.get('marca', 'ropa/calzado')}). Estás hablando por WhatsApp o mensaje privado con el vendedor.
 
 Tu único objetivo y comportamiento es ser un cliente real que quiere coordinar la compra y pagar por transferencia bancaria / efectivo:
@@ -331,32 +356,22 @@ Tu único objetivo y comportamiento es ser un cliente real que quiere coordinar 
         last_txt = conversation_history[-1].get("text", "").strip() if conversation_history else "Hola"
         messages.append({"role": "user", "content": last_txt or "Hola"})
 
-    try:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=150,
-        )
+    reply, err = await call_llm_chat_completion(messages, temperature=0.7, max_tokens=150)
+    if err:
+        cron_logger.log(f"[Honeypot LLM] ❌ Error en LLM ({err}). Usando contingencia contextual.")
+        return _generate_contingency_reply(conversation_history, target_info), err
 
-        reply = response.choices[0].message.content.strip()
-        
-        # Sanitizar: quitar comillas envolventes si las tiene
-        if reply.startswith('"') and reply.endswith('"'):
-            reply = reply[1:-1]
+    # Sanitizar: quitar comillas envolventes si las tiene
+    if reply.startswith('"') and reply.endswith('"'):
+        reply = reply[1:-1]
 
-        # Si el modelo determinó SILENCIO o el vendedor fue hostil/extraño, no enviar nada
-        if reply.upper().strip() in ("SILENCIO", "SILENCIO.", "[SILENCIO]"):
-            cron_logger.log(f"[Honeypot LLM] 🤫 Comportamiento no comercial detectado. El bot permanece en silencio.")
-            return "", None
+    # Si el modelo determinó SILENCIO o el vendedor fue hostil/extraño, no enviar nada
+    if reply.upper().strip() in ("SILENCIO", "SILENCIO.", "[SILENCIO]"):
+        cron_logger.log(f"[Honeypot LLM] 🤫 Comportamiento no comercial detectado. El bot permanece en silencio.")
+        return "", None
 
-        cron_logger.log(f"[Honeypot LLM] 🤖 Respuesta generada: {reply[:80]}...")
-        return reply, None
-
-    except Exception as e:
-        err_msg = str(e)
-        cron_logger.log(f"[Honeypot LLM] ❌ Error en LLM ({err_msg}). Usando contingencia contextual.")
-        return _generate_contingency_reply(conversation_history, target_info), f"Error DeepSeek: {err_msg}"
+    cron_logger.log(f"[Honeypot LLM] 🤖 Respuesta generada: {reply[:80]}...")
+    return reply, None
 
 
 async def generate_seller_simulation_response(conversation_history: list, target_info: dict) -> tuple[str, str | None]:
@@ -366,12 +381,6 @@ async def generate_seller_simulation_response(conversation_history: list, target
     Returns:
         tuple (reply_text: str, error_detail: str | None)
     """
-    client, model = _get_client_and_model()
-    if not client:
-        err = "No hay API Key de DeepSeek/Cerebras activa en Base de Datos."
-        fallback = "¡Hola genio! Sí, tenemos stock en todos los talles a $65.000. Si querés te paso el alias de MercadoPago calzados.directo.mp para coordinar la transferencia."
-        return fallback, err
-
     messages = [{"role": "system", "content": SELLER_SIMULATION_SYSTEM_PROMPT}]
     for msg in conversation_history[-10:]:
         txt = (msg.get("text") or "").strip()
@@ -384,21 +393,14 @@ async def generate_seller_simulation_response(conversation_history: list, target
         last_txt = conversation_history[-1].get("text", "").strip() if conversation_history else "¿Cuánto sale?"
         messages.append({"role": "user", "content": last_txt or "¿Cuánto sale?"})
 
-    try:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.8,
-            max_tokens=200,
-        )
-        reply = response.choices[0].message.content.strip()
-        if reply.startswith('"') and reply.endswith('"'):
-            reply = reply[1:-1]
-        cron_logger.log(f"[Vendedor Simulacro DeepSeek] 🎭 Respuesta generada: {reply[:80]}...")
-        return reply, None
-
-    except Exception as e:
-        err_msg = str(e)
-        cron_logger.log(f"[Vendedor Simulacro DeepSeek] ❌ Error en API DeepSeek: {err_msg}")
+    reply, err = await call_llm_chat_completion(messages, temperature=0.8, max_tokens=200)
+    if err:
+        cron_logger.log(f"[Vendedor Simulacro DeepSeek] ❌ Error en API DeepSeek: {err}")
         fallback = "¡Hola! Sí, nos quedan los últimos pares en promo a $65.000. Te paso el alias calzados.directo.mp si querés asegurar el tuyo."
-        return fallback, f"Error DeepSeek: {err_msg}"
+        return fallback, f"Error DeepSeek: {err}"
+
+    if reply.startswith('"') and reply.endswith('"'):
+        reply = reply[1:-1]
+
+    cron_logger.log(f"[Vendedor Simulacro DeepSeek] 🎭 Respuesta generada: {reply[:80]}...")
+    return reply, None
