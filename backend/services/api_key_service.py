@@ -271,11 +271,13 @@ async def test_service_connection(service_name: str, key_override: str = None, e
                 latency = int((time.time() - t0) * 1000)
                 if resp.status_code == 200:
                     data = resp.json()
-                    name = data.get("verified_name") or data.get("display_phone_number") or data.get("name", "Meta App")
+                    display_phone = data.get("display_phone_number", "")
+                    verified_name = data.get("verified_name") or "Bot"
+                    quality = data.get("quality_rating", "Desconocida")
                     return {
                         "success": True, 
-                        "message": f"Conexión exitosa con WhatsApp Cloud API. Identificador verificado: {name}", 
-                        "details": f"Endpoint consultado: {test_url}",
+                        "message": f"Conexión exitosa con Meta. Número de tu Bot: {display_phone or verified_name}", 
+                        "details": f"Número activo: {display_phone} | Nombre: {verified_name} | Calidad: {quality} | Phone ID: {phone_id}. ¡Escríbele un 'Hola' desde tu WhatsApp a este número para abrir la sesión!",
                         "latency_ms": latency
                     }
                 else:
