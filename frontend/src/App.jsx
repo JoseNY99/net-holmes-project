@@ -20,6 +20,7 @@ import RedCorrelacionesPage from './pages/RedCorrelacionesPage';
 import ChatCenter from './pages/ChatCenter';
 import WhatsAppSettings from './pages/WhatsAppSettings';
 import ScraperSettings from './pages/ScraperSettings';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 
 import { Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
@@ -149,6 +150,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/privacy" element={<PrivacyPolicy />} />
     </Routes>
   );
 }
