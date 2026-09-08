@@ -951,56 +951,70 @@ async def edit_message(
     Si el mensaje tiene un ID de WhatsApp (wamid), intenta además propagar la corrección
     a Meta WhatsApp Cloud API dentro de la ventana permitida.
     """
-    new_text = (data.text or "").strip()
-    if not new_text:
-        raise HTTPException(status_code=400, detail="El texto del mensaje no puede estar vacío.")
+    try:
+        new_text = (data.text or "").strip()
+        if not new_text:
+            raise HTTPException(status_code=400, detail="El texto del mensaje no puede estar vacío.")
 
-    msg = db.query(Message).filter(Message.id == message_id).first()
-    if not msg:
-        raise HTTPException(status_code=404, detail=f"Mensaje #{message_id} no encontrado.")
+        msg = db.query(Message).filter(Message.id == message_id).first()
+        if not msg:
+            raise HTTPException(status_code=404, detail=f"Mensaje #{message_id} no encontrado.")
 
-    msg.text = new_text
+        if msg.sender not in ("bot", "analista"):
+            raise HTTPException(
+                status_code=403,
+                detail="No se pueden editar mensajes del infractor/contacto para preservar la evidencia original."
+            )
 
-    # Si es mensaje de infractor, reanalizar con NLP
-    if msg.sender in ("infractor", "seller"):
-        try:
-            analyze_incoming_message(db, msg)
-        except Exception as e:
-            cron_logger.log(f"[Chat Edit] ⚠️ Error al reanalizar entidades NLP: {e}")
+        msg.text = new_text
 
-    db.commit()
-    db.refresh(msg)
+        # Si es mensaje de infractor, reanalizar con NLP
+        if msg.sender in ("infractor", "seller"):
+            try:
+                analyze_incoming_message(db, msg)
+            except Exception as e:
+                cron_logger.log(f"[Chat Edit] ⚠️ Error al reanalizar entidades NLP: {e}")
 
-    # Intento de edición en Meta WhatsApp si tiene whatsapp_message_id
-    meta_synced = False
-    if msg.whatsapp_message_id and msg.sender in ("bot", "analista"):
-        try:
-            conv = db.query(Conversation).filter(Conversation.id == msg.conversation_id).first()
-            if conv and conv.whatsapp_phone and not conv.whatsapp_phone.startswith("@"):
-                from services.whatsapp_sender import edit_whatsapp_message
-                meta_res = await edit_whatsapp_message(
-                    to_phone=conv.whatsapp_phone,
-                    original_wamid=msg.whatsapp_message_id,
-                    new_text=msg.text,
-                    db=db
-                )
-                meta_synced = meta_res.get("success", False)
-        except Exception as meta_err:
-            cron_logger.log(f"[Chat Edit] ⚠️ No se pudo sincronizar edición con Meta: {meta_err}")
+        db.commit()
+        db.refresh(msg)
 
-    cron_logger.log(
-        f"[Chat] ✏️ Mensaje #{msg.id} ({msg.sender}) editado por {current_user.email}: '{msg.text[:50]}...'"
-    )
+        # Intento de edición en Meta WhatsApp si tiene whatsapp_message_id
+        meta_synced = False
+        if msg.whatsapp_message_id and msg.sender in ("bot", "analista"):
+            try:
+                conv = db.query(Conversation).filter(Conversation.id == msg.conversation_id).first()
+                if conv and conv.whatsapp_phone and not conv.whatsapp_phone.startswith("@"):
+                    from services.whatsapp_sender import edit_whatsapp_message
+                    meta_res = await edit_whatsapp_message(
+                        to_phone=conv.whatsapp_phone,
+                        original_wamid=msg.whatsapp_message_id,
+                        new_text=msg.text,
+                        db=db
+                    )
+                    meta_synced = meta_res.get("success", False)
+            except Exception as meta_err:
+                cron_logger.log(f"[Chat Edit] ⚠️ No se pudo sincronizar edición con Meta: {meta_err}")
 
-    return {
-        "status": "success",
-        "message": {
-            "id": msg.id,
-            "text": msg.text,
-            "sender": msg.sender,
-            "extracted_entities": msg.extracted_entities,
-        },
-        "meta_synced": meta_synced,
-    }
+        user_ident = getattr(current_user, "correo", getattr(current_user, "nombre", "usuario"))
+        cron_logger.log(
+            f"[Chat] ✏️ Mensaje #{msg.id} ({msg.sender}) editado por {user_ident}: '{msg.text[:50]}...'"
+        )
+
+        return {
+            "status": "success",
+            "message": {
+                "id": msg.id,
+                "text": msg.text,
+                "sender": msg.sender,
+                "extracted_entities": msg.extracted_entities,
+            },
+            "meta_synced": meta_synced,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        cron_logger.log(f"[Chat Edit] ❌ Error inesperado al editar mensaje #{message_id}: {exc}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al editar mensaje: {str(exc)}")
 
 

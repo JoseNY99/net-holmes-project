@@ -813,7 +813,8 @@ export default function ChatCenter() {
                   activeConversation.messages.map((msg, idx) => {
                     const entities = parseEntities(msg.extracted_entities);
                     const isCurtisMessage = isCurtisActive && msg.sender === 'bot';
-                    const isInfractor = msg.sender === 'infractor';
+                    const isInfractor = msg.sender === 'infractor' || msg.sender === 'seller';
+                    const canEdit = Boolean(msg.id && (msg.sender === 'bot' || msg.sender === 'analista'));
 
                     return (
                       <div key={msg.id || idx} style={{ alignSelf: isInfractor ? 'flex-start' : 'flex-end', maxWidth: '82%', width: 'fit-content' }}>
@@ -854,7 +855,7 @@ export default function ChatCenter() {
                               <span style={{ opacity: 0.65, fontWeight: 'normal', fontSize: '0.72rem' }}>
                                 {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit'}) : ''}
                               </span>
-                              {msg.id && (
+                              {canEdit && (
                                 <button
                                   type="button"
                                   onClick={() => handleStartEditMessage(msg)}
