@@ -52,6 +52,11 @@ export default function ChatCenter() {
     is_custom: false
   });
 
+  // Estado para Edición de Mensajes Individuales (Lapicito)
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingMessageText, setEditingMessageText] = useState('');
+  const [savingMessageEdit, setSavingMessageEdit] = useState(false);
+
   const [startingBot, setStartingBot] = useState(false);
   const [deliveryNotice, setDeliveryNotice] = useState(null);
   const [feedbackModal, setFeedbackModal] = useState({
@@ -438,6 +443,47 @@ export default function ChatCenter() {
     }
   };
 
+  const handleStartEditMessage = (msg) => {
+    setEditingMessageId(msg.id);
+    setEditingMessageText(msg.text || msg.content || '');
+  };
+
+  const handleCancelEditMessage = () => {
+    setEditingMessageId(null);
+    setEditingMessageText('');
+  };
+
+  const handleSaveMessageEdit = async (msgId) => {
+    if (!editingMessageText.trim()) return;
+    setSavingMessageEdit(true);
+    try {
+      const res = await chatService.editMessage(msgId, editingMessageText.trim());
+      setActiveConversation(prev => {
+        if (!prev || !prev.messages) return prev;
+        return {
+          ...prev,
+          messages: prev.messages.map(m => {
+            if (m.id === msgId) {
+              return {
+                ...m,
+                text: res.data.message.text,
+                extracted_entities: res.data.message.extracted_entities !== undefined ? res.data.message.extracted_entities : m.extracted_entities
+              };
+            }
+            return m;
+          })
+        };
+      });
+      setEditingMessageId(null);
+      setEditingMessageText('');
+    } catch (err) {
+      console.error("Error al editar mensaje:", err);
+      alert("Error al guardar la edición del mensaje: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setSavingMessageEdit(false);
+    }
+  };
+
   const toggleChatMode = async () => {
     if (!activeConversation || !activeConvId) return;
     try {
@@ -804,13 +850,91 @@ export default function ChatCenter() {
                                       ? '🎭 VENDEDOR SIMULADO' 
                                       : '👤 CONTACTO / INFRACTOR'}
                             </span>
-                            <span style={{ opacity: 0.65, fontWeight: 'normal', fontSize: '0.72rem' }}>
-                              {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit'}) : ''}
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ opacity: 0.65, fontWeight: 'normal', fontSize: '0.72rem' }}>
+                                {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit'}) : ''}
+                              </span>
+                              {msg.id && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditMessage(msg)}
+                                  title="Editar y corregir este mensaje (Lapicito)"
+                                  style={{
+                                    background: 'rgba(255, 255, 255, 0.08)',
+                                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                                    color: 'inherit',
+                                    cursor: 'pointer',
+                                    padding: '2px 7px',
+                                    borderRadius: '4px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '0.72rem',
+                                    transition: 'all 0.15s ease',
+                                  }}
+                                >
+                                  <FaEdit size={11} /> Editar
+                                </button>
+                              )}
                             </span>
                           </strong>
-                          <span style={{ lineHeight: '1.5', fontSize: '0.94rem', display: 'block', wordBreak: 'break-word', color: 'inherit' }}>
-                            {msg.text || msg.content}
-                          </span>
+                          {editingMessageId === msg.id ? (
+                            <div style={{ marginTop: '8px', minWidth: '240px' }}>
+                              <textarea
+                                className="input-field"
+                                rows={3}
+                                value={editingMessageText}
+                                onChange={e => setEditingMessageText(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSaveMessageEdit(msg.id);
+                                  } else if (e.key === 'Escape') {
+                                    handleCancelEditMessage();
+                                  }
+                                }}
+                                style={{
+                                  width: '100%',
+                                  fontSize: '0.92rem',
+                                  backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                                  color: '#fff',
+                                  border: '1px solid var(--accent-primary)',
+                                  borderRadius: '6px',
+                                  padding: '8px',
+                                  boxSizing: 'border-box',
+                                  resize: 'vertical'
+                                }}
+                                autoFocus
+                              />
+                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '6px' }}>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  onClick={handleCancelEditMessage}
+                                  disabled={savingMessageEdit}
+                                  style={{ padding: '4px 10px', fontSize: '0.76rem', borderRadius: '4px' }}
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-primary"
+                                  onClick={() => handleSaveMessageEdit(msg.id)}
+                                  disabled={savingMessageEdit || !editingMessageText.trim()}
+                                  style={{ padding: '4px 12px', fontSize: '0.76rem', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                >
+                                  {savingMessageEdit ? <FaSpinner className="spin" size={11} /> : <FaCheckCircle size={11} />} Guardar
+                                </button>
+                              </div>
+                              <small style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: '0.68rem', display: 'block', marginTop: '3px', textAlign: 'right' }}>
+                                Enter para guardar • Esc para cancelar
+                              </small>
+                            </div>
+                          ) : (
+                            <span style={{ lineHeight: '1.5', fontSize: '0.94rem', display: 'block', wordBreak: 'break-word', color: 'inherit' }}>
+                              {msg.text || msg.content}
+                            </span>
+                          )}
 
                           {/* Renderizado de Multimedia Comprimida (Imágenes, Audios, Videos, Docs) */}
                           {msg.media_url && (

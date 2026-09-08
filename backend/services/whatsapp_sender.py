@@ -358,11 +358,20 @@ async def send_honeypot_reply(db, conversation, incoming_message):
     success, _detail = await send_text_message(conversation.whatsapp_phone, reply_text, db=db)
 
     if success:
+        # Extraer wamid si viene en detail
+        wamid = None
+        if "Meta ID: " in _detail:
+            try:
+                wamid = _detail.split("Meta ID: ")[1].split(")")[0].strip()
+            except Exception:
+                pass
+
         # Guardar la respuesta del bot en la conversación
         bot_msg = Message(
             conversation_id=conversation.id,
             sender="bot",
             text=reply_text,
+            whatsapp_message_id=wamid,
         )
         db.add(bot_msg)
         db.commit()
@@ -371,3 +380,49 @@ async def send_honeypot_reply(db, conversation, incoming_message):
     else:
         cron_logger.log(f"[Honeypot] ⚠️ Respuesta generada pero no se pudo enviar por WhatsApp.")
         return None
+
+
+async def edit_whatsapp_message(
+    to_phone: str,
+    original_wamid: str,
+    new_text: str,
+    db=None
+) -> dict:
+    """
+    Intenta editar un mensaje de texto enviado por WhatsApp dentro de la ventana permitida por Meta Cloud API.
+    """
+    token, phone_id = get_active_whatsapp_credentials(db)
+    if not token or not phone_id or not original_wamid:
+        return {"success": False, "error": "Credenciales o ID de mensaje ausentes"}
+
+    clean_phone = normalize_whatsapp_phone(to_phone)
+    url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": clean_phone,
+        "type": "text",
+        "context": {
+            "message_id": original_wamid
+        },
+        "text": {"body": new_text},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            data = resp.json() if "application/json" in resp.headers.get("content-type", "") else {}
+            if resp.status_code == 200 and "messages" in data:
+                cron_logger.log(f"[WhatsApp Edit] ✏️ Mensaje {original_wamid} editado en Meta para {clean_phone}")
+                return {"success": True, "meta_id": data["messages"][0].get("id")}
+            else:
+                err_msg = data.get("error", {}).get("message", resp.text)
+                cron_logger.log(f"[WhatsApp Edit] ⚠️ Meta no pudo editar el mensaje {original_wamid}: {err_msg}")
+                return {"success": False, "error": err_msg}
+    except Exception as e:
+        cron_logger.log(f"[WhatsApp Edit] ❌ Error de red al editar mensaje en Meta: {e}")
+        return {"success": False, "error": str(e)}

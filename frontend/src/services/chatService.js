@@ -73,6 +73,11 @@ const chatService = {
   updateBotConfig: (payload) => {
     return api.put('/api/chat/bot-config', payload);
   },
+
+  // Editar y corregir el contenido de un mensaje individual (lapicito)
+  editMessage: (messageId, text) => {
+    return api.put(`/api/chat/message/${messageId}`, { text });
+  },
 };
 
 export default chatService;

@@ -189,6 +189,9 @@ class BotConfigUpdate(BaseModel):
     system_prompt: str
     opening_message: str
 
+class EditMessageRequest(BaseModel):
+    text: str
+
 
 # ─── GET Todas las Conversaciones ───────────────────────────────────────────
 
@@ -931,4 +934,73 @@ def update_bot_config(
         opening_message=data.opening_message,
         db=db,
     )
+
+
+# ─── PUT Editar Mensaje Individual (Lapicito de Corrección) ───────────────────
+
+@router.put("/message/{message_id}")
+async def edit_message(
+    message_id: int,
+    data: EditMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Permite a un analista o administrador editar y corregir cualquier mensaje
+    (enviado por el bot, simulado o recibido).
+    Si el mensaje tiene un ID de WhatsApp (wamid), intenta además propagar la corrección
+    a Meta WhatsApp Cloud API dentro de la ventana permitida.
+    """
+    new_text = (data.text or "").strip()
+    if not new_text:
+        raise HTTPException(status_code=400, detail="El texto del mensaje no puede estar vacío.")
+
+    msg = db.query(Message).filter(Message.id == message_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail=f"Mensaje #{message_id} no encontrado.")
+
+    msg.text = new_text
+
+    # Si es mensaje de infractor, reanalizar con NLP
+    if msg.sender in ("infractor", "seller"):
+        try:
+            analyze_incoming_message(db, msg)
+        except Exception as e:
+            cron_logger.log(f"[Chat Edit] ⚠️ Error al reanalizar entidades NLP: {e}")
+
+    db.commit()
+    db.refresh(msg)
+
+    # Intento de edición en Meta WhatsApp si tiene whatsapp_message_id
+    meta_synced = False
+    if msg.whatsapp_message_id and msg.sender in ("bot", "analista"):
+        try:
+            conv = db.query(Conversation).filter(Conversation.id == msg.conversation_id).first()
+            if conv and conv.whatsapp_phone and not conv.whatsapp_phone.startswith("@"):
+                from services.whatsapp_sender import edit_whatsapp_message
+                meta_res = await edit_whatsapp_message(
+                    to_phone=conv.whatsapp_phone,
+                    original_wamid=msg.whatsapp_message_id,
+                    new_text=msg.text,
+                    db=db
+                )
+                meta_synced = meta_res.get("success", False)
+        except Exception as meta_err:
+            cron_logger.log(f"[Chat Edit] ⚠️ No se pudo sincronizar edición con Meta: {meta_err}")
+
+    cron_logger.log(
+        f"[Chat] ✏️ Mensaje #{msg.id} ({msg.sender}) editado por {current_user.email}: '{msg.text[:50]}...'"
+    )
+
+    return {
+        "status": "success",
+        "message": {
+            "id": msg.id,
+            "text": msg.text,
+            "sender": msg.sender,
+            "extracted_entities": msg.extracted_entities,
+        },
+        "meta_synced": meta_synced,
+    }
+
 
