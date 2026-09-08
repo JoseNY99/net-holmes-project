@@ -39,6 +39,13 @@ export default function ChatCenter() {
   const [editingContact, setEditingContact] = useState(false);
   const [editForm, setEditForm] = useState({ phone: '', titular: '' });
 
+  // Modal Plantilla Meta
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templateForm, setTemplateForm] = useState({
+    name: 'hello_world',
+    language: 'en_US'
+  });
+
   const [startingBot, setStartingBot] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
   const [deliveryNotice, setDeliveryNotice] = useState(null);
@@ -261,26 +268,36 @@ export default function ChatCenter() {
     }
   };
 
-  // Enviar plantilla oficial de apertura (hello_world)
-  const handleSendTemplate = async () => {
+  // Enviar plantilla oficial de apertura
+  const handleSendTemplate = async (e) => {
+    if (e) e.preventDefault();
     if (!activeConvId || sendingTemplate) return;
     setSendingTemplate(true);
     try {
-      const res = await chatService.sendTemplate(activeConvId, 'hello_world', 'en_US');
+      const res = await chatService.sendTemplate(
+        activeConvId,
+        templateForm.name?.trim() || 'hello_world',
+        templateForm.language?.trim() || 'en_US'
+      );
       const chatRes = await chatService.getConversation(activeConvId);
       setActiveConversation(chatRes.data);
+      setShowTemplateModal(false);
+
+      const isError = !res.data?.whatsapp_sent;
+      const detailMsg = res.data?.whatsapp_detail || '';
 
       setFeedbackModal({
         isOpen: true,
-        title: 'Plantilla de Apertura Meta Enviada',
-        type: res.data?.whatsapp_sent ? 'success' : 'warning',
+        title: isError ? 'Resultado de Plantilla Meta' : 'Plantilla Enviada',
+        type: isError ? 'warning' : 'success',
         message: res.data?.message || 'Plantilla procesada por Meta Cloud API.',
-        details: res.data?.whatsapp_detail || (res.data?.whatsapp_sent 
+        details: detailMsg || (res.data?.whatsapp_sent 
           ? 'La plantilla oficial fue enviada con éxito. En cuanto el contacto responda, se desbloqueará la sesión completa de 24 horas para Curtis AI.' 
-          : 'Revisa que el número esté autorizado en Meta Developers si estás en modo Desarrollo.')
+          : 'Revisa que el nombre y el idioma de la plantilla coincidan con Meta Business Manager.')
       });
     } catch (error) {
       console.error("Error sending template", error);
+      setShowTemplateModal(false);
       setFeedbackModal({
         isOpen: true,
         title: 'Error de Plantilla',
@@ -590,7 +607,7 @@ export default function ChatCenter() {
                     <button
                       type="button"
                       className="btn-secondary"
-                      onClick={handleSendTemplate}
+                      onClick={() => setShowTemplateModal(true)}
                       disabled={sendingTemplate}
                       title="Envía una plantilla oficial pre-aprobada por Meta para abrir la sesión de 24h cuando el contacto nunca nos habló"
                       style={{ 
@@ -1206,6 +1223,84 @@ export default function ChatCenter() {
               value={editForm.titular}
               onChange={e => setEditForm(prev => ({ ...prev, titular: e.target.value }))}
               style={{ width: '100%' }}
+            />
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Enviar Plantilla Oficial Meta */}
+      <Modal
+        isOpen={showTemplateModal}
+        onClose={() => setShowTemplateModal(false)}
+        title="Enviar Plantilla Oficial de WhatsApp (Meta)"
+        footer={
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', width: '100%' }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setShowTemplateModal(false)}
+              disabled={sendingTemplate}
+              style={{ padding: '8px 18px' }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleSendTemplate}
+              disabled={sendingTemplate || !templateForm.name?.trim()}
+              style={{ padding: '8px 20px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              {sendingTemplate ? <><FaSpinner className="spin" /> Enviando...</> : <><FaWhatsapp /> Enviar Plantilla</>}
+            </button>
+          </div>
+        }
+      >
+        <form onSubmit={handleSendTemplate} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{
+            padding: '12px 14px',
+            borderRadius: '8px',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            border: '1px solid rgba(59, 130, 246, 0.25)',
+            fontSize: '0.85rem',
+            lineHeight: '1.45',
+            color: 'var(--text-primary)'
+          }}>
+            <strong style={{ color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+              ℹ️ Política de 24 Horas de Meta
+            </strong>
+            Meta no permite que una empresa envíe mensajes de texto libres a un usuario si han pasado más de 24 horas sin que el usuario hable.
+            <div style={{ marginTop: '8px', padding: '8px 10px', background: 'rgba(0,0,0,0.25)', borderRadius: '6px', borderLeft: '3px solid #22c55e' }}>
+              <strong style={{ color: '#4ade80' }}>⚡ Forma más rápida y sin costo:</strong> Pídele al usuario (o envía tú desde tu WhatsApp personal) un mensaje con la palabra <strong>"Hola"</strong> al número de WhatsApp del bot. Al recibirlo, Meta abre la ventana de 24h inmediatamente.
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>Nombre de la Plantilla en Meta *</label>
+            <input 
+              type="text" 
+              className="input-field" 
+              placeholder="Ej: hello_world (solo pruebas sandbox) o tu plantilla propia" 
+              value={templateForm.name}
+              onChange={e => setTemplateForm(prev => ({ ...prev, name: e.target.value }))}
+              style={{ width: '100%' }}
+              required
+            />
+            <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+              ⚠️ Si tu cuenta tiene un <strong>número real registrado</strong>, Meta no permite <code>hello_world</code> (da error 131058). Debes ingresar el nombre de la plantilla creada en Meta Business Suite.
+            </small>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>Código de Idioma *</label>
+            <input 
+              type="text" 
+              className="input-field" 
+              placeholder="Ej: en_US, es, es_AR" 
+              value={templateForm.language}
+              onChange={e => setTemplateForm(prev => ({ ...prev, language: e.target.value }))}
+              style={{ width: '100%' }}
+              required
             />
           </div>
         </form>

@@ -144,6 +144,12 @@ async def send_template_message(
                     human_reason = f"El número {clean_phone} no está en la lista de destinatarios permitidos (To) de tu cuenta de Meta Developers. Agrégalo en el panel de Meta para pruebas."
                 elif error_code == 132000:
                     human_reason = f"La plantilla '{template_name}' no existe o no está aprobada en tu WhatsApp Business Account."
+                elif error_code == 131058:
+                    human_reason = (
+                        "La plantilla 'hello_world' solo está permitida en números de prueba sandbox (+1 555...). "
+                        "Como tu cuenta tiene un número real registrado, debes enviar 'Hola' desde tu WhatsApp al número del bot "
+                        "para abrir la sesión de 24 horas, o usar una plantilla propia creada en WhatsApp Business Manager."
+                    )
                 cron_logger.log(f"[WhatsApp Sender] ❌ Error Meta ({error_code}) al enviar plantilla a {clean_phone}: {human_reason}")
                 return False, human_reason
     except Exception as e:
