@@ -19,8 +19,8 @@ class Conversation(Base):
     reporte_id = Column(Integer, ForeignKey("reportes_brand_defense.id", ondelete="CASCADE"), unique=True, nullable=False)
 
     # Modo operativo: "bot" (automático con LLM) o "analista" (control manual humano)
-    mode = Column(String(50), default="bot")
-    is_bot_active = Column(Boolean, default=True)
+    mode = Column(String(50), default="analista")
+    is_bot_active = Column(Boolean, default=False)
 
     # ─── WhatsApp Cloud API ───
     # Número del infractor (formato E.164: +5491112345678)

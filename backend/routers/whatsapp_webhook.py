@@ -196,14 +196,14 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                             else:
                                 conversation = Conversation(
                                     reporte_id=reporte.id,
-                                    mode="bot",
-                                    is_bot_active=True,
+                                    mode="analista",
+                                    is_bot_active=False,
                                     whatsapp_phone=f"+{clean_digits}",
                                 )
                                 db.add(conversation)
                             db.commit()
                             db.refresh(conversation)
-                            cron_logger.log(f"[WhatsApp] 🔗 Conversación vinculada al Reporte #{reporte.id}")
+                            cron_logger.log(f"[WhatsApp] 🔗 Conversación vinculada al Reporte #{reporte.id} (Modo: Analista Manual)")
                         else:
                             # 3. No hay reporte previo — Crear reporte y conversación automáticamente
                             reporte = ReporteBrandDefense(
@@ -222,14 +222,14 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
 
                             conversation = Conversation(
                                 reporte_id=reporte.id,
-                                mode="bot",
-                                is_bot_active=True,
+                                mode="analista",
+                                is_bot_active=False,
                                 whatsapp_phone=f"+{clean_digits}",
                             )
                             db.add(conversation)
                             db.commit()
                             db.refresh(conversation)
-                            cron_logger.log(f"[WhatsApp] 🆕 Nuevo reporte #{reporte.id} y conversación creados automáticamente para +{clean_digits}")
+                            cron_logger.log(f"[WhatsApp] 🆕 Nuevo reporte #{reporte.id} y conversación creados automáticamente para +{clean_digits} (Modo: Analista Manual)")
                     
                     if not conversation:
                         cron_logger.log(f"[WhatsApp] ⚠️ No se pudo asignar conversación para {sender_phone}")
@@ -276,6 +276,11 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                     if conversation.is_bot_active:
                         from services.whatsapp_sender import send_honeypot_reply
                         await send_honeypot_reply(db, conversation, new_msg)
+                    else:
+                        cron_logger.log(
+                            f"[WhatsApp 👤] Mensaje guardado en modo MANUAL (Analista). "
+                            f"El bot está en silencio para {conversation.whatsapp_phone}. No se enviará respuesta automática."
+                        )
 
     except Exception as e:
         cron_logger.log(f"[WhatsApp] ❌ Error procesando webhook: {e}")

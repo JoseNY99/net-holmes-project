@@ -274,7 +274,7 @@ def get_conversation(
     """Obtiene una conversación vinculada a un reporte o la crea."""
     conv = db.query(Conversation).filter(Conversation.reporte_id == reporte_id).order_by(Conversation.id.desc()).first()
     if not conv:
-        conv = Conversation(reporte_id=reporte_id, mode="bot", is_bot_active=True)
+        conv = Conversation(reporte_id=reporte_id, mode="analista", is_bot_active=False)
         db.add(conv)
         db.commit()
         db.refresh(conv)
@@ -838,8 +838,8 @@ def link_whatsapp(
     if not conv:
         conv = Conversation(
             reporte_id=reporte_id,
-            mode="bot",
-            is_bot_active=True,
+            mode="analista",
+            is_bot_active=False,
             whatsapp_phone=data.whatsapp_phone,
         )
         db.add(conv)
