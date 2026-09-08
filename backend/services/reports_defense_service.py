@@ -54,6 +54,20 @@ def get_reporte_detail(db: Session, reporte_id: int):
     
     # Adjuntar como atributo temporal para que Pydantic lo serialice
     reporte._platform_data_obj = pd_obj
+
+    # Comprobar si existe un archivo físico de evidencia o captura en disco
+    from pathlib import Path
+    base_dir = Path(__file__).resolve().parent.parent
+    evid_path = base_dir / "static" / "evidencias" / f"reporte_{reporte.id}.jpg"
+    screen_path = base_dir / "static" / "screenshots" / f"reporte_{reporte.id}.jpg"
+
+    if evid_path.exists() and evid_path.stat().st_size > 100:
+        reporte.evidence_image_url = f"/static/evidencias/reporte_{reporte.id}.jpg"
+    elif screen_path.exists() and screen_path.stat().st_size > 100:
+        reporte.evidence_image_url = f"/static/screenshots/reporte_{reporte.id}.jpg"
+    else:
+        reporte.evidence_image_url = None
+
     return reporte
 
 def update_reporte_status(db: Session, reporte_id: int, estado: str):

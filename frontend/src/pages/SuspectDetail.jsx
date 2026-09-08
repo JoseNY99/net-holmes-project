@@ -551,33 +551,29 @@ export default function SuspectDetail() {
             </div>
 
             {(() => {
-              // 1. Extraer image_urls de platform_data o usar endpoint local estático
-              let imgUrl = null;
-              if (reporte.platform_data) {
+              // 1. Extraer imagen verificada del backend o de platform_data
+              let imgUrl = reporte.evidence_image_url || null;
+
+              if (!imgUrl && reporte.platform_data) {
                 const pd = reporte.platform_data;
                 const platKey = (reporte.plataforma || '').toLowerCase();
                 const platData = pd[platKey] || pd.facebook || pd.instagram || pd.tiktok || pd.mercadolibre;
                 if (platData && platData.image_urls) {
                   try {
                     const parsed = typeof platData.image_urls === 'string' ? JSON.parse(platData.image_urls) : platData.image_urls;
-                    if (Array.isArray(parsed) && parsed.length > 0) imgUrl = parsed[0];
-                    else if (typeof parsed === 'string') imgUrl = parsed;
+                    if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]) imgUrl = parsed[0];
+                    else if (typeof parsed === 'string' && parsed) imgUrl = parsed;
                   } catch {
                     imgUrl = platData.image_urls;
                   }
                 }
               }
 
-              // Fallback directo al archivo físico estático en el servidor backend
-              if (!imgUrl) {
-                imgUrl = `/static/evidencias/reporte_${reporte.id}.jpg`;
-              }
-              
               if (imgUrl && typeof imgUrl === 'string' && imgUrl.startsWith('/static')) {
                 imgUrl = `${imgUrl}?t=${screenshotTimestamp}`;
               }
 
-              return (
+              return imgUrl ? (
                 <div style={{ position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.3)', textAlign: 'center', minHeight: '180px', maxHeight: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <img
                     key={`${reporte.id}-${screenshotTimestamp}`}
@@ -585,20 +581,16 @@ export default function SuspectDetail() {
                     alt="Evidencia del sospechoso"
                     style={{ maxWidth: '100%', maxHeight: '380px', objectFit: 'contain', display: 'block', margin: '0 auto' }}
                     onError={(e) => {
-                      if (e.target.src.includes('/static/evidencias/')) {
-                        e.target.src = `/static/screenshots/reporte_${reporte.id}.jpg?t=${screenshotTimestamp}`;
-                      } else {
-                        e.target.style.display = 'none';
-                        const fallbackEl = document.getElementById(`fallback-no-img-${reporte.id}`);
-                        if (fallbackEl) fallbackEl.style.display = 'block';
-                      }
+                      e.target.style.display = 'none';
+                      const fallbackEl = document.getElementById(`fallback-no-img-${reporte.id}`);
+                      if (fallbackEl) fallbackEl.style.display = 'block';
                     }}
                   />
                   <div
                     id={`fallback-no-img-${reporte.id}`}
-                    style={{ display: 'none', padding: '20px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}
+                    style={{ display: 'none', padding: '25px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}
                   >
-                    <p style={{ margin: '0 0 6px 0' }}>Sin captura visual cargada.</p>
+                    <p style={{ margin: '0 0 6px 0' }}>La imagen externa no está disponible o expiró.</p>
                     <small>Haz clic en "Capturar Pantalla en Vivo" para generar una captura con Playwright.</small>
                   </div>
                   <a
@@ -609,6 +601,23 @@ export default function SuspectDetail() {
                   >
                     Ver original ↗
                   </a>
+                </div>
+              ) : (
+                <div style={{ borderRadius: '10px', border: '1px dashed var(--border-color)', background: 'rgba(0,0,0,0.2)', textAlign: 'center', padding: '32px 20px', color: 'var(--text-secondary)' }}>
+                  <FaCamera style={{ fontSize: '2.2rem', opacity: 0.3, marginBottom: '10px' }} />
+                  <p style={{ margin: '0 0 6px 0', fontWeight: '500', color: 'var(--text-primary)' }}>Sin captura visual guardada aún</p>
+                  <p style={{ margin: '0 0 14px 0', fontSize: '0.82rem', opacity: 0.8 }}>
+                    Esta publicación fue indexada sin imagen previa. Puedes capturarla directamente del enlace en vivo.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleCaptureScreenshot}
+                    disabled={capturingScreenshot || !reporte.url_evidencia}
+                    style={{ fontSize: '0.82rem', padding: '8px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <FaCamera /> {capturingScreenshot ? 'Capturando con Playwright...' : 'Capturar Pantalla en Vivo'}
+                  </button>
                 </div>
               );
             })()}

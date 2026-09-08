@@ -48,6 +48,7 @@ class ReporteResponse(ReporteBase):
 class ReporteDetail(ReporteResponse):
     perfil: Optional[PerfilResponse] = None
     platform_data: Optional[PlatformDataPayload] = None
+    evidence_image_url: Optional[str] = None
 
     @model_validator(mode="wrap")
     @classmethod
