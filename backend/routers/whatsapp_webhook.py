@@ -59,13 +59,17 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
     Parsea el payload JSON de Meta, extrae el mensaje, y lo enruta al pipeline NLP.
     """
     body = await request.json()
-    
-    # Meta siempre envía un campo "object" = "whatsapp_business_account"
-    if body.get("object") != "whatsapp_business_account":
+    cron_logger.log(f"[Webhook 📥] Notificación recibida de Meta: {str(body)[:300]}")
+
+    # Si es formato de prueba de Meta Developers (sin object/entry)
+    entries = body.get("entry", [])
+    if not entries and "field" in body:
+        entries = [{"changes": [{"field": body.get("field"), "value": body.get("value", {})}]}]
+    elif not entries and body.get("object") != "whatsapp_business_account":
         return {"status": "ignored"}
 
     try:
-        for entry in body.get("entry", []):
+        for entry in entries:
             for change in entry.get("changes", []):
                 value = change.get("value", {})
 
