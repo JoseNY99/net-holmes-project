@@ -6,7 +6,8 @@ import Modal from '../components/Modal';
 import { 
   FaSearch, FaRobot, FaUserEdit, FaCommentDots, FaArrowLeft, 
   FaPaperPlane, FaWhatsapp, FaBrain, FaPlus, FaRocket, FaRedo, 
-  FaTrash, FaCheckCircle, FaExclamationTriangle, FaShieldAlt, FaSpinner, FaEdit 
+  FaTrash, FaCheckCircle, FaExclamationTriangle, FaShieldAlt, FaSpinner, FaEdit,
+  FaTerminal, FaChevronDown, FaChevronUp
 } from 'react-icons/fa';
 import './ChatCenter.css';
 
@@ -42,8 +43,8 @@ export default function ChatCenter() {
   // Modal Plantilla Meta
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templateForm, setTemplateForm] = useState({
-    name: 'hello_world',
-    language: 'en_US'
+    name: '',
+    language: 'es'
   });
 
   const [startingBot, setStartingBot] = useState(false);
@@ -56,6 +57,12 @@ export default function ChatCenter() {
     message: '',
     details: ''
   });
+
+  // Consola de Logs del Sistema
+  const [showLogConsole, setShowLogConsole] = useState(false);
+  const [systemLogs, setSystemLogs] = useState([]);
+  const [logFilter, setLogFilter] = useState('');
+  const logEndRef = useRef(null);
 
   const chatEndRef = useRef(null);
   const prevUnreadRef = useRef({});
@@ -116,6 +123,28 @@ export default function ChatCenter() {
     const interval = setInterval(() => fetchConversations(true), 2500);
     return () => clearInterval(interval);
   }, [activeConvId]);
+
+  // Polling de logs del sistema cuando la consola está abierta
+  const fetchSystemLogs = async () => {
+    try {
+      const res = await chatService.getSystemLogs(200, logFilter);
+      setSystemLogs(res.data?.logs || []);
+    } catch (e) { /* silencioso */ }
+  };
+
+  useEffect(() => {
+    if (showLogConsole) {
+      fetchSystemLogs();
+      const logInterval = setInterval(fetchSystemLogs, 3000);
+      return () => clearInterval(logInterval);
+    }
+  }, [showLogConsole, logFilter]);
+
+  useEffect(() => {
+    if (logEndRef.current && showLogConsole) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [systemLogs]);
 
   useEffect(() => {
     if (chatEndRef.current) {
@@ -1021,6 +1050,113 @@ export default function ChatCenter() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ─── Consola de Logs del Sistema ──────────────────────────── */}
+      <div style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000,
+        transition: 'height 0.3s ease',
+        height: showLogConsole ? '280px' : '36px',
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: '#0d1117',
+        borderTop: '2px solid #30363d',
+        boxShadow: showLogConsole ? '0 -4px 20px rgba(0,0,0,0.5)' : 'none',
+      }}>
+        {/* Barra de título de la consola */}
+        <div
+          onClick={() => setShowLogConsole(!showLogConsole)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '6px 16px',
+            cursor: 'pointer',
+            backgroundColor: '#161b22',
+            borderBottom: showLogConsole ? '1px solid #30363d' : 'none',
+            userSelect: 'none',
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#58a6ff', fontSize: '0.82rem', fontWeight: 'bold' }}>
+            <FaTerminal size={12} />
+            Consola del Sistema
+            <span style={{ 
+              fontSize: '0.7rem', 
+              padding: '1px 6px', 
+              borderRadius: '8px', 
+              backgroundColor: systemLogs.length > 0 ? 'rgba(88, 166, 255, 0.15)' : 'rgba(110,118,129,0.15)',
+              color: systemLogs.length > 0 ? '#58a6ff' : '#6e7681',
+            }}>
+              {systemLogs.length} logs
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {showLogConsole && (
+              <input
+                type="text"
+                placeholder="Filtrar logs..."
+                value={logFilter}
+                onChange={e => setLogFilter(e.target.value)}
+                onClick={e => e.stopPropagation()}
+                style={{
+                  background: '#0d1117',
+                  border: '1px solid #30363d',
+                  borderRadius: '4px',
+                  color: '#c9d1d9',
+                  padding: '2px 8px',
+                  fontSize: '0.75rem',
+                  width: '180px',
+                  outline: 'none',
+                }}
+              />
+            )}
+            {showLogConsole ? <FaChevronDown size={12} style={{ color: '#6e7681' }} /> : <FaChevronUp size={12} style={{ color: '#6e7681' }} />}
+          </div>
+        </div>
+
+        {/* Cuerpo de logs */}
+        {showLogConsole && (
+          <div style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '8px 14px',
+            fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+            fontSize: '0.72rem',
+            lineHeight: '1.55',
+            color: '#c9d1d9',
+          }}>
+            {systemLogs.length === 0 ? (
+              <div style={{ color: '#6e7681', textAlign: 'center', paddingTop: '30px' }}>
+                No hay logs del sistema aún. Los logs de WhatsApp, Bot, Webhook y NLP aparecerán aquí en tiempo real.
+              </div>
+            ) : (
+              systemLogs.map((log, i) => {
+                let color = '#c9d1d9';
+                if (log.includes('✅') || log.includes('Éxito') || log.includes('exitosa')) color = '#3fb950';
+                else if (log.includes('❌') || log.includes('Error') || log.includes('error')) color = '#f85149';
+                else if (log.includes('⚠️') || log.includes('Warning')) color = '#d29922';
+                else if (log.includes('🔄') || log.includes('🤖')) color = '#a5d6ff';
+                else if (log.includes('[WhatsApp')) color = '#3fb950';
+                else if (log.includes('[Curtis')) color = '#d2a8ff';
+                else if (log.includes('[Honeypot')) color = '#f0883e';
+                else if (log.includes('[NLP')) color = '#79c0ff';
+                else if (log.includes('[Webhook')) color = '#56d4dd';
+
+                return (
+                  <div key={i} style={{ color, whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: '1px' }}>
+                    {log}
+                  </div>
+                );
+              })
+            )}
+            <div ref={logEndRef} />
+          </div>
+        )}
       </div>
 
       {/* Modal: Agregar Número Temporal */}

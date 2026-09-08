@@ -172,8 +172,8 @@ class EditContactRequest(BaseModel):
     titular: Optional[str] = None
 
 class SendTemplateRequest(BaseModel):
-    template_name: Optional[str] = "hello_world"
-    language_code: Optional[str] = "en_US"
+    template_name: Optional[str] = ""
+    language_code: Optional[str] = "es"
 
 
 # ─── GET Todas las Conversaciones ───────────────────────────────────────────
@@ -751,8 +751,15 @@ async def send_template_to_contact(
     if not conv or not conv.whatsapp_phone:
         raise HTTPException(status_code=404, detail="Conversación o número de WhatsApp no encontrado.")
 
-    tpl_name = (data.template_name if (data and data.template_name) else "hello_world").strip()
-    lang_code = (data.language_code if (data and data.language_code) else "en_US").strip()
+    tpl_name = (data.template_name if (data and data.template_name) else "").strip()
+    lang_code = (data.language_code if (data and data.language_code) else "es").strip()
+
+    if not tpl_name:
+        raise HTTPException(
+            status_code=400, 
+            detail="Debes especificar el nombre de una plantilla aprobada en Meta Business Suite. "
+                   "La plantilla 'hello_world' NO funciona con números reales."
+        )
 
     success, detail = await send_template_message(
         phone=conv.whatsapp_phone,
@@ -849,3 +856,40 @@ def link_whatsapp(
         "whatsapp_phone": conv.whatsapp_phone,
     }
 
+
+# ─── GET System Logs (WhatsApp / Bot / Webhook) ────────────────────────────
+
+CHAT_LOG_PREFIXES = (
+    "[WhatsApp", "[Chat]", "[Honeypot", "[Curtis", "[Webhook",
+    "[NLP", "[Meta", "[DeepSeek", "[Cerebras", "[LLM",
+)
+
+@router.get("/system-logs")
+def get_system_logs(
+    last_n: int = 150,
+    filter: str = "",
+    _user: User = Depends(get_current_user),
+):
+    """
+    Devuelve los últimos logs del sistema relacionados con Chat, WhatsApp, Bot y Webhook.
+    Opcionalmente filtra por texto libre.
+    """
+    all_logs = cron_logger.get_logs(last_n=500)
+
+    # Filtrar solo logs relevantes al chat/whatsapp/bot
+    chat_logs = []
+    for line in all_logs:
+        # Extraer la parte después del timestamp [HH:MM:SS]
+        content = line[11:] if len(line) > 11 and line[0] == '[' else line
+        if any(content.startswith(prefix) for prefix in CHAT_LOG_PREFIXES):
+            chat_logs.append(line)
+
+    # Filtro de texto libre adicional
+    if filter and filter.strip():
+        f_lower = filter.strip().lower()
+        chat_logs = [l for l in chat_logs if f_lower in l.lower()]
+
+    return {
+        "logs": chat_logs[-last_n:],
+        "total": len(chat_logs),
+    }

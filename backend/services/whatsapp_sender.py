@@ -84,10 +84,39 @@ def normalize_whatsapp_phone(phone: str) -> str:
     return digits
 
 
+def _get_custom_template_name(db=None) -> str | None:
+    """
+    Lee el nombre de plantilla personalizada desde extra_config de meta_whatsapp.
+    Si el usuario configuró una plantilla propia en Ajustes, la devuelve.
+    Nunca devuelve 'hello_world' (no funciona con números reales).
+    """
+    try:
+        from database import SessionLocal
+        from models.api_key_setting import ApiKeySetting
+        import json as _json
+        session = db or SessionLocal()
+        try:
+            setting = session.query(ApiKeySetting).filter(
+                ApiKeySetting.service_name == "meta_whatsapp",
+                ApiKeySetting.is_active == True
+            ).first()
+            if setting and setting.extra_config:
+                cfg = _json.loads(setting.extra_config)
+                tpl = cfg.get("default_template_name", "").strip()
+                if tpl and tpl != "hello_world":
+                    return tpl
+        finally:
+            if not db:
+                session.close()
+    except Exception:
+        pass
+    return None
+
+
 async def send_template_message(
     phone: str,
-    template_name: str = "hello_world",
-    language_code: str = "en_US",
+    template_name: str = "",
+    language_code: str = "es",
     components: list | None = None,
     db=None
 ) -> tuple[bool, str]:
@@ -95,6 +124,12 @@ async def send_template_message(
     Envía una plantilla de mensaje (Message Template) vía WhatsApp Cloud API.
     Requerido por Meta para iniciar conversaciones fuera de la ventana de 24 horas.
     """
+    if not template_name or not template_name.strip():
+        return False, (
+            "No se especificó nombre de plantilla. "
+            "La plantilla 'hello_world' no funciona con números reales. "
+            "Crea una plantilla propia en Meta Business Suite o pídele al contacto que escriba 'Hola' al bot."
+        )
     token, phone_id = get_active_whatsapp_credentials(db)
     if not token or not phone_id:
         err = "Credenciales de WhatsApp (Token o Phone Number ID) no configuradas en BD."
@@ -160,14 +195,14 @@ async def send_template_message(
 async def send_text_message(phone: str, text: str, db=None, allow_template_fallback: bool = True) -> tuple[bool, str]:
     """
     Envía un mensaje de texto via WhatsApp Cloud API.
-    Si la ventana de 24h está cerrada (error 131047), intenta automáticamente enviar
-    una plantilla oficial de apertura (hello_world) para desbloquear la sesión.
+    Si la ventana de 24h está cerrada (error 131047) y hay una plantilla personalizada
+    configurada en Ajustes, intenta enviarla como fallback.
     
     Args:
         phone: Número destino (se normaliza automáticamente a E.164 estricto)
         text: Contenido del mensaje
         db: Sesión SQLAlchemy opcional
-        allow_template_fallback: Si es True, recurre a plantillas si Meta rechaza texto libre
+        allow_template_fallback: Si es True, recurre a plantilla personalizada si Meta rechaza texto libre
     
     Returns:
         tuple (success: bool, detail: str)
@@ -212,25 +247,37 @@ async def send_text_message(phone: str, text: str, db=None, allow_template_fallb
                 error_code = error_info.get("code")
                 error_subcode = error_info.get("error_subcode")
                 
-                # Si falló por ventana de 24h cerrada, intentar fallback automático a plantilla oficial
+                # Si falló por ventana de 24h cerrada
                 if error_code == 131047:
                     if allow_template_fallback:
-                        cron_logger.log(
-                            f"[WhatsApp Sender] 🔄 Ventana de 24h cerrada para {clean_phone}. "
-                            f"Intentando enviar plantilla oficial 'hello_world' para abrir la sesión..."
-                        )
-                        tpl_ok, tpl_detail = await send_template_message(
-                            phone=clean_phone,
-                            template_name="hello_world",
-                            language_code="en_US",
-                            db=db
-                        )
-                        if tpl_ok:
-                            return True, f"Ventana de 24h no iniciada por el usuario. Se envió plantilla oficial de apertura a {clean_phone} para abrir la conversación."
+                        # Intentar con plantilla personalizada guardada en extra_config
+                        custom_tpl = _get_custom_template_name(db)
+                        if custom_tpl and custom_tpl != "hello_world":
+                            cron_logger.log(
+                                f"[WhatsApp Sender] 🔄 Ventana de 24h cerrada para {clean_phone}. "
+                                f"Intentando enviar plantilla personalizada '{custom_tpl}'..."
+                            )
+                            tpl_ok, tpl_detail = await send_template_message(
+                                phone=clean_phone,
+                                template_name=custom_tpl,
+                                language_code="es",
+                                db=db
+                            )
+                            if tpl_ok:
+                                return True, f"Ventana de 24h cerrada. Se envió plantilla '{custom_tpl}' a {clean_phone} para abrir la conversación."
+                            else:
+                                human_reason = f"Ventana de 24h cerrada. Falló envío de plantilla '{custom_tpl}': {tpl_detail}"
                         else:
-                            human_reason = f"Ventana de 24h cerrada y falló envío de plantilla: {tpl_detail}"
+                            human_reason = (
+                                f"La ventana de 24 horas con {clean_phone} está cerrada. "
+                                f"Para enviar mensajes: (1) El contacto debe escribir primero 'Hola' al bot, "
+                                f"o (2) crear una plantilla aprobada en Meta Business Suite y configurarla en Ajustes."
+                            )
                     else:
-                        human_reason = f"Han pasado más de 24 horas desde la última interacción de {clean_phone}. Meta exige que la persona envíe un mensaje primero o usar una plantilla."
+                        human_reason = (
+                            f"Han pasado más de 24 horas desde la última interacción de {clean_phone}. "
+                            f"Meta exige que la persona envíe un mensaje primero o usar una plantilla aprobada."
+                        )
                 elif error_code == 131030:
                     human_reason = f"El número {clean_phone} no está en la lista de destinatarios permitidos (To) de tu cuenta de Meta for Developers. Agrégalo en el panel de Meta antes de enviar mensajes de prueba."
                 elif error_code == 190:

@@ -52,11 +52,16 @@ const chatService = {
   },
 
   // Enviar plantilla oficial de WhatsApp (Message Template) para abrir ventana de 24h
-  sendTemplate: (reporteId, templateName = 'hello_world', languageCode = 'en_US') => {
+  sendTemplate: (reporteId, templateName, languageCode = 'es') => {
     return api.post(`/api/chat/${reporteId}/send-template`, {
       template_name: templateName,
       language_code: languageCode
     });
+  },
+
+  // Obtener logs del sistema (WhatsApp, Bot, Webhook, NLP)
+  getSystemLogs: (lastN = 150, filter = '') => {
+    return api.get('/api/chat/system-logs', { params: { last_n: lastN, filter } });
   },
 };
 
