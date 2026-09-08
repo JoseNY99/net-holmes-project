@@ -40,6 +40,18 @@ export default function ChatCenter() {
   const [editingContact, setEditingContact] = useState(false);
   const [editForm, setEditForm] = useState({ phone: '', titular: '' });
 
+  // Modal de Personalización de Instrucciones y Mensajes del Bot
+  const [showBotConfigModal, setShowBotConfigModal] = useState(false);
+  const [loadingBotConfig, setLoadingBotConfig] = useState(false);
+  const [savingBotConfig, setSavingBotConfig] = useState(false);
+  const [botConfig, setBotConfig] = useState({
+    system_prompt: '',
+    opening_message: '',
+    default_system_prompt: '',
+    default_opening_message: '',
+    is_custom: false
+  });
+
   const [startingBot, setStartingBot] = useState(false);
   const [deliveryNotice, setDeliveryNotice] = useState(null);
   const [feedbackModal, setFeedbackModal] = useState({
@@ -377,6 +389,55 @@ export default function ChatCenter() {
     }
   };
 
+  const openBotConfigModal = async () => {
+    setShowBotConfigModal(true);
+    setLoadingBotConfig(true);
+    try {
+      const res = await chatService.getBotConfig();
+      setBotConfig(res.data);
+    } catch (e) {
+      console.error("Error al cargar configuración del bot:", e);
+    } finally {
+      setLoadingBotConfig(false);
+    }
+  };
+
+  const handleSaveBotConfig = async (e) => {
+    e?.preventDefault();
+    setSavingBotConfig(true);
+    try {
+      const res = await chatService.updateBotConfig({
+        system_prompt: botConfig.system_prompt,
+        opening_message: botConfig.opening_message,
+      });
+      setBotConfig(res.data);
+      setShowBotConfigModal(false);
+      setFeedbackModal({
+        isOpen: true,
+        type: 'success',
+        title: '¡Instrucciones del Bot Actualizadas!',
+        message: 'El bot ahora responderá con la personalidad y el mensaje configurado.',
+        details: 'Los cambios aplican inmediatamente para los mensajes de WhatsApp y el simulador de honeypot.'
+      });
+    } catch (err) {
+      console.error("Error guardando bot config:", err);
+      alert("Error al guardar la configuración: " + (err.response?.data?.detail || err.message));
+    } finally {
+      setSavingBotConfig(false);
+    }
+  };
+
+  const handleResetBotConfig = () => {
+    if (!botConfig) return;
+    if (window.confirm("¿Deseas restablecer el mensaje de apertura y las instrucciones a los valores recomendados por defecto?")) {
+      setBotConfig(prev => ({
+        ...prev,
+        system_prompt: prev.default_system_prompt || '',
+        opening_message: prev.default_opening_message || '',
+      }));
+    }
+  };
+
   const toggleChatMode = async () => {
     if (!activeConversation || !activeConvId) return;
     try {
@@ -421,7 +482,16 @@ export default function ChatCenter() {
           </div>
 
           {isAdmin && (
-            <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                onClick={openBotConfigModal}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '8px', cursor: 'pointer' }}
+                title="Editar los mensajes de apertura y las instrucciones del bot (personalidad)"
+              >
+                <FaBrain /> Personalizar Bot / Mensajes
+              </button>
               <button 
                 type="button" 
                 className="btn-primary" 
@@ -1130,13 +1200,6 @@ export default function ChatCenter() {
               <button
                 type="button"
                 className="scenario-chip"
-                onClick={() => setAddForm(prev => ({ ...prev, phone: '+595971682207', name: 'Oliver Personal (+595971682207)' }))}
-              >
-                🇵🇾 Oliver Personal (+595971682207)
-              </button>
-              <button
-                type="button"
-                className="scenario-chip"
                 onClick={() => setAddForm(prev => ({ ...prev, phone: '+595984716528', name: 'Sujeto de Prueba (+595984716528)' }))}
               >
                 🇵🇾 Sujeto (+595984716528)
@@ -1260,13 +1323,6 @@ export default function ChatCenter() {
               <button
                 type="button"
                 className="scenario-chip"
-                onClick={() => setEditForm(prev => ({ ...prev, phone: '+595971682207', titular: prev.titular || 'Oliver Personal' }))}
-              >
-                🇵🇾 Oliver Personal (+595971682207)
-              </button>
-              <button
-                type="button"
-                className="scenario-chip"
                 onClick={() => setEditForm(prev => ({ ...prev, phone: '+595984716528', titular: prev.titular || 'Sujeto de Prueba' }))}
               >
                 🇵🇾 Sujeto (+595984716528)
@@ -1288,6 +1344,105 @@ export default function ChatCenter() {
             />
           </div>
         </form>
+      </Modal>
+
+      {/* Modal: Personalizar Bot / Instrucciones y Mensajes */}
+      <Modal
+        isOpen={showBotConfigModal}
+        onClose={() => setShowBotConfigModal(false)}
+        title="🧠 Personalización del Bot (Instrucciones y Mensajes)"
+        footer={
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleResetBotConfig}
+              disabled={savingBotConfig || loadingBotConfig}
+              style={{ padding: '8px 14px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '5px' }}
+              title="Volver a las instrucciones y mensajes recomendados de fábrica"
+            >
+              <FaRedo size={12} /> Restablecer Recomendados
+            </button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setShowBotConfigModal(false)}
+                disabled={savingBotConfig}
+                style={{ padding: '8px 18px' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleSaveBotConfig}
+                disabled={savingBotConfig || loadingBotConfig}
+                style={{ padding: '8px 22px', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                {savingBotConfig ? <><FaSpinner className="spin" /> Guardando...</> : 'Guardar Configuración'}
+              </button>
+            </div>
+          </div>
+        }
+      >
+        {loadingBotConfig ? (
+          <div style={{ textAlign: 'center', padding: '30px' }}>
+            <FaSpinner className="spin" size={28} />
+            <p style={{ marginTop: '10px', color: 'var(--text-secondary)' }}>Cargando instrucciones actuales del bot...</p>
+          </div>
+        ) : (
+          <form onSubmit={handleSaveBotConfig} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontWeight: '600', color: '#93c5fd', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <FaRobot /> Ajusta cómo habla el bot y qué datos pide
+              </div>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                Edita los mensajes para que suene como un comprador real, natural y directo. Los cambios impactan de inmediato tanto en WhatsApp como en el simulador Curtis.
+              </p>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>
+                💬 Mensaje Inicial de Apertura (Primer Mensaje)
+              </label>
+              <textarea
+                className="input-field"
+                rows={3}
+                value={botConfig.opening_message}
+                onChange={e => setBotConfig(prev => ({ ...prev, opening_message: e.target.value }))}
+                placeholder="¡Hola! Buenas tardes, vi tu publicación. ¿Sigue disponible? ¿Cuánto sale y cómo coordinamos?"
+                style={{ width: '100%', resize: 'vertical' }}
+              />
+              <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                Este es el primer mensaje que envía el bot cuando contacta a un sospechoso o cuando pulsas "Dar Orden de Arrancar al Bot".
+              </small>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>
+                🧠 Instrucciones de Inteligencia y Personalidad (System Prompt)
+              </label>
+              <textarea
+                className="input-field"
+                rows={12}
+                value={botConfig.system_prompt}
+                onChange={e => setBotConfig(prev => ({ ...prev, system_prompt: e.target.value }))}
+                placeholder="Instrucciones para el modelo de lenguaje..."
+                style={{ 
+                  width: '100%', 
+                  fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace", 
+                  fontSize: '0.83rem',
+                  lineHeight: '1.45',
+                  resize: 'vertical' 
+                }}
+              />
+              <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
+                💡 <b>Consejo:</b> Indícale respuestas cortas (1 o 2 oraciones), tono casual de WhatsApp, y pedir con naturalidad el Alias/CBU de transferencia y la zona de retiro.
+              </small>
+            </div>
+          </form>
+        )}
       </Modal>
 
       {/* Modal: Feedback y Notificaciones */}

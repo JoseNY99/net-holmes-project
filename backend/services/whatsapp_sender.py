@@ -54,16 +54,16 @@ def normalize_whatsapp_phone(phone: str) -> str:
 
     # Caso Paraguay (+595):
     if digits.startswith("595"):
-        # Si tiene el 0 troncal local (ej: 5950971682207), quitar el 0
+        # Si tiene el 0 troncal local (ej: 5950981123456), quitar el 0
         if len(digits) == 13 and digits.startswith("5950"):
             digits = "595" + digits[4:]
         return digits
 
-    # Si escribió formato local paraguayo (ej: 0971682207 o 0984716528 con 10 dígitos)
+    # Si escribió formato local paraguayo (ej: 0981123456 con 10 dígitos)
     if len(digits) == 10 and digits.startswith("09"):
         return f"595{digits[1:]}"
 
-    # Si escribió 9 dígitos empezando con 9 (ej: 971682207 o 984716528)
+    # Si escribió 9 dígitos empezando con 9 (ej: 981123456)
     if len(digits) == 9 and digits.startswith("9"):
         return f"595{digits}"
 

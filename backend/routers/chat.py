@@ -32,11 +32,10 @@ CURTIS_WELCOME = (
 )
 
 TEST_PHONE_DEFAULT = "+595984716528"
-TEST_PHONE_OLIVER = "+595971682207"
 
 
 def get_time_based_greeting() -> str:
-    """Genera un saludo dinámico según la hora local del sistema (Buenos días / tardes / noches)."""
+    """Genera un saludo dinámico según la hora local del sistema o la plantilla configurada."""
     hour = datetime.now().hour
     if 6 <= hour < 13:
         saludo = "Buenos días"
@@ -44,15 +43,26 @@ def get_time_based_greeting() -> str:
         saludo = "Buenas tardes"
     else:
         saludo = "Buenas noches"
+
+    try:
+        from services.bot_persona_service import get_bot_persona_config
+        cfg = get_bot_persona_config()
+        if cfg and cfg.get("opening_message"):
+            msg = cfg["opening_message"]
+            if "{saludo}" in msg:
+                return msg.replace("{saludo}", saludo)
+            return msg
+    except Exception:
+        pass
+
     return f"¡Hola! {saludo}, vi tu publicación. ¿Sigue disponible? ¿Cuánto sale y cómo coordinamos?"
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
 def ensure_test_phone_conversation(db: Session):
-    """Asegura que los números de prueba de WhatsApp (+595971682207 y +595984716528) estén disponibles en Chat Center."""
+    """Asegura que el número de prueba de WhatsApp (+595984716528) esté disponible en Chat Center."""
     test_numbers = [
-        (TEST_PHONE_OLIVER, "Oliver Personal (+595971682207)"),
         (TEST_PHONE_DEFAULT, "Sujeto de Prueba (+595984716528)"),
     ]
     for phone_raw, titular in test_numbers:
@@ -174,6 +184,10 @@ class EditContactRequest(BaseModel):
 class SendTemplateRequest(BaseModel):
     template_name: Optional[str] = ""
     language_code: Optional[str] = "es"
+
+class BotConfigUpdate(BaseModel):
+    system_prompt: str
+    opening_message: str
 
 
 # ─── GET Todas las Conversaciones ───────────────────────────────────────────
@@ -893,3 +907,28 @@ def get_system_logs(
         "logs": chat_logs[-last_n:],
         "total": len(chat_logs),
     }
+
+
+# ─── Bot Persona & Prompts Configuration ─────────────────────────────────────
+
+@router.get("/bot-config")
+def get_bot_config(_user: User = Depends(get_current_user)):
+    """Obtiene las instrucciones (prompt) y el mensaje de apertura configurado para el bot."""
+    from services.bot_persona_service import get_bot_persona_config
+    return get_bot_persona_config()
+
+
+@router.put("/bot-config")
+def update_bot_config(
+    data: BotConfigUpdate,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Actualiza la personalidad, instrucciones del modelo LLM y mensaje inicial del bot."""
+    from services.bot_persona_service import save_bot_persona_config
+    return save_bot_persona_config(
+        system_prompt=data.system_prompt,
+        opening_message=data.opening_message,
+        db=db,
+    )
+

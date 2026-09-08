@@ -63,6 +63,16 @@ const chatService = {
   getSystemLogs: (lastN = 150, filter = '') => {
     return api.get('/api/chat/system-logs', { params: { last_n: lastN, filter } });
   },
+
+  // Obtener instrucciones y mensaje de apertura del bot
+  getBotConfig: () => {
+    return api.get('/api/chat/bot-config');
+  },
+
+  // Actualizar instrucciones y mensaje de apertura del bot
+  updateBotConfig: (payload) => {
+    return api.put('/api/chat/bot-config', payload);
+  },
 };
 
 export default chatService;
