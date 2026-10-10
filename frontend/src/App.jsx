@@ -73,7 +73,7 @@ function AppRoutes() {
       <Route
         path="/manual-scan"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute adminOnly>
             <ManualScan />
           </ProtectedRoute>
         }

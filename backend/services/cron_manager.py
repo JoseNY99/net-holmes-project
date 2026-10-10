@@ -4,15 +4,17 @@ from sqlalchemy.orm import Session
 import re
 import json
 import datetime
+import time
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import settings
+from config import settings, PROVINCIAS_AR
 from database import SessionLocal
 from models.brand import Brand
 from services.cron_logger import cron_logger
 from services.keyword_generator import generate_keywords
 from scrapers.scraper_engine import ScraperEngine
 from models.reporte import ReporteBrandDefense
+from models.perfil_investigacion import PerfilInvestigacion
 from models.facebook_data import ReporteFacebookData
 from models.instagram_data import ReporteInstagramData
 from models.tiktok_data import ReporteTiktokData
@@ -183,7 +185,8 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
     seller_name = item.get("seller_profile", {}).get("name", "").lower()
     raw_data_str = str(item.get("raw_data", "")).lower()
     
-    combined_text = f"{title} {desc} {seller_name} {raw_data_str}"
+    location_text = str(item.get("location", "")).lower()
+    combined_text = f"{title} {desc} {seller_name} {raw_data_str} {location_text}"
     
     # a. Bloquear Tiendas Oficiales mediante Lista Negra Dinámica (DB) y Filtro Básico
     titular = item.get("seller_profile", {}).get("name", "")
@@ -217,6 +220,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
     foreign_patterns = [
         r'\bbrasil\b', r'\bbrazil\b', r'\beeuu\b', r'\bestados unidos\b', r'\bunited states\b',
         r'\bmiami\b', r'\borlando\b', r'\bflorida\b', r'\bcalifornia\b', r'\btexas\b', r'\bnew york\b', r'\blos angeles\b',
+        r'\bnew mexico\b', r'\bsanta fe,?\s*(?:new mexico|nm)\b',
         r'\bchile\b', r'\buruguay\b', r'\bmexico\b', r'\bespaña\b', r'\bcolombia\b',
         r'\bperu\b', r'\becuador\b', r'\bvenezuela\b', r'\bparaguay\b', r'\bbolivia\b',
         r'\bguatemala\b', r'\bcosta rica\b', r'\bpanama\b', r'\bhonduras\b', r'\bel salvador\b',
@@ -225,21 +229,18 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         r'\bsantiago de chile\b', r'\bmontevideo\b', r'\basuncion\b',
         r'\busa\b'  # Con word boundary para no matchear "usado", "causa", etc.
     ]
-    # Ciudades argentinas que funcionan como bypass (si aparecen, el item es argentino)
-    ar_city_terms = [
-        "argentina", "buenos aires", "córdoba", "cordoba", "rosario", "mendoza",
-        "tucumán", "tucuman", "salta", "santa fe", "mar del plata", "la plata",
-        "neuquén", "neuquen", "bahía blanca", "bahia blanca", "corrientes", 
-        "resistencia", "posadas", "paraná", "parana", "san juan", "san luis",
-        "jujuy", "formosa", "catamarca", "la rioja", "rio negro", "chubut",
-        "caba", "capital federal", "gba", "zona sur", "zona norte", "zona oeste"
-    ]
     has_foreign = any(re.search(pat, combined_text) for pat in foreign_patterns)
     if has_foreign:
-        has_argentine = any(city in combined_text for city in ar_city_terms)
-        if not has_argentine:
-            cron_logger.log(f"🚫 [Filtro] Descartado por ubicación extranjera evidente: {item.get('title')}")
-            return
+        cron_logger.log(f"🚫 [Filtro] Descartado por ubicación extranjera evidente: {item.get('title')}")
+        return
+
+    non_apparel_patterns = [
+        r"\btrailers?\b", r"\bremolques?\b", r"\bcamiones?\b", r"\btractores?\b",
+        r"\bautom[oó]viles?\b", r"\bautos?\b", r"\bveh[ií]culos?\b",
+    ]
+    if any(re.search(pattern, combined_text) for pattern in non_apparel_patterns):
+        cron_logger.log(f"🚫 [Filtro] Descartado por categoría ajena a indumentaria: {item.get('title')}")
+        return
 
     # c. Limpieza de "Basura" (Debe mencionar la marca o la palabra clave)
     brand_name = brand.nombre.lower()
@@ -248,7 +249,24 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         cron_logger.log(f"🚫 [Filtro] Descartado por no tener relación con '{brand.nombre}': {item.get('title')}")
         return
 
-    # d. Filtro de URLs — Validación PERMISIVA (solo rechazar URLs claramente genéricas)
+    # d. Filtro Estricto Brand Protection & OSINT (Falsificación vs Original/Usado y Argentina)
+    from scrapers.filtro_comercial import evaluar_publicacion_osint
+    eval_osint = evaluar_publicacion_osint(
+        plataforma=item.get("plataforma", ""),
+        descripcion=f"{item.get('title', '')} {item.get('description', '')}",
+        comentarios=item.get("comments_audit", []),
+        ubicacion=str(item.get("location", "")),
+        precio=str(item.get("price", ""))
+    )
+    if not eval_osint["es_falsificacion"]:
+        cron_logger.log(f"🚫 [Brand Protection] Descartado: {eval_osint['motivo']} ({item.get('title')})")
+        return
+
+    if not eval_osint["es_argentina"]:
+        cron_logger.log(f"🚫 [Brand Protection] Descartado (No Argentina): {eval_osint['motivo']} ({item.get('title')})")
+        return
+
+    # e. Filtro de URLs — Validación PERMISIVA (solo rechazar URLs claramente genéricas)
     item_url_raw = item.get("url", "N/A").lower()
     plataforma = str(item.get("plataforma", "")).lower()
     if item_url_raw != "n/a":
@@ -353,10 +371,11 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
             direccion_publica=item.get("location", ""),
             telefono_publico=found_phone or item.get("phone") or item.get("platform_data", {}).get("phone"),
             seguidores_infractor=parsed_followers,
-            estado="Pendiente"
+            estado="Investigando"
         )
         db.add(new_result)
         db.flush() # Obtain ID without committing entirely yet
+        db.add(PerfilInvestigacion(reporte_id=new_result.id))
 
         # 💾 Descargar físicamente la imagen al servidor local (/static/evidencias/reporte_{id}.jpg)
         local_img_path = None
@@ -408,10 +427,22 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         db.rollback()
         cron_logger.log(f"⚠️ Error al guardar item de {item.get('plataforma')}: {e}")
 
-async def run_automatic_scan():
+async def run_automatic_scan(search_options: dict | None = None):
     """Ejecuta el ciclo de escaneo automático para todas las marcas."""
     global _stop_requested
     _stop_requested = False
+    scan_deadline = None
+    if search_options and search_options.get("duration_minutes"):
+        scan_deadline = time.monotonic() + search_options["duration_minutes"] * 60
+    deadline_logged = False
+
+    def time_limit_reached():
+        nonlocal deadline_logged
+        expired = scan_deadline is not None and time.monotonic() >= scan_deadline
+        if expired and not deadline_logged:
+            cron_logger.log("Se alcanzó el tiempo máximo de búsqueda seleccionado.")
+            deadline_logged = True
+        return expired
 
     cron_logger.log("====== INICIANDO ESCANEO AUTOMÁTICO ======")
     cron_logger.set_status("running")
@@ -427,6 +458,10 @@ async def run_automatic_scan():
         if not brands:
             cron_logger.log("⚠️ No hay marcas registradas en el sistema. Registra marcas antes de escanear.")
             return
+
+        if search_options and search_options.get("brand_ids"):
+            selected_ids = set(search_options["brand_ids"])
+            brands = [brand for brand in brands if brand.id in selected_ids]
 
         from services import cron_service
         import json
@@ -451,6 +486,15 @@ async def run_automatic_scan():
                 provincias = [provincias]
         except:
             provincias = ["Argentina"]
+
+        allowed_locations = {"argentina", *(province["name"].casefold() for province in PROVINCIAS_AR)}
+        provincias = [
+            location for location in provincias
+            if isinstance(location, str) and location.strip().casefold() in allowed_locations
+        ] or ["Argentina"]
+
+        if search_options and search_options.get("provincias"):
+            provincias = search_options["provincias"]
             
         limite = cron_config.limite_extraccion or 10
         settings.APIFY_MAX_ITEMS = limite
@@ -475,27 +519,34 @@ async def run_automatic_scan():
             if _stop_requested:
                 cron_logger.log("🛑 [Detención de Emergencia] Escaneo cancelado.")
                 break
+            if time_limit_reached():
+                break
 
             cron_logger.log(f"--- Procesando marca: {brand.nombre} ---")
             cron_logger.set_progress(marca=brand.nombre)
             
             for platform_name in plataformas_activas:
-                if _stop_requested:
+                if _stop_requested or time_limit_reached():
                     break
 
-                keywords = await generate_keywords(brand, platform_name)
+                requested_keywords = search_options.get("keywords") if search_options else None
+                if requested_keywords:
+                    keywords = [
+                        term if brand.nombre.casefold() in term.casefold() else f"{brand.nombre} {term}"
+                        for term in requested_keywords
+                    ]
+                else:
+                    keywords = await generate_keywords(brand, platform_name)
                 cron_logger.log(f"Keywords a buscar en {platform_name}: {keywords}")
                 
                 for keyword in keywords:
-                    if _stop_requested:
+                    if _stop_requested or time_limit_reached():
                         break
 
-                    # Las ubicaciones por provincia son solo para Facebook.
-                    # El resto de plataformas barren a nivel país.
-                    locs_to_search = provincias if platform_name == "facebook" else ["Argentina"]
+                    locs_to_search = provincias
                     
                     for provincia in locs_to_search:
-                        if _stop_requested:
+                        if _stop_requested or time_limit_reached():
                             break
 
                         cron_logger.log(f"-> Escaneando {platform_name} para '{keyword}' en '{provincia}'")
@@ -505,36 +556,36 @@ async def run_automatic_scan():
                             if platform_name == "facebook":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_fb or 10
                                 async for item in engine.scrape_facebook(keyword, provincia, proveedor):
-                                    if _stop_requested:
+                                    if _stop_requested or time_limit_reached():
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
                             elif platform_name == "instagram":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_ig or 10
                                 async for item in engine.scrape_instagram(keyword, provincia, proveedor):
-                                    if _stop_requested:
+                                    if _stop_requested or time_limit_reached():
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
                             elif platform_name == "tiktok":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_tt or 10
                                 async for item in engine.scrape_tiktok(keyword, provincia, proveedor):
-                                    if _stop_requested:
+                                    if _stop_requested or time_limit_reached():
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
                             elif platform_name == "mercadolibre":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_ml or 10
                                 async for item in engine.scrape_mercadolibre(keyword, provincia, proveedor):
-                                    if _stop_requested:
+                                    if _stop_requested or time_limit_reached():
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
                             
-                            if _stop_requested:
+                            if _stop_requested or time_limit_reached():
                                 break
                             # Pequeña pausa entre llamadas a API
                             await asyncio.sleep(1)
                         except Exception as e:
                             cron_logger.log(f"Error en {platform_name} para {keyword} en {provincia}: {e}")
 
-            if _stop_requested:
+            if _stop_requested or time_limit_reached():
                 break
                         
         if _stop_requested:

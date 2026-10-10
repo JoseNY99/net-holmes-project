@@ -54,3 +54,7 @@ class ReporteBrandDefense(Base):
     perfil = relationship("PerfilInvestigacion", uselist=False, back_populates="reporte", lazy="joined", cascade="all, delete-orphan")
     # Relación con logs de auditoría
     audit_logs = relationship("AuditLog", back_populates="reporte", lazy="select", cascade="all, delete-orphan")
+
+    @property
+    def relevamiento_completitud(self) -> int:
+        return self.perfil.completitud if self.perfil else 0

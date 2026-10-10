@@ -1,8 +1,10 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import String, cast, or_
 from fastapi import HTTPException, status
 from typing import List
 
 from models.reporte import ReporteBrandDefense
+from models.perfil_investigacion import PerfilInvestigacion
 from schemas.reporte import ReporteCreate
 from services.perfil_service import get_or_create_perfil
 from services.correlation_engine import CorrelationEngine
@@ -15,7 +17,9 @@ def get_reportes(db: Session, estado: str = None, plataforma: str = None, skip: 
     try:
         query = db.query(ReporteBrandDefense)
         if estado and estado.strip():
-            query = query.filter(ReporteBrandDefense.estado.ilike(f"%{estado.strip()}%"))
+            estados = [value.strip() for value in estado.split(",") if value.strip()]
+            estado_texto = cast(ReporteBrandDefense.estado, String)
+            query = query.filter(or_(*(estado_texto.ilike(f"%{value}%") for value in estados)))
         if plataforma and plataforma.strip():
             query = query.filter(ReporteBrandDefense.plataforma.ilike(f"%{plataforma.strip()}%"))
         if marca_id and str(marca_id).strip():
@@ -114,8 +118,12 @@ def ingest_reportes(db: Session, reportes_data: List[ReporteCreate]):
         platform_data = dump.pop("platform_data", None)
         
         nuevo = ReporteBrandDefense(**dump)
+        if str(nuevo.estado or "").lower() != "descartado":
+            nuevo.estado = "Investigando"
         db.add(nuevo)
         db.flush() # Para obtener el ID
+        if nuevo.estado == "Investigando":
+            db.add(PerfilInvestigacion(reporte_id=nuevo.id))
         
         # Procesar datos específicos de plataforma
         if platform_data and nuevo.plataforma:

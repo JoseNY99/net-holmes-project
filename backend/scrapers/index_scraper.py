@@ -18,24 +18,24 @@ from scrapers.filtro_comercial import filtrar_item_comercial
 
 DORK_TEMPLATES = {
     "mercadolibre": {
-        "strict": 'site:articulo.mercadolibre.com.ar "{kw}" -"tienda oficial"',
-        "loose":  'site:mercadolibre.com.ar {kw} -"tienda oficial"',
-        "ultra":  'site:mercadolibre.com.ar zapatillas OR remeras OR conjunto OR calzados {brand} -"tienda oficial"',
+        "strict": 'site:articulo.mercadolibre.com.ar "{kw}" {loc_term} -"tienda oficial"',
+        "loose":  'site:mercadolibre.com.ar {kw} {loc_term} -"tienda oficial"',
+        "ultra":  'site:mercadolibre.com.ar zapatillas OR remeras OR conjunto OR calzados {brand} {loc_term} -"tienda oficial"',
     },
     "facebook": {
-        "strict": 'site:facebook.com/marketplace/item/ "{kw}"',
-        "loose":  'site:facebook.com/posts/ "{kw}" ("envios" OR "showroom" OR "talles" OR "cuotas" OR "precio" OR "Argentina")',
-        "ultra":  'site:facebook.com "{brand}" vendo OR venta OR réplica ("envios" OR "showroom" OR "cuotas")',
+        "strict": 'site:facebook.com/marketplace/ "{kw}" ("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "espejo" OR "importadas") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
+        "loose":  'site:facebook.com/marketplace/ "{kw}" ("envios" OR "showroom" OR "talles" OR "cuotas" OR "precio") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
+        "ultra":  'site:facebook.com/marketplace/ "{brand}" ("réplica" OR "replica" OR "importadas" OR "G5") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
     },
     "instagram": {
-        "strict": '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" ("envios" OR "showroom" OR "talles" OR "cuotas" OR "stock")',
-        "loose":  '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}"',
-        "ultra":  'site:instagram.com "{brand}" vendo OR réplica OR importadas ("envios" OR "showroom" OR "precio")',
+        "strict": '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" ("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "espejo" OR "importadas") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
+        "loose":  '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" ("envios" OR "showroom" OR "talles" OR "cuotas" OR "stock") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
+        "ultra":  'site:instagram.com "{brand}" ("réplica" OR "replica" OR "importadas" OR "G5") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
     },
     "tiktok": {
-        "strict": 'site:tiktok.com/@*/video/ "{kw}" ("talles" OR "envios" OR "precio" OR "stock" OR "cuotas" OR "showroom")',
-        "loose":  'site:tiktok.com/@*/video/ "{kw}"',
-        "ultra":  'site:tiktok.com "{brand}" vendo OR réplica OR importadas ("talles" OR "envios" OR "precio")',
+        "strict": 'site:tiktok.com/@*/video/ "{kw}" ("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "importadas") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
+        "loose":  'site:tiktok.com/@*/video/ "{kw}" ("talles" OR "envios" OR "precio" OR "stock" OR "cuotas" OR "showroom") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
+        "ultra":  'site:tiktok.com "{brand}" ("réplica" OR "replica" OR "importadas" OR "G5") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
     },
 }
 
@@ -294,36 +294,32 @@ async def ejecutar_motor_indexado(
     templates = DORK_TEMPLATES.get(platform, DORK_TEMPLATES["facebook"])
     brand_word = keyword.split(" ")[0]  # e.g. "Adidas" de "Adidas Forum"
     
-    if platform == "facebook":
-        target_locations = ["buenosaires", "cordoba", "rosario", "mendoza"]
-    else:
-        target_locations = ["Argentina"]
+    requested_locations = provincias if isinstance(provincias, list) else [provincias]
+    target_locations = [loc for loc in requested_locations if loc] or ["Argentina"]
     
     yielded_count = 0
 
     for loc_name in target_locations:
-        loc = loc_name
+        loc = loc_name or "Argentina"
+        if loc.lower() in ("argentina", "todo el pais", "todas"):
+            loc_term = '(Argentina OR "Buenos Aires" OR CABA OR Rosario OR Córdoba OR "envios a todo el pais")'
+        else:
+            loc_term = f'("{loc}" Argentina)'
         
         # ── Estrategia 1: Estricto ──
-        query = templates["strict"].format(kw=keyword, loc=loc, brand=brand_word)
+        query = templates["strict"].format(kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word)
         cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Estricto: {query}")
         results = await _fetch_ddg_html(query, limit)
 
         # ── Estrategia 2: Holgado ──
         if not results:
-            query = templates["loose"].format(kw=keyword, loc=loc, brand=brand_word)
+            query = templates["loose"].format(kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word)
             cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Holgado: {query}")
             results = await _fetch_ddg_html(query, limit)
 
-        # ── Estrategia 3: Nacional (sin provincia) ──
-        if not results and loc_name != "Argentina":
-            query = templates["loose"].format(kw=keyword, loc="Argentina", brand=brand_word)
-            cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Nacional: {query}")
-            results = await _fetch_ddg_html(query, limit)
-
-        # ── Estrategia 4: Ultra (categorías genéricas de la marca) ──
+        # ── Estrategia 3: Ultra (categorías genéricas de la marca) ──
         if not results:
-            query = templates["ultra"].format(kw=keyword, loc=loc, brand=brand_word)
+            query = templates["ultra"].format(kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word)
             cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Ultra (genérico): {query}")
             results = await _fetch_ddg_html(query, limit)
 

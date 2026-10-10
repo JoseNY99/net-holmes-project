@@ -21,7 +21,6 @@ export const getAuditLogs = (suspectId) => api.get(`/api/reports_defense/${suspe
 export const exportPdf = (suspectId) => api.get(`/api/reports_defense/${suspectId}/export/pdf`, { responseType: 'blob' });
 export const exportWord = (suspectId) => api.get(`/api/reports_defense/${suspectId}/export/word`, { responseType: 'blob' });
 export const exportCbnPdf = (suspectId) => api.get(`/api/reports_defense/${suspectId}/export/cbn-pdf`, { responseType: 'blob' });
-export const exportFase1PreviewPdf = (suspectId) => api.get(`/api/reports_defense/${suspectId}/export/fase1-preview-pdf`, { responseType: 'blob' });
 export const captureScreenshot = (suspectId) => api.post(`/api/reports_defense/${suspectId}/screenshot`);
 // Antiguas funciones requeridas por otros componentes
 export const promoteScan = (scanResultId) => api.post(`/api/suspects/promote/${scanResultId}`);

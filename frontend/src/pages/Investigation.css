@@ -95,3 +95,145 @@
     padding: 6px 12px !important;
   }
 }
+
+.investigation-sort-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.investigation-sort-button:hover {
+  color: var(--accent-primary);
+}
+
+.investigation-cell-brand,
+.investigation-cell-seller,
+.investigation-cell-contact,
+.investigation-cell-price {
+  padding: 14px 16px;
+  vertical-align: middle;
+}
+
+.investigation-cell-brand span {
+  display: inline-block;
+  color: #087f87;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.investigation-seller-name {
+  color: var(--text-primary);
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.investigation-cell-secondary {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+}
+
+.investigation-cell-contact {
+  min-width: 170px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.investigation-contact-phone {
+  color: #16804a;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.investigation-contact-location {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.investigation-cell-price {
+  color: #182b3a;
+  font-size: 0.93rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .investigation-cell-brand span {
+  color: #62d4d5;
+}
+
+[data-theme='dark'] .investigation-contact-phone {
+  color: #6bd49a;
+}
+
+[data-theme='dark'] .investigation-cell-price {
+  color: #f4f7f9;
+}
+
+.investigation-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 750;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.investigation-status--pendiente {
+  color: #795600;
+  background: #fff2c2;
+}
+
+.investigation-status--investigando {
+  color: #14558a;
+  background: #dceeff;
+}
+
+.investigation-status--sospechoso {
+  color: #9e2924;
+  background: #ffe2df;
+}
+
+.investigation-status--confirmado {
+  color: #17633b;
+  background: #d9f4e4;
+}
+
+.investigation-status--descartado {
+  color: #46515d;
+  background: #e8edf1;
+}
+
+[data-theme='dark'] .investigation-status--pendiente {
+  color: #ffdc76;
+  background: rgba(176, 125, 0, 0.2);
+}
+
+[data-theme='dark'] .investigation-status--investigando {
+  color: #91ceff;
+  background: rgba(20, 85, 138, 0.26);
+}
+
+[data-theme='dark'] .investigation-status--sospechoso {
+  color: #ffaaa4;
+  background: rgba(158, 41, 36, 0.24);
+}
+
+[data-theme='dark'] .investigation-status--confirmado {
+  color: #8de0ad;
+  background: rgba(23, 99, 59, 0.25);
+}
+
+[data-theme='dark'] .investigation-status--descartado {
+  color: #c2ccd5;
+  background: rgba(70, 81, 93, 0.3);
+}

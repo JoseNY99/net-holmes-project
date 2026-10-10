@@ -298,7 +298,7 @@ export default function BrandsManager() {
     <div className="page-container brands-manager">
       {cronRunning && (
         <div style={{background: 'rgba(192,57,43,0.1)', color: 'var(--danger)', padding: '12px', borderRadius: '8px', marginBottom: '20px', border: '1px solid rgba(192,57,43,0.3)', fontWeight: 600}}>
-          ⚠️ El motor Cron está actualmente en ejecución. La edición y eliminación de marcas está bloqueada para evitar corrupciones.
+            El motor Cron está actualmente en ejecución. La edición y eliminación de marcas está bloqueada para evitar corrupciones.
         </div>
       )}
 

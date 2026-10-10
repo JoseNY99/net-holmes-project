@@ -25,8 +25,16 @@ import {
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { getBrands } from '../services/brandService';
+import { triggerManualRun } from '../services/cronService';
 import api from '../services/api';
 import './Dashboard.css';
+
+const ARGENTINE_LOCATIONS = [
+  'Argentina', 'Buenos Aires', 'CABA', 'Catamarca', 'Chaco', 'Chubut', 'Córdoba',
+  'Corrientes', 'Entre Ríos', 'Formosa', 'Jujuy', 'La Pampa', 'La Rioja', 'Mendoza',
+  'Misiones', 'Neuquén', 'Río Negro', 'Salta', 'San Juan', 'San Luis', 'Santa Cruz',
+  'Santa Fe', 'Santiago del Estero', 'Tierra del Fuego', 'Tucumán'
+];
 
 // Componente premium ágil para efecto Count-Up
 function AnimatedCounter({ value, duration = 400 }) {
@@ -60,6 +68,13 @@ export default function Dashboard() {
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [activeBrands, setActiveBrands] = useState(0);
+  const [brands, setBrands] = useState([]);
+  const [selectedBrand, setSelectedBrand] = useState('');
+  const [selectedLocation, setSelectedLocation] = useState('Argentina');
+  const [durationMinutes, setDurationMinutes] = useState(30);
+  const [searchTerms, setSearchTerms] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchFeedback, setSearchFeedback] = useState(null);
   
   const [stats, setStats] = useState({
     analisis_pendientes: 0,
@@ -76,6 +91,8 @@ export default function Dashboard() {
         const response = await getBrands();
         const brandsList = Array.isArray(response?.data) ? response.data : [];
         const activeList = brandsList.filter(b => (b.estado || '').toLowerCase() === 'activa');
+        setBrands(activeList);
+        setSelectedBrand(current => current || String(activeList[0]?.id || ''));
         setActiveBrands(activeList.length > 0 ? activeList.length : brandsList.length);
       } catch {
         setActiveBrands(0);
@@ -113,6 +130,30 @@ export default function Dashboard() {
     const intervalId = setInterval(fetchStats, 15000);
     return () => clearInterval(intervalId);
   }, []);
+
+  const handleStartSearch = async (event) => {
+    event.preventDefault();
+    if (!selectedBrand || searching) return;
+    setSearching(true);
+    setSearchFeedback(null);
+    try {
+      const keywords = searchTerms.split(',').map(term => term.trim()).filter(Boolean);
+      await triggerManualRun({
+        brand_ids: [Number(selectedBrand)],
+        provincias: [selectedLocation],
+        keywords,
+        duration_minutes: durationMinutes
+      });
+      setSearchFeedback({ type: 'success', text: 'Búsqueda iniciada. El progreso y los hallazgos aparecerán en el dashboard.' });
+    } catch (error) {
+      setSearchFeedback({
+        type: 'error',
+        text: error.response?.data?.detail || 'No se pudo iniciar la búsqueda.'
+      });
+    } finally {
+      setSearching(false);
+    }
+  };
 
   const getPlatformIcon = (platform) => {
     const p = (platform || '').toLowerCase();
@@ -232,6 +273,53 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      <section className="dashboard-search" aria-labelledby="dashboard-search-title">
+        <div className="dashboard-search__heading">
+          <div>
+            <h2 id="dashboard-search-title">Nueva búsqueda</h2>
+            <p>Alcance limitado a Argentina.</p>
+          </div>
+          <FaSearch aria-hidden="true" />
+        </div>
+        <form className="dashboard-search__form" onSubmit={handleStartSearch}>
+          <label>
+            Marca
+            <select className="input-field" value={selectedBrand} onChange={event => setSelectedBrand(event.target.value)} required>
+              <option value="" disabled>Seleccionar marca</option>
+              {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.nombre}</option>)}
+            </select>
+          </label>
+          <label>
+            Alcance geográfico
+            <select className="input-field" value={selectedLocation} onChange={event => setSelectedLocation(event.target.value)}>
+              {ARGENTINE_LOCATIONS.map(location => <option key={location} value={location}>{location}</option>)}
+            </select>
+          </label>
+          <label className="dashboard-search__terms">
+            Palabras clave (opcional)
+            <input
+              className="input-field"
+              value={searchTerms}
+              onChange={event => setSearchTerms(event.target.value)}
+              placeholder="Ej.: zapatillas, remeras, buzos"
+            />
+          </label>
+          <label>
+            Tiempo máximo
+            <select className="input-field" value={durationMinutes} onChange={event => setDurationMinutes(Number(event.target.value))}>
+              <option value={5}>5 minutos</option>
+              <option value={15}>15 minutos</option>
+              <option value={30}>30 minutos</option>
+              <option value={60}>60 minutos</option>
+            </select>
+          </label>
+          <button className="btn-primary" type="submit" disabled={searching || !selectedBrand}>
+            <FaSearch /> {searching ? 'Iniciando...' : 'Iniciar búsqueda'}
+          </button>
+        </form>
+        {searchFeedback && <p className={`dashboard-search__feedback ${searchFeedback.type}`} role="status">{searchFeedback.text}</p>}
+      </section>
 
       <div className="dashboard__grid">
         {/* Gráficos */}

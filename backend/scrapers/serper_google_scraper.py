@@ -15,26 +15,47 @@ class SerperGoogleScraper:
     def _build_dork(self, platform: str, keyword: str, city_name: str = None) -> str:
         kw = keyword.strip()
         loc = (city_name or "Argentina").strip()
+
+        # Operadores geográficos argentinos obligatorios
+        if loc.lower() in ("argentina", "todo el pais", "todas"):
+            geo_term = '(Argentina OR "Buenos Aires" OR CABA OR Rosario OR Córdoba OR "envios a todo el pais")'
+        else:
+            geo_term = f'("{loc}" OR Argentina)'
+
+        # Exclusiones de otros países para que Google descarte fuera de Argentina desde el origen
+        exclusiones = '-Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA'
+
+        # Señales de réplica / comercio informal para atraer publicaciones relevantes
+        fake_term = '("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "espejo" OR "importadas" OR "showroom" OR "talles" OR "envios")'
+
         if platform == "facebook":
-            return f'site:facebook.com/marketplace/item/ "{kw}" "{loc}"'
+            return f'site:facebook.com/marketplace/ "{kw}" {fake_term} {geo_term} {exclusiones}'
         elif platform == "instagram":
-            return f'site:instagram.com/p/ "{kw}" {loc} showroom'
+            return f'(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" {fake_term} {geo_term} {exclusiones}'
         elif platform == "tiktok":
-            return f'site:tiktok.com/@ "{kw}" showroom indumentaria Argentina'
-        return f'"{kw}" "{loc}"'
+            return f'site:tiktok.com/@*/video/ "{kw}" {fake_term} {geo_term} {exclusiones}'
+        return f'"{kw}" {fake_term} {geo_term} {exclusiones}'
 
     async def scrape(self, platform: str, keyword: str, limit: int = 10, city_name: str = None) -> AsyncGenerator[Dict[str, Any], None]:
         dork = self._build_dork(platform, keyword, city_name)
-        cron_logger.log(f"🌐 [Google/Serper OSINT] Buscando para {platform} ({keyword}): {dork}")
+        loc = (city_name or "Argentina").strip()
+        cron_logger.log(f"🌐 [Google/Serper OSINT] Buscando en Argentina para {platform} ({keyword}): {dork}")
         collected = 0
 
         from services.api_key_service import get_active_api_key
         serper_key = get_active_api_key("serper")
         if serper_key:
-            cron_logger.log("🔑 [Serper.dev] Ejecutando Google Dorking via Serper API...")
+            cron_logger.log("🔑 [Serper.dev] Ejecutando Google Dorking geolocalizado en Argentina...")
             try:
                 headers = {"X-API-KEY": serper_key, "Content-Type": "application/json"}
-                payload = {"q": dork, "gl": "ar", "hl": "es-419", "num": min(max(limit * 2, 10), 50)}
+                location_val = f"{loc}, Argentina" if loc.lower() != "argentina" else "Argentina"
+                payload = {
+                    "q": dork,
+                    "gl": "ar",
+                    "hl": "es-419",
+                    "location": location_val,
+                    "num": min(max(limit * 2, 10), 50)
+                }
                 async with httpx.AsyncClient(timeout=20.0) as client:
                     resp = await client.post(self.SERPER_ENDPOINT, headers=headers, json=payload)
                     if resp.status_code == 200:
@@ -93,7 +114,7 @@ class SerperGoogleScraper:
         elif settings.GOOGLE_CSE_API_KEY and settings.GOOGLE_CSE_CX:
             cron_logger.log("🔑 [Google CSE] Ejecutando consulta via Google Custom Search...")
             try:
-                params = {"key": settings.GOOGLE_CSE_API_KEY, "cx": settings.GOOGLE_CSE_CX, "q": dork, "gl": "ar", "lr": "lang_es", "num": min(limit, 10)}
+                params = {"key": settings.GOOGLE_CSE_API_KEY, "cx": settings.GOOGLE_CSE_CX, "q": dork, "gl": "ar", "cr": "countryAR", "lr": "lang_es", "num": min(limit, 10)}
                 async with httpx.AsyncClient(timeout=20.0) as client:
                     resp = await client.get(self.GOOGLE_CSE_ENDPOINT, params=params)
                     if resp.status_code == 200:

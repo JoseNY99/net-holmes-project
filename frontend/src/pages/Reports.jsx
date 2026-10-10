@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getGeneralReport, getReportList, exportReport } from '../services/reportService';
 import { getBrands } from '../services/brandService';
-import { FaChartPie, FaDownload, FaRobot, FaUserCog, FaFilter, FaChevronLeft, FaChevronRight, FaLock, FaFilePdf } from 'react-icons/fa';
+import { FaChartPie, FaDownload, FaRobot, FaUserCog, FaFilter, FaChevronLeft, FaChevronRight, FaLock } from 'react-icons/fa';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import './Reports.css';
 
@@ -216,7 +216,7 @@ export default function Reports() {
                   ) : listData.length === 0 ? (
                     <tr>
                       <td colSpan="8" style={{textAlign: 'center', padding: '36px 20px', color: 'var(--text-secondary)'}}>
-                        <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🔍</div>
+                        <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}> </div>
                         <strong style={{ display: 'block', fontSize: '1rem', marginBottom: '4px', color: 'var(--text-primary)' }}>Parece que todo sigue vacío por aquí...</strong>
                         <span style={{ fontSize: '0.85rem' }}>Aún no se han detectado infracciones con los filtros seleccionados.</span>
                       </td>
@@ -257,44 +257,17 @@ export default function Reports() {
                         <td><span className={`status-badge status-${item.estado}`}>{item.estado}</span></td>
                         <td>
                           <div style={{display:'flex', gap:'5px', alignItems:'center'}}>
-                            {item.estado === 'pendiente' && (
-                              <button 
-                                className="btn-primary" 
-                                style={{padding: '4px 8px', fontSize:'0.75rem', backgroundColor: 'var(--warning)', borderColor: 'var(--warning)', color: '#fff'}}
-                                onClick={() => {
-                                  import('../services/suspectService').then(m => {
-                                    m.promoteScan(item.id).then(() => {
-                                      alert("Relevado a investigaciones exitosamente.");
-                                      fetchList();
-                                    }).catch(e => {
-                                      console.error(e);
-                                      alert("Error al relevar");
-                                    });
-                                  });
-                                }}
-                              >
-                                Relevar
-                              </button>
-                            )}
-
-                            {(item.estado === 'pendiente' || item.estado === 'descartado') ? (
-                              <button 
-                                className="btn-secondary" 
-                                style={{ padding: '4px 8px', fontSize: '0.75rem', borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                onClick={() => handleSingleExport(item.id, 'fase1-preview-pdf')}
-                                title="Descargar Ficha Preliminar de Detección (Fase 1)"
-                              >
-                                <FaFilePdf /> Vista Previa (Fase 1)
-                              </button>
-                            ) : (
+                            {String(item.estado || '').toLowerCase() !== 'descartado' && item.relevamiento_completitud >= 80 ? (
                               <div className="export-dropdown" style={{marginLeft: 0}}>
                                 <button className="btn-secondary" style={{padding: '4px 8px', fontSize:'0.8rem'}}><FaDownload /> <span style={{fontSize:'0.6rem'}}>▼</span></button>
                                 <div className="export-menu" style={{right: 0, minWidth: '150px'}}>
                                   <button onClick={() => handleSingleExport(item.id, 'pdf')}>PDF Estándar</button>
-                                  <button onClick={() => handleSingleExport(item.id, 'cbn-pdf')} style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>⭐ PDF Oficial CBN</button>
+                                  <button onClick={() => handleSingleExport(item.id, 'cbn-pdf')} style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>PDF Oficial CBN</button>
                                   <button onClick={() => handleSingleExport(item.id, 'word')}>Word (.docx)</button>
                                 </div>
                               </div>
+                            ) : (
+                              <small>Relevamiento {item.relevamiento_completitud || 0}%</small>
                             )}
                           </div>
                         </td>

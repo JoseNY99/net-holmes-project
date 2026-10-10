@@ -12,8 +12,8 @@ export const toggleCron = (isActive) => {
   return api.post('/api/cron/toggle', typeof isActive === 'boolean' ? { is_active: isActive } : {});
 };
 
-export const triggerManualRun = () => {
-  return api.post('/api/cron/start');
+export const triggerManualRun = (searchOptions) => {
+  return api.post('/api/cron/start', searchOptions);
 };
 
 export const stopCron = () => {

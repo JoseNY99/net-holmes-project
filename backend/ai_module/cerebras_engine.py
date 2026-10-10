@@ -113,5 +113,26 @@ class CerebrasEngine:
             
         return False
 
+    async def evaluate_publication_osint(
+        self,
+        platform: str = "",
+        description: str = "",
+        comments: str | list = "",
+        location: str = "",
+        price: str | float = ""
+    ) -> dict:
+        """
+        Analiza la publicación determinando falsificación y orientación a Argentina.
+        """
+        from services.llm_client import analyze_publication_brand_protection
+        return await analyze_publication_brand_protection(
+            plataforma=platform,
+            descripcion=description,
+            comentarios=comments,
+            ubicacion=location,
+            precio=price
+        )
+
 
 cerebras_engine = CerebrasEngine()
+

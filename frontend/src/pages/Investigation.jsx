@@ -28,6 +28,8 @@ export default function Investigation() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [exporting, setExporting] = useState(false);
+  const [sortBy, setSortBy] = useState('marca');
+  const [sortDirection, setSortDirection] = useState('asc');
 
   // Cargar marcas para el filtro
   useEffect(() => {
@@ -46,9 +48,11 @@ export default function Investigation() {
     if (activeTab === 'fase1') {
       setFilterEstado('Pendiente');
     } else if (activeTab === 'fase2') {
-      setFilterEstado('Sospechoso');
+      setFilterEstado('Investigando,Sospechoso');
     } else if (activeTab === 'fase3') {
       setFilterEstado('Confirmado');
+    } else if (activeTab === 'descartados') {
+      setFilterEstado('Descartado');
     } else if (activeTab === 'todos') {
       setFilterEstado('');
     }
@@ -123,6 +127,33 @@ export default function Investigation() {
       )
     : reportes;
 
+  const sortedItems = [...displayItems].sort((left, right) => {
+    const fields = {
+      marca: left.marca_afectada,
+      vendedor: left.titular_cuenta,
+      ubicacion: left.direccion_publica || left.pais,
+      estado: left.estado
+    };
+    const leftValue = String(fields[sortBy] || '').trim();
+    const rightValue = String(({
+      marca: right.marca_afectada,
+      vendedor: right.titular_cuenta,
+      ubicacion: right.direccion_publica || right.pais,
+      estado: right.estado
+    })[sortBy] || '').trim();
+    const comparison = leftValue.localeCompare(rightValue, 'es', { sensitivity: 'base', numeric: true });
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+
+  const setSort = (field) => {
+    if (sortBy === field) {
+      setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+    setSortBy(field);
+    setSortDirection('asc');
+  };
+
   return (
     <div className="page-container fade-in" style={{ maxWidth: '1600px', margin: '0 auto' }}>
       {/* Header Unificado */}
@@ -161,7 +192,7 @@ export default function Investigation() {
             onClick={() => { setActiveTab('fase1'); setSearchParams({ tab: 'fase1' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'fase1' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'fase1' ? '#000' : 'var(--text-secondary)' }}
           >
-            📌 Fase 1: Triage & Hallazgos
+            Fase 1: Triage & Hallazgos
           </button>
           <button 
             type="button"
@@ -169,7 +200,7 @@ export default function Investigation() {
             onClick={() => { setActiveTab('fase2'); setSearchParams({ tab: 'fase2' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'fase2' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'fase2' ? '#000' : 'var(--text-secondary)' }}
           >
-            🔍 Fase 2: Investigaciones Activas
+            Fase 2: Investigaciones Activas
           </button>
           <button 
             type="button"
@@ -177,7 +208,7 @@ export default function Investigation() {
             onClick={() => { setActiveTab('fase3'); setSearchParams({ tab: 'fase3' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'fase3' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'fase3' ? '#000' : 'var(--text-secondary)' }}
           >
-            📄 Fase 3: Casos Confirmados & Reportes
+            Fase 3: Casos Confirmados & Reportes
           </button>
           <button 
             type="button"
@@ -185,7 +216,15 @@ export default function Investigation() {
             onClick={() => { setActiveTab('todos'); setSearchParams({ tab: 'todos' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'todos' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'todos' ? '#000' : 'var(--text-secondary)' }}
           >
-            🌐 Vista Global (Todos)
+            Vista Global (Todos)
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${activeTab === 'descartados' ? 'tab-btn--active' : ''}`}
+            onClick={() => { setActiveTab('descartados'); setSearchParams({ tab: 'descartados' }); }}
+            style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'descartados' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'descartados' ? '#000' : 'var(--text-secondary)' }}
+          >
+            Descartados
           </button>
         </div>
 
@@ -276,17 +315,18 @@ export default function Investigation() {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.03)' }}>
                 <th style={{ padding: '14px 16px' }}>Ref</th>
-                <th style={{ padding: '14px 16px' }}>Marca</th>
+                <th style={{ padding: '14px 16px' }}><button className="investigation-sort-button" type="button" onClick={() => setSort('marca')} aria-label="Ordenar por marca">Marca{sortBy === 'marca' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>
                 <th style={{ padding: '14px 16px' }}>Plataforma</th>
-                <th style={{ padding: '14px 16px' }}>Vendedor / Infractor</th>
-                <th style={{ padding: '14px 16px' }}>Contacto / Ubicación</th>
+                <th style={{ padding: '14px 16px' }}><button className="investigation-sort-button" type="button" onClick={() => setSort('vendedor')} aria-label="Ordenar alfabéticamente por infractor">Vendedor / Infractor{sortBy === 'vendedor' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>
+                <th style={{ padding: '14px 16px' }}><button className="investigation-sort-button" type="button" onClick={() => setSort('ubicacion')} aria-label="Ordenar por ubicación">Contacto / Ubicación{sortBy === 'ubicacion' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>
                 <th style={{ padding: '14px 16px' }}>Precio Cotizado</th>
-                <th style={{ padding: '14px 16px' }}>Estado</th>
+                <th style={{ padding: '14px 16px' }}>Relevamiento</th>
+                <th style={{ padding: '14px 16px' }}><button className="investigation-sort-button" type="button" onClick={() => setSort('estado')} aria-label="Ordenar por estado">Estado{sortBy === 'estado' ? (sortDirection === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>
                 <th style={{ padding: '14px 16px', textAlign: 'right' }}>Acción</th>
               </tr>
             </thead>
             <tbody>
-              {displayItems.map((report, index) => {
+              {sortedItems.map((report, index) => {
                 const currency = report.moneda || 'ARS';
                 const formattedPrice = report.precio_publico !== null && report.precio_publico !== undefined
                   ? `${currency} $${Number(report.precio_publico).toLocaleString()}`
@@ -297,50 +337,39 @@ export default function Investigation() {
                     <td style={{ padding: '14px 16px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                       #{report.id}
                     </td>
-                    <td style={{ padding: '14px 16px', color: 'var(--accent-primary)', fontWeight: 'bold' }}>
-                      {report.marca_afectada}
+                    <td className="investigation-cell-brand">
+                      <span>{report.marca_afectada}</span>
                     </td>
                     <td style={{ padding: '14px 16px' }}>
                       <span className="platform-badge" style={{ textTransform: 'capitalize' }}>{report.plataforma}</span>
                     </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ fontWeight: 600 }}>{report.titular_cuenta}</div>
+                    <td className="investigation-cell-seller">
+                      <div className="investigation-seller-name">{report.titular_cuenta}</div>
                       {report.seguidores_infractor !== null && report.seguidores_infractor !== undefined && (
-                        <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
-                          👥 {Number(report.seguidores_infractor).toLocaleString()} seguidores
+                        <small className="investigation-cell-secondary">
+                          {Number(report.seguidores_infractor).toLocaleString()} seguidores
                         </small>
                       )}
                     </td>
-                    <td style={{ padding: '14px 16px', fontSize: '0.85rem' }}>
+                    <td className="investigation-cell-contact">
                       {report.telefono_publico && (
-                        <div style={{ color: '#2ECC71' }}>📞 {report.telefono_publico}</div>
+                        <div className="investigation-contact-phone">{report.telefono_publico}</div>
                       )}
-                      <div style={{ color: 'var(--text-secondary)' }}>
-                        📍 {report.direccion_publica || report.pais || 'Argentina'}
+                      <div className="investigation-contact-location">
+                        {report.direccion_publica || report.pais || 'Argentina'}
                       </div>
                     </td>
-                    <td style={{ padding: '14px 16px', fontWeight: 600, color: '#F1F5F9' }}>
+                    <td className="investigation-cell-price">
                       {formattedPrice}
+                    </td>
+                    <td style={{ padding: '14px 16px', fontWeight: 700, color: report.relevamiento_completitud >= 80 ? 'var(--success)' : 'var(--warning)' }}>
+                      {report.relevamiento_completitud || 0}%
                     </td>
                     <td style={{ padding: '14px 16px' }}>
                       <span 
-                        className="status-badge" 
+                        className={`status-badge investigation-status investigation-status--${(report.estado || '').toLowerCase().replace(/[^a-z]+/g, '-')}`} 
                         style={{ 
-                          background: 
-                            report.estado === 'Confirmado' ? 'rgba(46, 204, 113, 0.2)' :
-                            report.estado === 'Sospechoso' ? 'rgba(231, 76, 60, 0.2)' : 
-                            report.estado === 'Investigando' ? 'rgba(52, 152, 219, 0.2)' : 
-                            report.estado === 'Descartado' ? 'rgba(100, 116, 139, 0.2)' : 'rgba(241, 196, 15, 0.2)',
-                          color:
-                            report.estado === 'Confirmado' ? '#2ECC71' :
-                            report.estado === 'Sospechoso' ? '#E74C3C' : 
-                            report.estado === 'Investigando' ? '#3498DB' : 
-                            report.estado === 'Descartado' ? '#94A3B8' : '#F1C40F',
-                          border: '1px solid currentColor',
-                          padding: '3px 8px',
-                          borderRadius: '4px',
-                          fontSize: '0.75rem',
-                          fontWeight: 700
+                          border: '1px solid currentColor'
                         }}
                       >
                         {report.estado}

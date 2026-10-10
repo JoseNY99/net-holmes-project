@@ -10,7 +10,7 @@ from schemas.perfil_investigacion import PerfilUpdate, PerfilResponse
 from schemas.audit_log import AuditLogResponse
 
 from services import reports_defense_service, perfil_service
-from middleware.auth_middleware import get_current_user
+from middleware.auth_middleware import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/reports_defense", tags=["Reportes Defense"])
 
@@ -90,13 +90,46 @@ def quick_edit_reporte(reporte_id: int, data: ReporteQuickEdit, db: Session = De
     result = reports_defense_service.quick_update_reporte(db, reporte_id, update_data)
     return result
 
+class AnalyzePublicationRequest(BaseModel):
+    plataforma: str = ""
+    descripcion: str = ""
+    comentarios: str | list[str] = ""
+    ubicacion: str = ""
+    precio: str | float | None = ""
+
+@router.post("/analyze-publication")
+async def analyze_publication_endpoint(
+    req: AnalyzePublicationRequest,
+    _user: User = Depends(get_current_user)
+):
+    """
+    Analiza una publicación de redes sociales y determina estrictamente:
+    1. Si es FALSIFICACIÓN/RÉPLICA (descartando originales nuevos o usados).
+    2. Si está orientada a ARGENTINA.
+    Retorna:
+    {
+      "es_falsificacion": bool,
+      "es_argentina": bool,
+      "motivo": str
+    }
+    """
+    from services.llm_client import analyze_publication_brand_protection
+    result = await analyze_publication_brand_protection(
+        plataforma=req.plataforma,
+        descripcion=req.descripcion,
+        comentarios=req.comentarios,
+        ubicacion=req.ubicacion,
+        precio=req.precio
+    )
+    return result
+
 class ManualScanRequest(BaseModel):
     url: str
     plataforma: str
     brand_id: int | str
 
 @router.post("/scan/manual")
-async def scan_manual_url(req: ManualScanRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def scan_manual_url(req: ManualScanRequest, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     """Analiza una URL arbitraria usando el Generic Scraper y lo guarda como un reporte manual."""
     try:
         scraped_data = await scrape_generic_url(req.url)
@@ -147,40 +180,23 @@ def get_audit_logs(reporte_id: int, db: Session = Depends(get_db), _user: User =
 
 from fastapi.responses import StreamingResponse
 from services.export_service import generate_investigation_pdf, generate_investigation_docx, generate_cbn_investigation_pdf
-from services.cbn_pdf import generate_fase1_preview_pdf
 
-@router.get("/{reporte_id}/export/fase1-preview-pdf")
-def export_fase1_preview_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
-    if str(reporte.estado).lower() not in ["pendiente", "descartado"]:
+def _require_final_report_data(db: Session, reporte):
+    from models.perfil_investigacion import PerfilInvestigacion
+
+    perfil = db.query(PerfilInvestigacion).filter(PerfilInvestigacion.reporte_id == reporte.id).first()
+    percentage = perfil.completitud if perfil else 0
+    if str(reporte.estado).lower() == "descartado" or percentage < 80:
         raise HTTPException(
-            status_code=400, 
-            detail="La Vista Previa (Fase 1) solo está disponible para reportes en estado Pendiente o Descartado. Para reportes relevados utilice el Reporte Oficial CBN."
+            status_code=409,
+            detail=f"El informe final requiere al menos 80% del relevamiento. Avance actual: {percentage}%."
         )
-    
-    pdf_buffer = generate_fase1_preview_pdf(db, reporte)
-    
-    import uuid
-    random_id = uuid.uuid4().hex[:6]
-    platform_name = str(reporte.plataforma).lower()
-    filename = f"vista_previa_fase1_{platform_name}_{random_id}.pdf"
-    
-    headers = {
-        "Content-Disposition": f"attachment; filename={filename}"
-    }
-    return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
+    return perfil
 
 @router.get("/{reporte_id}/export/pdf")
 def export_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
-    if str(reporte.estado).lower() in ["pendiente", "descartado"]:
-        raise HTTPException(
-            status_code=400, 
-            detail="Este reporte fue escaneado por el bot y aún se encuentra en Fase 1 (Pendiente). Debe ser aprobado en la fase de investigación y contar con relevamiento de datos antes de poder ser exportado o impreso."
-        )
-    
-    from models.perfil_investigacion import PerfilInvestigacion
-    perfil = db.query(PerfilInvestigacion).filter(PerfilInvestigacion.reporte_id == reporte_id).first()
+    perfil = _require_final_report_data(db, reporte)
     
     pdf_buffer = generate_investigation_pdf(db, reporte, perfil)
     
@@ -197,14 +213,7 @@ def export_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Dep
 @router.get("/{reporte_id}/export/cbn-pdf")
 def export_cbn_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
-    if str(reporte.estado).lower() in ["pendiente", "descartado"]:
-        raise HTTPException(
-            status_code=400, 
-            detail="El reporte oficial CBN requiere que el caso haya sido relevado a la fase de investigación y cuente con datos de identidad completados en Fase 2."
-        )
-    
-    from models.perfil_investigacion import PerfilInvestigacion
-    perfil = db.query(PerfilInvestigacion).filter(PerfilInvestigacion.reporte_id == reporte_id).first()
+    perfil = _require_final_report_data(db, reporte)
     
     pdf_buffer = generate_cbn_investigation_pdf(db, reporte, perfil)
     
@@ -221,14 +230,7 @@ def export_cbn_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User =
 @router.get("/{reporte_id}/export/word")
 def export_word(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
-    if str(reporte.estado).lower() in ["pendiente", "descartado"]:
-        raise HTTPException(
-            status_code=400, 
-            detail="Este reporte fue escaneado por el bot y aún se encuentra en Fase 1 (Pendiente). Debe ser aprobado en la fase de investigación y contar con relevamiento de datos antes de poder ser exportado o impreso."
-        )
-        
-    from models.perfil_investigacion import PerfilInvestigacion
-    perfil = db.query(PerfilInvestigacion).filter(PerfilInvestigacion.reporte_id == reporte_id).first()
+    perfil = _require_final_report_data(db, reporte)
         
     docx_buffer = generate_investigation_docx(db, reporte, perfil)
     

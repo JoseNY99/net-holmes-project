@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getSuspectDetail, updateSuspect, quickEditSuspect, getPerfil, updatePerfil, getAuditLogs, exportPdf, exportWord, exportCbnPdf, exportFase1PreviewPdf, captureScreenshot } from '../services/suspectService';
+import { getSuspectDetail, updateSuspect, quickEditSuspect, getPerfil, updatePerfil, getAuditLogs, exportCbnPdf, captureScreenshot } from '../services/suspectService';
 import correlationService from '../services/correlationService';
 import chatService from '../services/chatService';
-import { FaArrowLeft, FaBoxOpen, FaSave, FaCheckCircle, FaExclamationTriangle, FaHistory, FaLock, FaUnlock, FaNetworkWired, FaFilePdf, FaFileWord, FaCommentDots, FaRobot, FaUserEdit, FaPaperPlane, FaWhatsapp, FaBrain, FaLink, FaCamera, FaEdit, FaTimes } from 'react-icons/fa';
+import { FaArrowLeft, FaBoxOpen, FaSave, FaCheckCircle, FaExclamationTriangle, FaHistory, FaLock, FaUnlock, FaNetworkWired, FaFilePdf, FaCommentDots, FaRobot, FaUserEdit, FaPaperPlane, FaWhatsapp, FaBrain, FaLink, FaCamera, FaEdit, FaTimes } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 import './SuspectDetail.css';
 
@@ -47,10 +47,7 @@ export default function SuspectDetail() {
   const [correlations, setCorrelations] = useState([]);
 
   // Export State
-  const [exportingPdf, setExportingPdf] = useState(false);
-  const [exportingWord, setExportingWord] = useState(false);
   const [exportingCbnPdf, setExportingCbnPdf] = useState(false);
-  const [exportingFase1, setExportingFase1] = useState(false);
   const [capturingScreenshot, setCapturingScreenshot] = useState(false);
   const [screenshotTimestamp, setScreenshotTimestamp] = useState(Date.now());
 
@@ -93,7 +90,7 @@ export default function SuspectDetail() {
       setReporte(res.data);
       setEstado(res.data.estado);
       
-      if (res.data.estado === 'Sospechoso' || res.data.estado === 'Investigando') {
+      if (res.data.estado !== 'Descartado') {
         fetchPerfilData();
       }
       
@@ -213,16 +210,16 @@ export default function SuspectDetail() {
   };
 
   const ENTITY_LABELS = {
-    dni_cedula: '🪪 DNI',
-    cuit_cuil_ruc: '🏛️ CUIT',
-    cvu_cbu: '🏦 CBU/CVU',
-    alias_bancario: '💳 Alias',
-    email: '📧 Email',
-    telefono_privado: '📱 Teléfono',
-    direccion_exacta: '📍 Dirección',
-    precio_final_cotizado: '💰 Precio',
-    banco: '🏦 Banco',
-    nombre_real: '👤 Nombre',
+    dni_cedula: '  DNI',
+    cuit_cuil_ruc: '  CUIT',
+    cvu_cbu: '  CBU/CVU',
+    alias_bancario: '  Alias',
+    email: '  Email',
+    telefono_privado: '  Teléfono',
+    direccion_exacta: '  Dirección',
+    precio_final_cotizado: '  Precio',
+    banco: '  Banco',
+    nombre_real: '  Nombre',
   };
 
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -269,6 +266,7 @@ export default function SuspectDetail() {
     }
   };
 
+  /* Exportación clásica temporalmente deshabilitada. Conservar para posible reactivación:
   const handleExportPdf = async () => {
     setExportingPdf(true);
     try {
@@ -286,6 +284,7 @@ export default function SuspectDetail() {
       setExportingPdf(false);
     }
   };
+  */
 
   const handleExportCbnPdf = async () => {
     setExportingCbnPdf(true);
@@ -305,6 +304,7 @@ export default function SuspectDetail() {
     }
   };
 
+  /* Exportación Word temporalmente deshabilitada. Conservar para posible reactivación:
   const handleExportWord = async () => {
     setExportingWord(true);
     try {
@@ -322,25 +322,7 @@ export default function SuspectDetail() {
       setExportingWord(false);
     }
   };
-
-  const handleExportFase1Preview = async () => {
-    setExportingFase1(true);
-    try {
-      const res = await exportFase1PreviewPdf(id);
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `Vista_Previa_Fase1_${reporte.referencia_interna}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (e) {
-      setMessage({ type: 'error', text: 'Error al exportar Vista Previa (Fase 1).' });
-    } finally {
-      setExportingFase1(false);
-    }
-  };
+  */
 
   const handleCaptureScreenshot = async () => {
     setCapturingScreenshot(true);
@@ -359,15 +341,16 @@ export default function SuspectDetail() {
   if (loading) return <div className="page-container"><div className="spinner-container"><div className="spinner spinner--dark"></div></div></div>;
   if (!reporte) return <div className="page-container"><h2>Reporte no encontrado</h2></div>;
 
-  const abmUnlocked = estado === 'Sospechoso' || estado === 'Investigando';
-  // CBN PDF se habilita con Teléfono Privado O Alias Bancario / CBU (los datos clave de contacto o cobro)
-  const investigacionCompleta = abmUnlocked && (
-    (perfil.telefono_privado && perfil.telefono_privado.trim()) ||
-    (perfil.alias_bancario && perfil.alias_bancario.trim()) ||
-    (perfil.cvu_cbu && perfil.cvu_cbu.trim()) ||
-    (perfil.dni_cedula && perfil.dni_cedula.trim()) ||
-    (perfil.cuit_cuil_ruc && perfil.cuit_cuil_ruc.trim())
+  const abmUnlocked = estado !== 'Descartado';
+  const relevamientoFields = [
+    perfil.dni_cedula, perfil.cuit_cuil_ruc, perfil.banco, perfil.alias_bancario,
+    perfil.cvu_cbu, perfil.email, perfil.direccion_exacta, perfil.telefono_privado,
+    perfil.precio_final_cotizado
+  ];
+  const relevamientoPercent = Math.round(
+    relevamientoFields.filter(value => value && String(value).trim()).length / relevamientoFields.length * 100
   );
+  const investigacionCompleta = abmUnlocked && relevamientoPercent >= 80;
 
   return (
     <div className="page-container fade-in">
@@ -536,7 +519,7 @@ export default function SuspectDetail() {
           <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '15px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <strong style={{ color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                📸 Captura de Pantalla / Evidencia
+                  Captura de Pantalla / Evidencia
               </strong>
               <button
                 type="button"
@@ -599,7 +582,7 @@ export default function SuspectDetail() {
                     rel="noopener noreferrer"
                     style={{ position: 'absolute', bottom: '8px', right: '8px', background: 'rgba(0,0,0,0.7)', color: 'white', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', textDecoration: 'none' }}
                   >
-                    Ver original ↗
+                    Ver original  
                   </a>
                 </div>
               ) : (
@@ -750,21 +733,10 @@ export default function SuspectDetail() {
           {!abmUnlocked && (
             <div className="lock-overlay" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(10, 15, 30, 0.85)', backdropFilter: 'blur(4px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 10, borderRadius: '16px', padding: '20px' }}>
               <FaLock size={40} style={{ color: 'rgba(255,255,255,0.3)', marginBottom: '12px' }} />
-              <h3 style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.2rem', marginBottom: '6px' }}>Fase 2 de Relevamiento Bloqueada</h3>
+              <h3 style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.2rem', marginBottom: '6px' }}>Caso descartado</h3>
               <p style={{ textAlign: 'center', maxWidth: '85%', color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>
-                Cambia el estado del reporte a <strong>"Investigando"</strong> o <strong>"Sospechoso"</strong> para habilitar la carga de datos de identidad y el informe oficial CBN.
+                El relevamiento y la generación de informes están deshabilitados para este caso.
               </p>
-              
-              <button 
-                type="button" 
-                className="btn-primary" 
-                onClick={handleExportFase1Preview} 
-                disabled={exportingFase1}
-                style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem', padding: '8px 16px', background: 'var(--accent-primary)', borderColor: 'var(--accent-primary)' }}
-                title="Descargar Ficha Preliminar de Detección (Fase 1 / Triage)"
-              >
-                <FaFilePdf /> {exportingFase1 ? 'Generando PDF...' : 'Descargar Vista Previa (Fase 1)'}
-              </button>
             </div>
           )}
           
@@ -787,6 +759,9 @@ export default function SuspectDetail() {
           
           {activeTab === 'abm' && (
             <>
+              <div role="status" style={{ margin: '14px 0', padding: '12px 14px', borderLeft: '4px solid var(--accent-primary)', background: 'rgba(16, 197, 201, 0.08)' }}>
+                Relevamiento: <strong>{relevamientoPercent}%</strong>. {investigacionCompleta ? 'El informe final está habilitado.' : 'El informe final se habilita al alcanzar 80% de los campos.'}
+              </div>
               <form className="abm-form" onSubmit={handleSavePerfil}>
                 <div className="form-section abm-card">
               <h4>Identidad y Fiscalidad</h4>
@@ -844,7 +819,7 @@ export default function SuspectDetail() {
                 <div style={{ marginTop: '15px' }}>
                   <div style={{ position: 'relative' }}>
                     <button type="button" className="btn-primary" onClick={handleExportCbnPdf} disabled={exportingCbnPdf || !investigacionCompleta} style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', background: investigacionCompleta ? 'var(--accent-primary)' : 'rgba(100,100,100,0.3)', color: 'white', borderColor: investigacionCompleta ? 'var(--accent-primary)' : 'rgba(100,100,100,0.5)', marginBottom: '10px', cursor: investigacionCompleta ? 'pointer' : 'not-allowed', opacity: investigacionCompleta ? 1 : 0.6 }}>
-                      <FaFilePdf /> {exportingCbnPdf ? 'Generando CBN...' : '📄 Exportar PDF Oficial (CBN)'}
+                      <FaFilePdf /> {exportingCbnPdf ? 'Generando CBN...' : 'Exportar PDF Oficial (CBN)'}
                     </button>
                     {!investigacionCompleta && (
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '4px' }}>
@@ -852,14 +827,16 @@ export default function SuspectDetail() {
                       </p>
                     )}
                   </div>
+                  {/* Acciones conservadas para una posible reactivación:
                   <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
-                    <button type="button" className="btn-secondary" onClick={handleExportPdf} disabled={exportingPdf} style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', background: 'rgba(231, 76, 60, 0.1)', color: 'var(--danger)', borderColor: 'var(--danger)' }}>
+                    <button type="button" className="btn-secondary" onClick={handleExportPdf} disabled={exportingPdf || !investigacionCompleta} style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', background: 'rgba(231, 76, 60, 0.1)', color: 'var(--danger)', borderColor: 'var(--danger)' }}>
                       <FaFilePdf /> {exportingPdf ? 'Generando...' : 'PDF Clásico'}
                     </button>
-                    <button type="button" className="btn-secondary" onClick={handleExportWord} disabled={exportingWord} style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', background: 'rgba(52, 152, 219, 0.1)', color: '#3498db', borderColor: '#3498db' }}>
+                    <button type="button" className="btn-secondary" onClick={handleExportWord} disabled={exportingWord || !investigacionCompleta} style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', background: 'rgba(52, 152, 219, 0.1)', color: '#3498db', borderColor: '#3498db' }}>
                       <FaFileWord /> {exportingWord ? 'Generando...' : 'Word'}
                     </button>
                   </div>
+                  */}
                 </div>
               </>
             )}
@@ -898,7 +875,7 @@ export default function SuspectDetail() {
                     <div>
                       <h4 style={{ margin: 0 }}>Honeypot Agent</h4>
                       <small style={{ color: 'var(--text-secondary)' }}>
-                        {conversation?.is_bot_active ? '🤖 Bot extrayendo datos (Cerebras LLM)' : '👤 Analista en control manual'}
+                        {conversation?.is_bot_active ? '  Bot extrayendo datos (Cerebras LLM)' : '  Analista en control manual'}
                       </small>
                     </div>
                   </div>
@@ -945,7 +922,7 @@ export default function SuspectDetail() {
                           border: msg.sender === 'analista' ? '1px solid rgba(52, 152, 219, 0.4)' : (msg.sender === 'bot' ? '1px solid rgba(90, 46, 152, 0.4)' : '1px solid rgba(255,255,255,0.1)')
                         }}>
                           <strong style={{ display: 'block', fontSize: '0.75rem', marginBottom: '6px', color: msg.sender === 'analista' ? '#3498db' : (msg.sender === 'bot' ? '#9b66d9' : 'var(--text-secondary)') }}>
-                            {msg.sender === 'bot' ? '🤖 HONEYPOT AI' : msg.sender === 'analista' ? '👤 ANALISTA (TÚ)' : '🎯 INFRACTOR'}
+                            {msg.sender === 'bot' ? '  HONEYPOT AI' : msg.sender === 'analista' ? '  ANALISTA (TÚ)' : '  INFRACTOR'}
                             <span style={{ opacity: 0.6, marginLeft: '8px', fontWeight: 'normal' }}>{new Date(msg.timestamp).toLocaleTimeString('es-AR', {hour: '2-digit', minute:'2-digit'})}</span>
                           </strong>
                           <span style={{ lineHeight: '1.4', fontSize: '0.9rem' }}>{msg.text || msg.content}</span>
@@ -996,7 +973,7 @@ export default function SuspectDetail() {
               )}
               {conversation?.is_bot_active && (
                 <div style={{ marginTop: '12px', padding: '10px', background: 'rgba(57,255,20,0.05)', borderRadius: '8px', border: '1px solid rgba(57,255,20,0.15)', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  🤖 El bot está respondiendo automáticamente. Cambia a modo manual para intervenir.
+                    El bot está respondiendo automáticamente. Cambia a modo manual para intervenir.
                 </div>
               )}
             </div>

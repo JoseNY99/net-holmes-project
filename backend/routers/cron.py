@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 from database import get_db
 from services import cron_service
 from schemas.cron_config import CronConfigUpdate, CronConfigResponse
-from middleware.auth_middleware import require_admin
+from middleware.auth_middleware import get_current_user, require_admin
+from models.brand import Brand
+from config import PROVINCIAS_AR
 from services.cron_manager import update_job_schedule, trigger_manual_scan
 import json
 
@@ -34,7 +37,6 @@ def update_config(data: CronConfigUpdate, db: Session = Depends(get_db), admin=D
     return updated
 
 from typing import Optional
-from pydantic import BaseModel
 class ToggleRequest(BaseModel):
     is_active: Optional[bool] = None
 
@@ -46,16 +48,55 @@ def toggle_cron_state(req: Optional[ToggleRequest] = None, db: Session = Depends
     update_job_schedule(db)
     return updated
 
+class DashboardSearchRequest(BaseModel):
+    brand_ids: list[int] = Field(min_length=1, max_length=30)
+    provincias: list[str] = Field(min_length=1, max_length=24)
+    keywords: list[str] = Field(default_factory=list, max_length=10)
+    duration_minutes: int = Field(default=30, ge=5, le=60)
+
 @router.post('/start')
-async def start_cron_force(background_tasks: BackgroundTasks, db: Session = Depends(get_db), admin=Depends(require_admin)):
+async def start_cron_force(
+    background_tasks: BackgroundTasks,
+    req: DashboardSearchRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     from services.cron_logger import cron_logger
     from services.cron_manager import run_automatic_scan
     from services import cron_service
+    from sqlalchemy import func
+
+    search_options = None
+    if req is not None:
+        ids = set(req.brand_ids)
+        selected_brands = db.query(Brand).filter(
+            Brand.id.in_(ids), func.lower(Brand.estado) == 'activa'
+        ).all()
+        if len(selected_brands) != len(ids):
+            raise HTTPException(status_code=400, detail="Selecciona únicamente marcas activas.")
+
+        allowed_locations = {"argentina", *(province["name"].casefold() for province in PROVINCIAS_AR)}
+        locations = [location.strip() for location in req.provincias]
+        if any(location.casefold() not in allowed_locations for location in locations):
+            raise HTTPException(status_code=400, detail="El alcance geográfico debe estar dentro de Argentina.")
+
+        search_options = {
+            "brand_ids": list(ids),
+            "provincias": locations,
+            "keywords": [keyword.strip() for keyword in req.keywords if keyword.strip()],
+            "duration_minutes": req.duration_minutes,
+        }
+    elif current_user.rol not in ("admin", "sup_admin"):
+        raise HTTPException(status_code=422, detail="Selecciona marcas y provincias para iniciar la búsqueda.")
+
+    config = cron_service.get_cron_config(db)
+    if config.is_running:
+        raise HTTPException(status_code=409, detail="Ya hay una búsqueda en ejecución.")
 
     cron_service.set_running(db, True)
     cron_logger.reset()
-    cron_logger.log("🚀 [Manual] Escaneo forzado inmediato solicitado por el analista.")
-    background_tasks.add_task(run_automatic_scan)
+    cron_logger.log("Búsqueda inmediata iniciada desde el dashboard.")
+    background_tasks.add_task(run_automatic_scan, search_options)
     return {"msg": "Escaneo forzado iniciado exitosamente en background"}
 
 @router.post('/stop')
@@ -109,6 +150,10 @@ async def run_apify_task(keyword: str, plataformas: list[str], provincias: list[
 def start_apify_scan(req: ApifyScanRequest, background_tasks: BackgroundTasks, admin=Depends(require_admin)):
     if apify_status_state["is_running"]:
         return {"msg": "Ya hay un escaneo de Apify en ejecución."}
+
+    allowed_locations = {"argentina", *(province["name"].casefold() for province in PROVINCIAS_AR)}
+    if any(location.strip().casefold() not in allowed_locations for location in req.provincias):
+        raise HTTPException(status_code=400, detail="El alcance geográfico debe estar dentro de Argentina.")
     
     apify_status_state["logs"] = [] # Clear previous logs
     background_tasks.add_task(run_apify_task, req.keyword, req.plataformas, req.provincias, req.limite)

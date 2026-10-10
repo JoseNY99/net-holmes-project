@@ -62,6 +62,43 @@ Mensaje: "{message_text}"
 
 JSON:"""
 
+# ─── Prompt de Clasificación de Publicaciones OSINT / Brand Protection ──────
+
+BRAND_PROTECTION_OSINT_SYSTEM_PROMPT = """Actúa como un Analista Senior de Brand Protection y OSINT. Tu tarea es analizar los datos extraídos de una publicación de redes sociales y determinar estrictamente dos cosas: 
+1. Si el producto ofrecido es una FALSIFICACIÓN/RÉPLICA (descartando productos originales nuevos o usados).
+2. Si el vendedor o la publicación está orientada a ARGENTINA.
+
+DATOS DE LA PUBLICACIÓN:
+- Plataforma: {plataforma}
+- Título/Descripción: {descripcion}
+- Comentarios extraídos: {comentarios}
+- Ubicación/Metadatos: {ubicacion}
+- Precio detectado: {precio}
+
+REGLAS DE EVALUACIÓN (FALSIFICACIÓN):
+- ES FAKE: Si menciona términos como "réplica", "G5", "AAA", "1.1", "importadas" (junto a precios irracionalmente bajos para la marca), "espejo", "clon".
+- NO ES FAKE (RECHAZAR): Si dice "100% original", "usado", "pre-loved", "segunda mano", "vendo mis zapatillas", o si es una tienda oficial/distribuidor autorizado.
+
+REGLAS DE EVALUACIÓN (GEOGRAFÍA E IDIOMA):
+- ES ARGENTINA: Si menciona provincias/ciudades argentinas (CABA, Rosario, Córdoba, etc.), si el precio está en "ARS" o "pesos", o si usa jerga y logística local ("talle", "lucas", "envíos por Andreani/Correo Argentino", "che").
+- NO ES ARGENTINA (RECHAZAR): Si los comentarios o la descripción están en árabe, inglés, ruso, portugués u otros idiomas. Si menciona países o ciudades homónimas (ej. Santa Fe, Nuevo México; Bogotá) o envíos internacionales genéricos.
+
+FORMATO DE SALIDA (ESTRICTAMENTE JSON):
+Debes responder ÚNICAMENTE con un objeto JSON válido, sin texto adicional, con la siguiente estructura:
+{
+  "es_falsificacion": true/false,
+  "es_argentina": true/false,
+  "motivo": "Breve explicación de 1 línea de por qué se aprobó o rechazó"
+}"""
+
+BRAND_PROTECTION_USER_TEMPLATE = """DATOS DE LA PUBLICACIÓN:
+- Plataforma: {plataforma}
+- Título/Descripción: {descripcion}
+- Comentarios extraídos: {comentarios}
+- Ubicación/Metadatos: {ubicacion}
+- Precio detectado: {precio}"""
+
+
 
 def _get_llm_config_and_key():
     """Retorna (base_url, model, api_key, provider_name) según configuración en DB o entorno."""
@@ -244,24 +281,6 @@ def _is_adversarial_or_strange(text: str) -> bool:
     return False
 
 
-async def generate_honeypot_response(conversation_history: list, target_info: dict) -> str:
-    """
-    Genera una respuesta honeypot contextual usando el LLM.
-    Diseñada para que el infractor revele más datos (financieros, identidad, ubicación).
-    
-    Args:
-        conversation_history: Lista de dicts con {"sender": str, "text": str}
-        target_info: Info conocida del target (marca, plataforma, etc.)
-    
-    Returns:
-        Texto de respuesta para enviar al infractor.
-    """
-    if conversation_history:
-        last_msg = conversation_history[-1].get("text", "")
-        if _is_adversarial_or_strange(last_msg):
-            cron_logger.log(f"[Honeypot LLM] 🛡️ Mensaje adversarial/tarea/acoso detectado ('{last_msg[:40]}'). El bot se queda en silencio.")
-            return ""
-
 def _generate_contingency_reply(conversation_history: list, target_info: dict) -> str:
     """Genera respuestas inteligentes de contingencia según la hora del sistema y el contexto cuando el LLM no está activo."""
     hour = datetime.now().hour
@@ -389,3 +408,168 @@ async def generate_seller_simulation_response(conversation_history: list, target
 
     cron_logger.log(f"[Vendedor Simulacro DeepSeek] 🎭 Respuesta generada: {reply[:80]}...")
     return reply, None
+
+
+# ─── Evaluación OSINT y Brand Protection de Publicaciones ───────────────────
+
+def _evaluate_publication_heuristics(
+    plataforma: str,
+    descripcion: str,
+    comentarios: str,
+    ubicacion: str,
+    precio: str
+) -> dict:
+    """
+    Evaluación heurística determinística aplicando estrictamente las mismas reglas
+    cuando el LLM no está disponible o falla el parseo JSON.
+    """
+    texto_combinado = f"{descripcion} {comentarios}".lower()
+    geo_combinado = f"{ubicacion} {texto_combinado}".lower()
+
+    # 1. Reglas Falsificación
+    # NO ES FAKE (Rechazar)
+    re_no_fake = re.compile(
+        r"\b(?:100%\s*original|usad[oa]s?|pre-loved|segunda\s+mano|vendo\s+mis\s+zapatillas|"
+        r"tienda\s+oficial|distribuidor\s+autorizado|aut[eé]ntic[oa]s?)\b",
+        re.IGNORECASE
+    )
+    # ES FAKE
+    re_fake = re.compile(
+        r"\b(?:r[eé]plicas?|g5|aaa|triple\s*a|1[.:/]1|1\.1|importadas?|espejo|clon(?:es)?|mirror|super\s*fake)\b",
+        re.IGNORECASE
+    )
+
+    if re_no_fake.search(texto_combinado):
+        es_fake = False
+        motivo_fake = "Rechazado: Menciona producto original, usado o canal oficial autorizado."
+    elif re_fake.search(texto_combinado):
+        es_fake = True
+        motivo_fake = "Detectado término explícito de réplica o falsificación."
+    else:
+        es_fake = False
+        motivo_fake = "Rechazado: No presenta indicadores claros de réplica o falsificación."
+
+    # 2. Reglas Geografía e Idioma
+    tiene_caracteres_no_latinos = bool(re.search(r'[\u0600-\u06FF\u0400-\u04FF\u4E00-\u9FFF]', geo_combinado))
+    re_idioma_extranjero = re.compile(
+        r"\b(?:shipping|free\s*shipping|worldwide|tamanho|frete|cartão|promoção|preço|"
+        r"order\s*now|wholesale|authentic\s*shoes|worldwide\s*shipping|international\s*shipping)\b",
+        re.IGNORECASE
+    )
+    re_paises_homonimos = re.compile(
+        r"\b(?:nuevo\s*m[eé]xico|new\s*mexico|santa\s*fe,?\s*(?:nm|new\s*mexico)|bogot[aá]|colombia|m[eé]xico|"
+        r"chile|per[uú]|españa|spain|estados\s*unidos|united\s*states|usa|eeuu|brasil|brazil|uruguay|paraguay)\b",
+        re.IGNORECASE
+    )
+
+    re_argentina = re.compile(
+        r"\b(?:caba|rosario|c[oó]rdoba|mendoza|tucum[aá]n|buenos\s*aires|la\s*plata|santa\s*fe|"
+        r"mar\s*del\s*plata|salta|neuqu[eé]n|chaco|corrientes|entre\s*r[ií]os|misiones|"
+        r"ars|pesos?|lucas?|talles?|che|andreani|correo\s*argentino|mercadopago|cbu|cvu)\b",
+        re.IGNORECASE
+    )
+
+    if tiene_caracteres_no_latinos:
+        es_arg = False
+        motivo_geo = "Rechazado: Contenido en idioma extranjero no latino (árabe, ruso, etc.)."
+    elif re_idioma_extranjero.search(geo_combinado):
+        es_arg = False
+        motivo_geo = "Rechazado: Idioma extranjero o envíos internacionales genéricos detectados."
+    elif re_paises_homonimos.search(geo_combinado):
+        es_arg = False
+        motivo_geo = "Rechazado: Menciona países extranjeros o ciudades homónimas no orientadas a Argentina."
+    elif re_argentina.search(geo_combinado) or "argentina" in geo_combinado or "+54" in geo_combinado:
+        es_arg = True
+        motivo_geo = "Orientado a Argentina por ubicación, moneda o jerga/logística local."
+    else:
+        es_arg = False
+        motivo_geo = "Rechazado: Sin indicadores suficientes de ubicación o logística argentina."
+
+    # Resumen de motivo de 1 línea
+    if es_fake and es_arg:
+        motivo = "Aprobado: Producto réplica/falsificación orientado al mercado argentino."
+    elif not es_fake and not es_arg:
+        motivo = f"{motivo_fake} {motivo_geo}"
+    elif not es_fake:
+        motivo = motivo_fake
+    else:
+        motivo = motivo_geo
+
+    return {
+        "es_falsificacion": es_fake,
+        "es_argentina": es_arg,
+        "motivo": motivo
+    }
+
+
+async def analyze_publication_brand_protection(
+    plataforma: str = "",
+    descripcion: str = "",
+    comentarios: str | list = "",
+    ubicacion: str = "",
+    precio: str | float = ""
+) -> dict:
+    """
+    Analiza datos extraídos de una publicación de redes sociales y determina estrictamente:
+    1. Si es FALSIFICACIÓN/RÉPLICA (descartando originales nuevos o usados).
+    2. Si está orientada a ARGENTINA.
+    
+    Retorna estrictamente:
+    {
+      "es_falsificacion": bool,
+      "es_argentina": bool,
+      "motivo": str
+    }
+    """
+    if isinstance(comentarios, (list, tuple)):
+        comentarios_str = " | ".join(str(c) for c in comentarios if c)
+    else:
+        comentarios_str = str(comentarios or "")
+
+    user_content = BRAND_PROTECTION_USER_TEMPLATE.format(
+        plataforma=plataforma or "No informada",
+        descripcion=descripcion or "Sin descripción",
+        comentarios=comentarios_str or "Sin comentarios",
+        ubicacion=ubicacion or "No informada",
+        precio=str(precio) if precio not in (None, "") else "No detectado"
+    )
+
+    messages = [
+        {"role": "system", "content": BRAND_PROTECTION_OSINT_SYSTEM_PROMPT},
+        {"role": "user", "content": user_content}
+    ]
+
+    content, err = await call_llm_chat_completion(messages, temperature=0.1, max_tokens=250)
+    if content:
+        clean = content.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        if clean.startswith("```"):
+            clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        clean = clean.strip()
+
+        try:
+            parsed = json.loads(clean)
+            if isinstance(parsed, dict) and "es_falsificacion" in parsed and "es_argentina" in parsed:
+                result = {
+                    "es_falsificacion": bool(parsed.get("es_falsificacion")),
+                    "es_argentina": bool(parsed.get("es_argentina")),
+                    "motivo": str(parsed.get("motivo", "")).strip()
+                }
+                cron_logger.log(f"[BrandProtection OSINT] 🎯 Análisis completado por LLM: {result}")
+                return result
+        except Exception as e:
+            cron_logger.log(f"[BrandProtection OSINT] ⚠️ Error parseando JSON de LLM: {e} | Raw: {clean[:100]}")
+
+    # Fallback heurístico si no hay API key o falló la respuesta
+    cron_logger.log("[BrandProtection OSINT] ℹ️ Ejecutando evaluación heurística de respaldo.")
+    return _evaluate_publication_heuristics(
+        plataforma=plataforma,
+        descripcion=descripcion,
+        comentarios=comentarios_str,
+        ubicacion=ubicacion,
+        precio=str(precio or "")
+    )
+

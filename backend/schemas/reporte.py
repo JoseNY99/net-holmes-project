@@ -39,6 +39,7 @@ class ReporteQuickEdit(BaseModel):
 
 class ReporteResponse(ReporteBase):
     id: int
+    relevamiento_completitud: int = 0
     fecha_captura: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

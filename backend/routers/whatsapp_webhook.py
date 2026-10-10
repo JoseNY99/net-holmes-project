@@ -5,15 +5,55 @@ Se completará en la Fase 2 con la lógica completa.
 """
 
 import re
-from fastapi import APIRouter, Request, Response, Query, HTTPException, Depends
+import asyncio
+import random
+from fastapi import APIRouter, Request, Response, Query, HTTPException, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from database import get_db
+from database import get_db, SessionLocal
 from config import settings
 from services.cron_logger import cron_logger
 from services.whatsapp_sender import normalize_whatsapp_phone
+from services.chat_safety import (
+    close_conversation_for_privacy,
+    evaluate_and_extract_bank_data,
+    redact_bank_details,
+)
 
 router = APIRouter(prefix="/webhook", tags=["WhatsApp Webhook"])
+
+async def delayed_process_and_reply(conversation_id: int, message_id: int):
+    """
+    Retardo aleatorio de entre 120 y 180 segundos antes de procesar y enviar respuesta.
+    """
+    delay = random.randint(120, 180)
+    cron_logger.log(f"[Delay Task] Esperando {delay}s antes de procesar conv #{conversation_id}...")
+    await asyncio.sleep(delay)
+    
+    db = SessionLocal()
+    try:
+        from models.chat import Conversation, Message
+        conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        new_msg = db.query(Message).filter(Message.id == message_id).first()
+        
+        if not conversation or not new_msg:
+            return
+            
+        if conversation.mode == "Cerrado" or not conversation.is_bot_active:
+            cron_logger.log(f"[Delay Task] Conversación #{conversation_id} se cerró. Cancelando NLP/envío.")
+            return
+
+        from services.chat_nlp_engine import analyze_incoming_message
+        analyze_incoming_message(db, new_msg)
+
+        if conversation.is_bot_active and conversation.mode != "Cerrado":
+            from services.whatsapp_sender import send_honeypot_reply
+            await send_honeypot_reply(db, conversation, new_msg)
+            
+    except Exception as e:
+        cron_logger.log(f"[Delay Task] ❌ Error asíncrono: {e}")
+    finally:
+        db.close()
 
 
 @router.get("")
@@ -53,7 +93,7 @@ async def verify_webhook(
 
 @router.post("")
 @router.post("/")
-async def receive_message(request: Request, db: Session = Depends(get_db)):
+async def receive_message(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Recibe mensajes entrantes de WhatsApp Cloud API.
     Parsea el payload JSON de Meta, extrae el mensaje, y lo enruta al pipeline NLP.
@@ -250,11 +290,14 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                         except Exception as media_err:
                             cron_logger.log(f"[WhatsApp] ⚠️ Error procesando multimedia {media_id}: {media_err}")
 
-                    # Guardar el mensaje del infractor / contacto con URL de multimedia comprimida
+                    # 1. Redactamos para guardarlo en DB seguro
+                    stored_text = redact_bank_details(text_body)
+                    
+                    # 2. Guardar mensaje entrante INMEDIATAMENTE
                     new_msg = Message(
                         conversation_id=conversation.id,
                         sender="infractor",
-                        text=text_body,
+                        text=stored_text,
                         media_url=saved_media_url,
                         whatsapp_message_id=wa_message_id,
                     )
@@ -262,25 +305,34 @@ async def receive_message(request: Request, db: Session = Depends(get_db)):
                     db.commit()
                     db.refresh(new_msg)
                     
+                    # 3. Evaluar extracción de datos bancarios (Si hay CBU/CVU/Alias cierra sesión y detiene envíos)
+                    contains_sensitive_data = evaluate_and_extract_bank_data(db, text_body, conversation)
+
                     media_tag = f" [Multimedia comprimida: {saved_media_url}]" if saved_media_url else ""
                     cron_logger.log(
                         f"[AUDITORÍA WHATSAPP] 💾 Mensaje ID {wa_message_id} registrado en Conversación #{conversation.id} "
-                        f"(Reporte #{conversation.reporte_id} - {conversation.whatsapp_phone}): {text_body}{media_tag}"
+                        f"(Reporte #{conversation.reporte_id} - {conversation.whatsapp_phone}); "
+                        f"dato bancario evaluado={contains_sensitive_data}{media_tag}"
                     )
 
-                    # Ejecutar pipeline de extracción NLP
-                    from services.chat_nlp_engine import analyze_incoming_message
-                    analyze_incoming_message(db, new_msg)
-                    
-                    # Si el bot está activo, generar respuesta automática honeypot
-                    if conversation.is_bot_active:
-                        from services.whatsapp_sender import send_honeypot_reply
-                        await send_honeypot_reply(db, conversation, new_msg)
-                    else:
+                    if contains_sensitive_data:
                         cron_logger.log(
-                            f"[WhatsApp 👤] Mensaje guardado en modo MANUAL (Analista). "
-                            f"El bot está en silencio para {conversation.whatsapp_phone}. No se enviará respuesta automática."
+                            f"[WhatsApp Privacy] Conversación #{conversation.id} cerrada por evaluate_and_extract_bank_data; "
+                            "se omitieron NLP y respuesta automática tras detectar datos bancarios."
                         )
+                    else:
+                        if conversation.is_bot_active and conversation.mode != "Cerrado":
+                            # Delegar el NLP y envío de honeypot a una tarea de fondo con Delay de 120-180s
+                            background_tasks.add_task(
+                                delayed_process_and_reply,
+                                conversation_id=conversation.id,
+                                message_id=new_msg.id
+                            )
+                        else:
+                            cron_logger.log(
+                                f"[WhatsApp 👤] Mensaje guardado en modo MANUAL (Analista). "
+                                f"El bot está en silencio para {conversation.whatsapp_phone}. No se enviará respuesta automática."
+                            )
 
     except Exception as e:
         cron_logger.log(f"[WhatsApp] ❌ Error procesando webhook: {e}")

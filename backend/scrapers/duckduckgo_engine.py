@@ -22,19 +22,26 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
     platform: 'mercadolibre', 'facebook', 'instagram', 'tiktok'
     """
     def _build_dork(kw, loc, strict=True):
-        q = ""
         kw_str = f'"{kw}"' if strict else kw
+        fake_term = '("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "espejo" OR "importadas" OR "showroom")'
+        exclusiones = '-Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA'
+
+        loc_str = loc or "Argentina"
+        if loc_str.lower() in ("argentina", "todo el pais", "todas"):
+            geo_term = '(Argentina OR "Buenos Aires" OR CABA OR Rosario OR Córdoba OR "envios a todo el pais")'
+        else:
+            geo_term = f'("{loc_str}" Argentina)'
+
         if platform == "mercadolibre":
-            q = f'site:articulo.mercadolibre.com.ar {kw_str} -"tienda oficial" -"oficial"'
+            q = f'site:articulo.mercadolibre.com.ar {kw_str} {geo_term} -"tienda oficial" -"oficial"'
         elif platform == "facebook":
-            q = f'site:facebook.com/marketplace {kw_str}'
+            q = f'site:facebook.com/marketplace/ {kw_str} {fake_term} {geo_term} {exclusiones}'
         elif platform == "instagram":
-            q = f'(site:instagram.com/p/ OR site:instagram.com/reel/) {kw_str}'
+            q = f'(site:instagram.com/p/ OR site:instagram.com/reel/) {kw_str} {fake_term} {geo_term} {exclusiones}'
         elif platform == "tiktok":
-            q = f'(site:tiktok.com/t/ OR site:tiktok.com/@) {kw_str}'
-        
-        if loc:
-            q += f' {loc} Argentina'
+            q = f'site:tiktok.com/@*/video/ {kw_str} {fake_term} {geo_term} {exclusiones}'
+        else:
+            q = f'{kw_str} {fake_term} {geo_term} {exclusiones}'
         return q
 
     # Intentos de búsqueda: 1) Estricto, 2) Holgado, 3) Dataset Kaggle (Demo)
