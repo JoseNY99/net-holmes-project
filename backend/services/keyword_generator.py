@@ -21,7 +21,11 @@ async def generate_keywords(marca: Brand, plataforma: str = "general") -> list[s
         cron_logger.log(f"[Keywords] Usando palabras clave exactas configuradas: {productos_con_marca}")
         return productos_con_marca
 
-    # Si no hay productos, usar el nombre de la marca como único keyword (Búsqueda general directa)
-    fallback_keywords = [marca.nombre]
-    cron_logger.log(f"[Keywords] Usando nombre de marca directo (búsqueda general): {fallback_keywords}")
+    # Si no hay productos, combinar marca con términos de falsificación para maximizar captura
+    terminos_fake = ["G5", "replica", "clon", "AAA", "tailandesa", "calidad premium"]
+    fallback_keywords = [marca.nombre]  # Búsqueda base sin modificadores
+    for termino in terminos_fake:
+        fallback_keywords.append(f"{marca.nombre} {termino}")
+    
+    cron_logger.log(f"[Keywords] Generando búsquedas con términos de falsificación: {fallback_keywords}")
     return fallback_keywords

@@ -421,7 +421,7 @@ const RedCorrelacionesPage = () => {
                                       {meta.icon} {meta.label} <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal', fontSize: '0.8rem' }}>({link.subtipo})</span>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                                      Conexión: <strong>Reporte #{link.reporte_a_id}</strong> ⟷ <strong>Reporte #{link.reporte_b_id}</strong>
+                                      Conexión: <strong>Reporte #{link.reporte_a_id}</strong> con <strong>Reporte #{link.reporte_b_id}</strong>
                                     </div>
                                   </div>
                                   <span className="badge" style={{ 

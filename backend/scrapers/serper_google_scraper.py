@@ -16,12 +16,12 @@ class SerperGoogleScraper:
         kw = keyword.strip()
         loc = (city_name or "Argentina").strip()
         if platform == "facebook":
-            return f'site:facebook.com/marketplace/item/ "{kw}" "{loc}"'
+            return f'site:facebook.com/marketplace "{kw}" "{loc}" (Argentina OR "Buenos Aires") -Brazil -Brasil -Colombia'
         elif platform == "instagram":
-            return f'site:instagram.com/p/ "{kw}" {loc} showroom'
+            return f'site:instagram.com/p/ "{kw}" Argentina (Buenos Aires OR Córdoba OR Mendoza) -Brazil -Brasil -Colombia'
         elif platform == "tiktok":
-            return f'site:tiktok.com/@ "{kw}" showroom indumentaria Argentina'
-        return f'"{kw}" "{loc}"'
+            return f'site:tiktok.com/@ "{kw}" Argentina (showroom OR indumentaria) -Brazil -Brasil -Colombia'
+        return f'"{kw}" Argentina "{loc}" -Brazil -Brasil -Colombia'
 
     async def scrape(self, platform: str, keyword: str, limit: int = 10, city_name: str = None) -> AsyncGenerator[Dict[str, Any], None]:
         dork = self._build_dork(platform, keyword, city_name)
@@ -39,6 +39,8 @@ class SerperGoogleScraper:
                     resp = await client.post(self.SERPER_ENDPOINT, headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
+                        total_organic = len(data.get("organic", []))
+                        cron_logger.log(f"✅ [Serper.dev] Respuesta OK - {total_organic} resultados encontrados")
                         for item in data.get("organic", []):
                             raw_link = item.get("link", "")
                             clean_link = limpiar_url_canonica(raw_link)
@@ -162,6 +164,9 @@ class SerperGoogleScraper:
         elif platform == "instagram":
             return "/p/" in u or "/reel/" in u
         elif platform == "tiktok":
+            # Rechazar URLs incompletas como "https://www.tiktok.com/@"
+            if u.endswith("/@") or "/@/" in u:
+                return False
             if "vt.tiktok.com/" in u:
                 return True
             m = re.search(r'tiktok\.com/@([A-Za-z0-9_.-]+)/(?:video|photo)/\d+', u)

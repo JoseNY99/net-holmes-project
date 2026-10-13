@@ -19,6 +19,7 @@ from models.tiktok_data import ReporteTiktokData
 from models.mercadolibre_data import ReporteMercadoLibreData
 from services.correlation_engine import CorrelationEngine
 from scrapers.filtro_comercial import es_cuenta_oficial
+from services.argentina_scope import is_explicitly_foreign_location, detect_foreign_content, has_argentine_signal
 
 # Instancia del scheduler con zona horaria de Argentina
 scheduler = AsyncIOScheduler(timezone="America/Argentina/Buenos_Aires")
@@ -41,6 +42,93 @@ def get_whatsapp_number(text: str) -> str:
     if match:
         return match.group(0)
     return None
+
+def detect_counterfeit_indicators(text: str, comments_text: str = "") -> dict:
+    """
+    Detecta indicadores de falsificación basado en palabras clave.
+    Retorna: {
+        'es_falsificacion': bool,
+        'terminos_encontrados': list,
+        'motivo': str
+    }
+    """
+    if not text:
+        return {'es_falsificacion': False, 'terminos_encontrados': [], 'motivo': 'Texto vacío'}
+    
+    text_lower = text.lower()
+    comments_lower = (comments_text or "").lower()
+    
+    # Términos que indican definitivamente que NO es falsificación
+    terminos_original = [
+        r'\b100%\s*original\b',
+        r'\boriginal\b',
+        r'\bperfecto\s*estado\b',
+        r'\busado\b',
+        r'\btienda\s*oficial\b',
+        r'\boulet\s*oficial\b',
+        r'\bstore\s*oficial\b',
+        r'\bautenticidad\b',
+        r'\bgarantía\s*oficial\b',
+    ]
+    
+    # Términos que indican falsificación
+    terminos_falsificacion = [
+        r'\breplica\b',
+        r'\breplicas\b',
+        r'\bréplica\b',
+        r'\brepliquero\b',
+        r'\bg5\b',
+        r'\bclon\b',
+        r'\bclones\b',
+        r'\baaa\b',
+        r'\btailan\w+\b',  # tailandesa, tailandes, tailandés
+        r'\bcalidad\s*premium\b',
+        r'\bimitación\b',
+        r'\bimitaciones\b',
+        r'\bcopia\b',
+        r'\bcopias\b',
+        r'\bfalso\b',
+        r'\bfalsa\b',
+        r'\bfalsificación\b',
+        r'\bpirata\b',
+        r'\bno\s*original\b',
+        r'\btrucho\b',
+        r'\btrucha\b',
+    ]
+    
+    # Detectar si dice explícitamente que es original
+    tiene_original = any(re.search(term, text_lower) for term in terminos_original)
+    if tiene_original:
+        return {
+            'es_falsificacion': False,
+            'terminos_encontrados': [],
+            'motivo': 'Dice explícitamente "original" o "usado"'
+        }
+    
+    # Detectar términos de falsificación
+    # Las palabras clave pueden estar en el post o en los comentarios
+    terminos_detectados = []
+    for term in terminos_falsificacion:
+        matches = re.findall(term, f"{text_lower} {comments_lower}")
+        if matches:
+            terminos_detectados.extend([m for m in matches])
+    en_comentarios = bool(terminos_detectados) and not any(
+        re.search(term, text_lower) for term in terminos_falsificacion
+    )
+    
+    if terminos_detectados:
+        terminos_unicos = list(set(terminos_detectados))[:5]  # Máximo 5 términos para el log
+        return {
+            'es_falsificacion': True,
+            'terminos_encontrados': terminos_unicos,
+            'motivo': f"Encontrados términos de falsificación{' en comentarios' if en_comentarios else ''}: {', '.join(terminos_unicos)}"
+        }
+    
+    return {
+        'es_falsificacion': False,
+        'terminos_encontrados': [],
+        'motivo': 'No hay indicadores claros de falsificación'
+    }
 
 def _normalize_url_for_dedup(url: str, plataforma: str = "") -> str:
     """
@@ -176,6 +264,37 @@ def _extract_single_clean_image_url(item: Dict[str, Any]) -> str | None:
 
 def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Brand, keyword: str = ""):
     """Procesa, mapea a ScanResult y guarda un único resultado en la base de datos de inmediato."""
+
+    result_location = item.get("location")
+    if is_explicitly_foreign_location(result_location):
+        cron_logger.log(
+            f"🚫 [Filtro Ubicación] Resultado extranjero descartado: "
+            f"{result_location} - {item.get('title', '')}"
+        )
+        return
+    
+    # Filtro de contenido extranjero (por moneda, idioma, términos locales)
+    title = item.get("title", "").lower()
+    desc = item.get("description", "").lower()
+    seller_name = item.get("seller_profile", {}).get("name", "").lower()
+    raw_data_str = str(item.get("raw_data", "")).lower()
+    comments_joined = " ".join(c for c in (item.get("comments_audit") or []) if isinstance(c, str)).lower()
+    ig_loc = str(item.get("ig_location_tag") or "").lower()
+    combined_text = f"{title} {desc} {seller_name} {raw_data_str} {comments_joined} {ig_loc}"
+    
+    if detect_foreign_content(f"{title} {desc} {ig_loc}"):
+        cron_logger.log(
+            f"🚫 [Filtro País] Contenido extranjero detectado (idioma/moneda/lugar): {title[:60]}"
+        )
+        return
+
+    # Instagram/TikTok no traen ubicación real: se exige evidencia positiva de Argentina
+    plat_check = str(item.get("plataforma", "")).lower()
+    if plat_check in ("instagram", "tiktok", "web", "tienda_falsa") and not has_argentine_signal(combined_text):
+        cron_logger.log(
+            f"🚫 [Filtro País] Sin señales de Argentina (provincia, ARS, talle, Andreani, etc.): {title[:60]}"
+        )
+        return
     
     # 1. Filtro Anti-Oficial / Filtro de País / Filtro de Marca
     title = item.get("title", "").lower()
@@ -212,7 +331,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         cron_logger.log(f"🚫 [Filtro Oficial DB] Descartado por parecer perfil genérico oficial ({clean_seller}): {titulo}")
         return
 
-    # b. Bloquear Países Extranjeros y Afianzar Localidad
+    # b. Bloquear ubicaciones extranjeras mencionadas en el contenido.
     # Usa word boundaries (\b) para evitar falsos positivos como "usa" dentro de "usado"
     foreign_patterns = [
         r'\bbrasil\b', r'\bbrazil\b', r'\beeuu\b', r'\bestados unidos\b', r'\bunited states\b',
@@ -246,6 +365,15 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
     kw_lower = keyword.lower() if keyword else ""
     if brand_name not in combined_text and (not kw_lower or kw_lower not in combined_text):
         cron_logger.log(f"🚫 [Filtro] Descartado por no tener relación con '{brand.nombre}': {item.get('title')}")
+        return
+
+    from services.product_relevance import matches_configured_product
+    product_text = " ".join((title, desc, raw_data_str))
+    if not matches_configured_product(product_text, brand.nombre, brand.products):
+        cron_logger.log(
+            f"[Filtro Producto] Resultado descartado por no coincidir con productos configurados de {brand.nombre}: "
+            f"{item.get('title', '')}"
+        )
         return
 
     # d. Filtro de URLs — Validación PERMISIVA (solo rechazar URLs claramente genéricas)
@@ -341,6 +469,20 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
             except Exception:
                 parsed_followers = None
 
+        # Detectar indicadores de falsificación
+        # Importante: NO se incluye el keyword buscado, si no "marca replica" marcaría todo como falso
+        texto_analisis = f"{item.get('title', '')} {item.get('description', '')}"
+        comentarios_texto = " ".join(c for c in (item.get("comments_audit") or []) if isinstance(c, str))
+        deteccion = detect_counterfeit_indicators(texto_analisis, comentarios_texto)
+        es_falsificacion = deteccion['es_falsificacion']
+        motivo_falsificacion = deteccion['motivo']
+        
+        if es_falsificacion:
+            cron_logger.log(f"🚩 [Falsificación Detectada] {brand.nombre}: {motivo_falsificacion}")
+        else:
+            cron_logger.log(f"❌ [Rechazado] {motivo_falsificacion}")
+            return  # ← RECHAZAR COMPLETAMENTE los originales/sin indicadores
+
         new_result = ReporteBrandDefense(
             pais=item.get("location", "Argentina"),
             producto_catalogo=keyword if keyword else "Desconocido",
@@ -348,7 +490,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
             plataforma=item.get("plataforma") or "web",
             titular_cuenta=item.get("seller_profile", {}).get("name", "Desconocido"),
             url_evidencia=item.get("url"),
-            descripcion_post=item.get("description") or item.get("title", ""),
+            descripcion_post=f"[FALSIFICACIÓN: {'SÍ' if es_falsificacion else 'NO'}] {motivo_falsificacion}\n\n{item.get('description') or item.get('title', '')}",
             precio_publico=parsed_price,
             direccion_publica=item.get("location", ""),
             telefono_publico=found_phone or item.get("phone") or item.get("platform_data", {}).get("phone"),
@@ -357,6 +499,9 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         )
         db.add(new_result)
         db.flush() # Obtain ID without committing entirely yet
+
+        from services.phase_transition import start_phase_two_automatically
+        start_phase_two_automatically(db, new_result)
 
         # 💾 Descargar físicamente la imagen al servidor local (/static/evidencias/reporte_{id}.jpg)
         local_img_path = None
@@ -396,7 +541,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
                 cron_logger.log(f"ℹ️ [Plataforma Data] {pe}")
 
         db.commit()
-        cron_logger.log(f"✅ [Éxito] Reporte guardado: {brand.nombre} - {item.get('plataforma')} - {new_result.url_evidencia}")
+        cron_logger.log(f"✅ [Éxito] Reporte guardado y enviado a Fase 2: {brand.nombre} - {item.get('plataforma')} - {new_result.url_evidencia}")
 
         # Trigger correlación automática
         try:
@@ -445,10 +590,8 @@ async def run_automatic_scan():
         
         try:
             provincias = json.loads(cron_config.provincias_seleccionadas)
-            if not provincias: # Si el usuario lo dejó vacío, busca a nivel país
-                provincias = ["Argentina"]
-            elif isinstance(provincias, str):
-                provincias = [provincias]
+            from services.argentina_scope import normalize_argentina_locations
+            provincias = normalize_argentina_locations(provincias)
         except:
             provincias = ["Argentina"]
             

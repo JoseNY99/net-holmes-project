@@ -34,5 +34,7 @@ class PerfilResponse(BaseModel):
     direccion_exacta: Optional[str] = None
     telefono_privado: Optional[str] = None
     precio_final_cotizado: Optional[str] = None
+    progreso_recoleccion: int
+    umbral_80_alcanzado: bool
     created_at: datetime
     updated_at: datetime

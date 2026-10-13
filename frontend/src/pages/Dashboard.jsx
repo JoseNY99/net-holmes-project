@@ -25,6 +25,7 @@ import {
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { getBrands } from '../services/brandService';
+import TargetedSearch from '../components/TargetedSearch';
 import api from '../services/api';
 import './Dashboard.css';
 
@@ -232,6 +233,8 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      <TargetedSearch />
 
       <div className="dashboard__grid">
         {/* Gráficos */}

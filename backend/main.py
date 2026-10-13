@@ -13,6 +13,7 @@ from slowapi.errors import RateLimitExceeded
 
 from config import settings
 from database import Base, engine, SessionLocal
+from models.reporte import ESTADO_REPORTE_ENUM
 from routers import auth, users, brands, cron, reports_defense, dashboard, admin_logs, correlations, chat, whatsapp_webhook, settings as admin_settings, api_keys
 
 # Configurar Rate Limiter
@@ -31,6 +32,31 @@ async def lifespan(app: FastAPI):
     
     from sqlalchemy import text
     with engine.connect() as conn:
+        # Migrar estado de VARCHAR a ENUM manteniendo los registros existentes.
+        ESTADO_REPORTE_ENUM.create(bind=conn, checkfirst=True)
+        for estado in ESTADO_REPORTE_ENUM.enums:
+            estado_sql = estado.replace("'", "''")
+            conn.execute(text(
+                f"ALTER TYPE estado_reporte_enum ADD VALUE IF NOT EXISTS '{estado_sql}'"
+            ))
+        conn.commit()
+
+        conn.execute(text(
+            "UPDATE reportes_brand_defense SET estado = 'Descartado' "
+            "WHERE estado::text = 'DESCARTADOS'"
+        ))
+        conn.execute(text("ALTER TABLE reportes_brand_defense ALTER COLUMN estado DROP DEFAULT"))
+        conn.execute(text(
+            "ALTER TABLE reportes_brand_defense "
+            "ALTER COLUMN estado TYPE estado_reporte_enum "
+            "USING estado::text::estado_reporte_enum"
+        ))
+        conn.execute(text(
+            "ALTER TABLE reportes_brand_defense "
+            "ALTER COLUMN estado SET DEFAULT 'Pendiente'::estado_reporte_enum"
+        ))
+        conn.commit()
+
         # Migración de auto-reparación de tipos de columna en PostgreSQL
         pg_type_fixes = [
             "ALTER TABLE reportes_brand_defense ALTER COLUMN precio_publico TYPE double precision USING (NULLIF(regexp_replace(precio_publico::text, '[^0-9.]', '', 'g'), '')::double precision);",

@@ -5,13 +5,13 @@ from services.cron_logger import cron_logger
 
 # Importación síncrona, ejecutaremos en thread para no bloquear
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
 except ImportError:
     DDGS = None
 
 def _sync_ddg_search(query: str, limit: int):
     if not DDGS:
-        raise ImportError("duckduckgo_search no está instalado.")
+        raise ImportError("ddgs no está instalado.")
     with DDGS() as ddgs:
         # timelimit='w' para restringir a la última semana (temporalidad estricta)
         return list(ddgs.text(query, region='ar-es', safesearch='off', timelimit='w', max_results=limit))
@@ -25,16 +25,21 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
         q = ""
         kw_str = f'"{kw}"' if strict else kw
         if platform == "mercadolibre":
-            q = f'site:articulo.mercadolibre.com.ar {kw_str} -"tienda oficial" -"oficial"'
+            q = f'site:articulo.mercadolibre.com.ar {kw_str} Argentina Buenos Aires -"tienda oficial" -"oficial"'
         elif platform == "facebook":
-            q = f'site:facebook.com/marketplace {kw_str}'
+            # Forzar Argentina: buscar en marketplace de Buenos Aires o menciones de Argentina
+            q = f'site:facebook.com/marketplace {kw_str} (Argentina OR "Buenos Aires" OR Córdoba OR Mendoza OR -Brazil -Brasil -Colombia -Chile)'
         elif platform == "instagram":
-            q = f'(site:instagram.com/p/ OR site:instagram.com/reel/) {kw_str}'
+            # Forzar Argentina: excluir explícitamente otros países
+            q = f'(site:instagram.com/p/ OR site:instagram.com/reel/) {kw_str} Argentina -Brazil -Brasil -Colombia -Chile -México -Peru'
         elif platform == "tiktok":
-            q = f'(site:tiktok.com/t/ OR site:tiktok.com/@) {kw_str}'
+            # Forzar Argentina: excluir explícitamente otros países
+            q = f'(site:tiktok.com/t/ OR site:tiktok.com/@) {kw_str} Argentina -Brazil -Brasil -Colombia -Chile -México'
         
         if loc:
-            q += f' {loc} Argentina'
+            q += f' {loc}'
+        else:
+            q += ' Argentina'  # Asegurar que siempre busque en Argentina
         return q
 
     # Intentos de búsqueda: 1) Estricto, 2) Holgado, 3) Dataset Kaggle (Demo)

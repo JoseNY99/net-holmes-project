@@ -284,9 +284,9 @@ export default function UserManagement() {
               onChange={e => setRoleFilter(e.target.value)}
             >
               <option value="all">Todos los Roles ({users.length})</option>
-              <option value="sup_admin">👑 SUP_ADMIN</option>
-              <option value="admin">🛡️ ADMIN</option>
-              <option value="analista">👤 ANALISTA</option>
+              <option value="sup_admin">SUP_ADMIN</option>
+              <option value="admin">ADMIN</option>
+              <option value="analista">ANALISTA</option>
             </select>
           </div>
         </div>
@@ -494,11 +494,11 @@ export default function UserManagement() {
               <div className="form-group">
                 <label>Nivel de Acceso (Rol) *</label>
                 <select className="input-field" value={formData.rol} onChange={e => setFormData({...formData, rol: e.target.value})}>
-                  <option value="analista">👤 Analista OSINT (Operador)</option>
+                  <option value="analista">Analista OSINT (Operador)</option>
                   {isSuperAdmin && (
                     <>
-                      <option value="admin">🛡️ Administrador Global</option>
-                      <option value="sup_admin">👑 Super Administrador (SUP_ADMIN)</option>
+                      <option value="admin">Administrador Global</option>
+                      <option value="sup_admin">Super Administrador (SUP_ADMIN)</option>
                     </>
                   )}
                 </select>
@@ -556,9 +556,9 @@ export default function UserManagement() {
                 <div className="form-group">
                   <label>Nivel de Acceso (Rol)</label>
                   <select className="input-field" value={editFormData.rol} onChange={e => setEditFormData({...editFormData, rol: e.target.value})}>
-                    <option value="analista">👤 Analista OSINT</option>
-                    <option value="admin">🛡️ Administrador Global</option>
-                    <option value="sup_admin">👑 Super Administrador (SUP_ADMIN)</option>
+                    <option value="analista">Analista OSINT</option>
+                    <option value="admin">Administrador Global</option>
+                    <option value="sup_admin">Super Administrador (SUP_ADMIN)</option>
                   </select>
                 </div>
               )}
@@ -597,7 +597,7 @@ export default function UserManagement() {
               </div>
 
               <div style={{ background: 'rgba(231, 76, 60, 0.12)', border: '1px solid rgba(231, 76, 60, 0.35)', color: 'var(--danger)', padding: '10px 14px', borderRadius: '8px', fontSize: '0.86rem', fontWeight: 600, textAlign: 'center', width: '100%' }}>
-                ⚠️ Esta acción es permanente y no se podrá deshacer.
+                Esta acción es permanente y no se podrá deshacer.
               </div>
 
               <div className="form-actions" style={{ width: '100%', marginTop: '20px' }}>

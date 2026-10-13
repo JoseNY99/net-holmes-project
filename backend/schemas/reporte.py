@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from schemas.perfil_investigacion import PerfilResponse
 from schemas.platform_data import PlatformDataPayload
+from enums import EstadoReporte
 
 class ReporteBase(BaseModel):
     pais: Optional[str] = "Argentina"
@@ -20,13 +21,13 @@ class ReporteBase(BaseModel):
     direccion_publica: Optional[str] = None
     telefono_publico: Optional[str] = None
     seguidores_infractor: Optional[int] = None
-    estado: Optional[str] = "Pendiente"
+    estado: Optional[EstadoReporte] = "Pendiente"
 
 class ReporteCreate(ReporteBase):
     platform_data: Optional[PlatformDataPayload] = None
 
 class ReporteUpdate(BaseModel):
-    estado: Optional[str] = None
+    estado: Optional[EstadoReporte] = None
 
 class ReporteQuickEdit(BaseModel):
     precio_publico: Optional[float] = None
@@ -35,7 +36,7 @@ class ReporteQuickEdit(BaseModel):
     direccion_publica: Optional[str] = None
     descripcion_post: Optional[str] = None
     titular_cuenta: Optional[str] = None
-    estado: Optional[str] = None
+    estado: Optional[EstadoReporte] = None
 
 class ReporteResponse(ReporteBase):
     id: int

@@ -1,13 +1,87 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
 from database import get_db
+from models.brand import Brand
+from models.user import User
 from services import cron_service
 from schemas.cron_config import CronConfigUpdate, CronConfigResponse
-from middleware.auth_middleware import require_admin
+from middleware.auth_middleware import require_admin, get_current_user
 from services.cron_manager import update_job_schedule, trigger_manual_scan
+from services.argentina_scope import ARGENTINA, ARGENTINA_PROVINCES, normalize_argentina_locations
 import json
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
+
+
+class TargetedSearchRequest(BaseModel):
+    brand_id: int
+    platforms: list[str] = Field(default_factory=lambda: ["facebook", "instagram", "tiktok", "mercadolibre"], min_length=1, max_length=4)
+    locations: list[str] = Field(default_factory=lambda: [ARGENTINA], min_length=1, max_length=24)
+    keywords: list[str] = Field(default_factory=list, max_length=10)
+    limit: int = Field(default=10, ge=1, le=50)
+    duration_minutes: int = Field(default=15, ge=5, le=60)
+
+
+@router.post("/search", status_code=202)
+def start_targeted_search(
+    req: TargetedSearchRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from services.targeted_search import run_targeted_search, targeted_search_state
+
+    if targeted_search_state["is_running"]:
+        raise HTTPException(status_code=409, detail="Ya hay una búsqueda dirigida en ejecución.")
+
+    allowed_platforms = {"facebook", "instagram", "tiktok", "mercadolibre"}
+    platforms = list(dict.fromkeys(platform.strip().lower() for platform in req.platforms))
+    if any(platform not in allowed_platforms for platform in platforms):
+        raise HTTPException(status_code=422, detail="Una o más plataformas no son válidas.")
+
+    allowed_locations = {ARGENTINA.casefold(), *(province.casefold() for province in ARGENTINA_PROVINCES)}
+    if any(location.strip().casefold() not in allowed_locations for location in req.locations):
+        raise HTTPException(status_code=422, detail="Selecciona Argentina o una provincia válida.")
+
+    brand = db.query(Brand).filter(Brand.id == req.brand_id, Brand.estado == "activa").first()
+    if not brand:
+        raise HTTPException(status_code=404, detail="La marca no existe o está inactiva.")
+
+    keywords = list(dict.fromkeys(keyword.strip() for keyword in req.keywords if keyword.strip()))
+    locations = normalize_argentina_locations(req.locations)
+    targeted_search_state["is_running"] = True
+    targeted_search_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    targeted_search_state["finished_at"] = None
+    targeted_search_state["last_error"] = None
+    targeted_search_state["current_query"] = "Preparando búsqueda"
+    targeted_search_state["processed_items"] = 0
+    background_tasks.add_task(
+        run_targeted_search,
+        req.brand_id,
+        keywords,
+        platforms,
+        locations,
+        req.limit,
+        req.duration_minutes,
+    )
+    return {
+        "message": "Búsqueda dirigida iniciada.",
+        "brand": brand.nombre,
+        "platforms": platforms,
+        "locations": locations,
+        "keywords": keywords,
+        "using_saved_keywords": not keywords,
+        "requested_by": current_user.id,
+    }
+
+
+@router.get("/search/status")
+def get_targeted_search_status(_current_user: User = Depends(get_current_user)):
+    from services.targeted_search import targeted_search_state
+
+    return dict(targeted_search_state)
 
 @router.get('/status')
 def get_cron_status(db: Session = Depends(get_db)):
@@ -90,6 +164,7 @@ async def run_apify_task(keyword: str, plataformas: list[str], provincias: list[
     apify_status_state["last_run"] = datetime.now(timezone.utc).isoformat()
     apify_status_state["logs"].append(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] Iniciando Apify Fase 2...")
     
+    provincias = normalize_argentina_locations(provincias)
     motor = ApifyMotorFase2()
     db = SessionLocal()
     try:
@@ -111,7 +186,13 @@ def start_apify_scan(req: ApifyScanRequest, background_tasks: BackgroundTasks, a
         return {"msg": "Ya hay un escaneo de Apify en ejecución."}
     
     apify_status_state["logs"] = [] # Clear previous logs
-    background_tasks.add_task(run_apify_task, req.keyword, req.plataformas, req.provincias, req.limite)
+    background_tasks.add_task(
+        run_apify_task,
+        req.keyword,
+        req.plataformas,
+        normalize_argentina_locations(req.provincias),
+        req.limite,
+    )
     return {"msg": "Escaneo de Apify iniciado en background."}
 
 @router.get('/apify-status')

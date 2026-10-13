@@ -7,6 +7,7 @@ from .audit_log import AuditLog
 from .comportamiento import Comportamiento, brand_comportamientos
 from .rag_memory import RagMemory
 from .reporte import ReporteBrandDefense
+from .reporte_final import ReporteFinal
 from .facebook_data import ReporteFacebookData
 from .instagram_data import ReporteInstagramData
 from .tiktok_data import ReporteTiktokData
@@ -20,7 +21,7 @@ from .api_key_setting import ApiKeySetting
 __all__ = [
     "User", "Brand", "Product", "CronConfig", "Comportamiento", 
     "brand_comportamientos", "RagMemory", "PerfilInvestigacion", 
-    "AuditLog", "ReporteBrandDefense", "ReporteFacebookData", 
+    "AuditLog", "ReporteBrandDefense", "ReporteFinal", "ReporteFacebookData", 
     "ReporteInstagramData", "ReporteTiktokData", "ReporteMercadoLibreData",
     "CorrelationCluster", "CorrelationLink", "MarcaCuentaOficial",
     "ApiKeySetting"

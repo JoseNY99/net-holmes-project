@@ -123,7 +123,7 @@ class InstagramApifyScraper:
                         "description": caption[:3000] if caption else "",
                         "seller_profile": seller_profile,
                         "seguidores_infractor": followers,
-                        "comments_audit": [],
+                        "comments_audit": [c.get("text", "") for c in (item.get("latestComments") or []) if isinstance(c, dict) and c.get("text")],
                         "url": post_url,
                         "image_urls": image_urls,
                         "extraction_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),

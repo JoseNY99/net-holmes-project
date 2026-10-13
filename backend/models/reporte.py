@@ -3,10 +3,18 @@
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, Enum as SAEnum
 from sqlalchemy.orm import relationship
 
 from database import Base
+from enums import EstadoReporte
+
+ESTADO_REPORTE_ENUM = SAEnum(
+    EstadoReporte,
+    name="estado_reporte_enum",
+    values_callable=lambda enum_class: [estado.value for estado in enum_class],
+    native_enum=True,
+)
 
 class ReporteBrandDefense(Base):
     __tablename__ = "reportes_brand_defense"
@@ -35,7 +43,7 @@ class ReporteBrandDefense(Base):
     telefono_publico = Column(String(100), nullable=True)
     seguidores_infractor = Column(Integer, nullable=True)
     
-    estado = Column(String(50), nullable=False, default="Pendiente") # Pendiente, Sospechoso, Descartado
+    estado = Column(ESTADO_REPORTE_ENUM, nullable=False, default=EstadoReporte.PENDIENTE)
     
     # Audit trail (opcional)
     created_at = Column(

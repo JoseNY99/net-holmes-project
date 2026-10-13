@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from models.cron_config import CronConfig
 from schemas.cron_config import CronConfigUpdate
+from services.argentina_scope import normalize_argentina_locations
+import json
 
 def get_cron_config(db: Session) -> CronConfig:
     config = db.query(CronConfig).first()
@@ -18,6 +20,14 @@ def get_cron_config(db: Session) -> CronConfig:
 def update_cron_config(db: Session, config_data: CronConfigUpdate) -> CronConfig:
     config = get_cron_config(db)
     update_fields = config_data.model_dump(exclude_unset=True)
+    if "provincias_seleccionadas" in update_fields:
+        try:
+            locations = json.loads(update_fields["provincias_seleccionadas"])
+        except (TypeError, json.JSONDecodeError):
+            locations = []
+        update_fields["provincias_seleccionadas"] = json.dumps(
+            normalize_argentina_locations(locations), ensure_ascii=False
+        )
     for key, value in update_fields.items():
         setattr(config, key, value)
     config.updated_at = datetime.now(timezone.utc)

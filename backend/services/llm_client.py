@@ -32,6 +32,12 @@ LLM_CONFIGS = {
     },
 }
 
+HONEYPOT_SAFETY_RULES = """Reglas obligatorias de privacidad y transparencia:
+- Adapta el léxico al país y región del contexto; mantén un tono informal y respuestas breves.
+- No simules ser un comprador humano ni ocultes que eres un asistente automatizado.
+- No solicites CBU, CVU, Alias, cuentas, claves, titularidad, documentos ni otros datos sensibles.
+- Si el interlocutor comparte espontáneamente información bancaria o personal sensible, no la repitas ni profundices; responde únicamente que la conversación se cierra por privacidad."""
+
 # ─── Prompt de Extracción Estructurado ──────────────────────────────────────
 
 EXTRACTION_SYSTEM_PROMPT = """Eres un analista de inteligencia OSINT especializado en extraer datos de identidad y financieros de conversaciones de chat en español argentino.
@@ -277,9 +283,9 @@ def _generate_contingency_reply(conversation_history: list, target_info: dict) -
         last_text = (conversation_history[-1].get("text", "") or "").lower().strip()
 
     if any(k in last_text for k in ["alias", "cbu", "cvu", "mercadopago", "cuenta", "banco", "transfer"]):
-        return "¡Buenísimo! ¿A nombre de quién está la cuenta o alias para verificar la transferencia?"
+        return "Por privacidad no necesito datos bancarios ni personales. Cierro la conversación aquí."
     elif any(k in last_text for k in ["precio", "sale", "cuesta", "cuanto", "total", "$", "pesos", "dolar"]):
-        return "Dale impecable, me sirve el precio. ¿Qué Alias o CVU de MercadoPago me pasás para hacerte el pago?"
+        return "Gracias por la información. ¿Puedes contarme únicamente detalles públicos del producto?"
     elif any(k in last_text for k in ["zona", "donde", "local", "showroom", "retirar", "envio", "envíos", "moto"]):
         return "¿Por qué zona están para pasar a retirar en persona o cómo hacen con los envíos?"
     elif any(k in last_text for k in ["talle", "stock", "color", "modelo", "disponible", "quedan"]):
@@ -287,7 +293,7 @@ def _generate_contingency_reply(conversation_history: list, target_info: dict) -
     elif len(conversation_history) <= 1:
         return f"¡Hola! {saludo}, vi tu publicación. ¿Sigue disponible? ¿Cuánto sale y cómo hacemos para coordinar?"
     else:
-        return "Dale joya, ¿cómo hacemos para coordinar el pago y retiro?"
+        return "Gracias por la información. Si hay algún detalle público del producto que quieras compartir, te leo."
 
 
 SELLER_SIMULATION_SYSTEM_PROMPT = """Eres un vendedor informal argentino que comercializa calzado, zapatillas, indumentaria y réplicas de marcas reconocidas por WhatsApp, Marketplace e Instagram.
@@ -318,16 +324,29 @@ async def generate_honeypot_response(conversation_history: list, target_info: di
             cron_logger.log(f"[Honeypot LLM] 🛡️ Mensaje adversarial/tarea/acoso detectado ('{last_msg[:40]}'). El bot se queda en silencio.")
             return "", None
 
+    import os
     from services.bot_persona_service import get_bot_persona_config
     persona_cfg = get_bot_persona_config()
     custom_prompt = (persona_cfg.get("system_prompt") or "").strip()
 
     marca_info = target_info.get('marca') or 'el producto publicado'
+    country_info = (target_info.get('pais') or '').strip()
+    region = country_info or os.environ.get("REGION_LEXICO") or 'el país indicado en el contexto'
+    country_info = country_info or region
+
     if custom_prompt:
-        system_prompt = f"{custom_prompt}\n\n[CONTEXTO ACTUAL DE LA CONVERSACIÓN]: Estás negociando por: {marca_info}."
+        system_prompt = f"{custom_prompt}\n\n[CONTEXTO ACTUAL]: Producto: {marca_info}. País/región: {country_info} (Léxico adaptado a {region}).\n\n{HONEYPOT_SAFETY_RULES}"
     else:
-        system_prompt = f"""Eres un comprador interesado en adquirir {marca_info}. Estás chateando por WhatsApp con el vendedor de forma casual y directa.
-Respuestas CORTAS de 1 o 2 oraciones como máximo. Pide con naturalidad el Alias o CBU/CVU para transferir, y pregunta de qué zona son para retirar."""
+        system_prompt = f"""Eres un posible comprador (Honeypot) interesado en los productos del vendedor.
+Tu objetivo es ganar la confianza del vendedor y mantener una conversación fluida para recopilar información sobre {marca_info}.
+
+REGLAS ESTRICTAS:
+1. Adapta tu vocabulario, modismos y tono al léxico regional de: {region}.
+2. La conversación debe ser progresiva e informal. Comienza preguntando por el producto, precio, disponibilidad, etc.
+3. BAJO NINGUNA CIRCUNSTANCIA solicites datos de transferencia (CBU, CVU, Alias, cuenta bancaria) en los primeros mensajes. Deja que la venta progrese naturalmente hasta que sea el momento de pagar.
+4. Mantén tus respuestas breves y creíbles (1 o 2 oraciones), como un comprador real en WhatsApp.
+5. No menciones que eres una Inteligencia Artificial ni un bot.
+"""
 
     messages = [{"role": "system", "content": system_prompt}]
     for msg in conversation_history[-10:]:  # Últimos 10 mensajes para contexto

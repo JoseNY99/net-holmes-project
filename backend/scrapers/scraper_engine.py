@@ -233,6 +233,14 @@ class ScraperEngine:
     async def scrape_instagram(
         self, keyword: str, city_name: str = None, proveedor: str = "playwright"
     ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Scrapea Instagram con el proveedor elegido y lee los comentarios de cada post."""
+        from services.instagram_comments import enrich_instagram_items
+        async for item in enrich_instagram_items(self._scrape_instagram_raw(keyword, city_name, proveedor)):
+            yield item
+
+    async def _scrape_instagram_raw(
+        self, keyword: str, city_name: str = None, proveedor: str = "playwright"
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         limit = settings.APIFY_MAX_ITEMS
         if proveedor == "apify":
             async for item in self._run_apify_premium("instagram", keyword, city_name):

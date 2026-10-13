@@ -9,6 +9,7 @@ import { getCronStatus } from '../services/cronService';
 
 export default function Navbar() {
   const { user, isAuthenticated, isAdmin, logout } = useAuth();
+  const canAccessScrapers = user?.rol === 'admin' || user?.rol === 'developer';
   const navigate = useNavigate();
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -72,7 +73,7 @@ export default function Navbar() {
     <>
     {cronRunning && (
       <div style={{ position: 'fixed', bottom: 0, left: 0, width: '100%', background: 'var(--danger)', color: '#fff', textAlign: 'center', padding: '12px', fontSize: '0.95rem', fontWeight: 600, zIndex: 9999, boxShadow: '0 -4px 12px rgba(0,0,0,0.2)' }}>
-        ⚠️ ATENCIÓN: El motor Cron está actualmente en ejecución. Las modificaciones a las marcas han sido bloqueadas temporalmente para evitar corrupción de datos.
+        ATENCIÓN: El motor Cron está actualmente en ejecución. Las modificaciones a las marcas han sido bloqueadas temporalmente para evitar corrupción de datos.
       </div>
     )}
     <nav className="navbar">
@@ -117,15 +118,17 @@ export default function Navbar() {
                 >
                   Investigaciones
                 </NavLink>
-                  <NavLink
-                    to="/manual-scan"
-                    className={({ isActive }) =>
-                      `navbar__link ${isActive ? 'navbar__link--active' : ''}`
-                    }
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    Scraping Manual
-                  </NavLink>
+                  {isAdmin && (
+                    <NavLink
+                      to="/manual-scan"
+                      className={({ isActive }) =>
+                        `navbar__link ${isActive ? 'navbar__link--active' : ''}`
+                      }
+                      onClick={() => setMenuOpen(false)}
+                    >
+                      Scraping Manual
+                    </NavLink>
+                  )}
                   <NavLink
                     to="/chat"
                     className={({ isActive }) =>
@@ -133,7 +136,7 @@ export default function Navbar() {
                     }
                     onClick={() => setMenuOpen(false)}
                   >
-                    💬 Honeypot Chat
+                    Honeypot Chat
                   </NavLink>
                   <NavLink
                     to="/correlations"
@@ -165,15 +168,6 @@ export default function Navbar() {
                       Cron
                     </NavLink>
                     <NavLink
-                      to="/admin/scrapers"
-                      className={({ isActive }) =>
-                        `navbar__link ${isActive ? 'navbar__link--active' : ''}`
-                      }
-                      onClick={() => setMenuOpen(false)}
-                    >
-                      Scrapers & APIs
-                    </NavLink>
-                    <NavLink
                       to="/admin/whatsapp-settings"
                       className={({ isActive }) =>
                         `navbar__link ${isActive ? 'navbar__link--active' : ''}`
@@ -189,9 +183,20 @@ export default function Navbar() {
                       }
                       onClick={() => setMenuOpen(false)}
                     >
-                      ⚙️ Accesos
+                      Accesos
                     </NavLink>
                   </>
+                )}
+                {canAccessScrapers && (
+                  <NavLink
+                    to="/admin/scrapers"
+                    className={({ isActive }) =>
+                      `navbar__link ${isActive ? 'navbar__link--active' : ''}`
+                    }
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Scrapers & APIs
+                  </NavLink>
                 )}
               </div>
             )}
@@ -246,21 +251,23 @@ export default function Navbar() {
               >
                 Investigaciones
               </NavLink>
-              <NavLink
-                to="/manual-scan"
-                className={({ isActive }) =>
-                  `navbar__link ${isActive ? 'navbar__link--active' : ''}`
-                }
-              >
-                Scraping Manual
-              </NavLink>
+              {isAdmin && (
+                <NavLink
+                  to="/manual-scan"
+                  className={({ isActive }) =>
+                    `navbar__link ${isActive ? 'navbar__link--active' : ''}`
+                  }
+                >
+                  Scraping Manual
+                </NavLink>
+              )}
               <NavLink
                 to="/chat"
                 className={({ isActive }) =>
                   `navbar__link ${isActive ? 'navbar__link--active' : ''}`
                 }
               >
-                💬 Honeypot Chat
+                Honeypot Chat
               </NavLink>
               <NavLink
                 to="/correlations"
@@ -289,14 +296,6 @@ export default function Navbar() {
                     Cron
                   </NavLink>
                   <NavLink
-                    to="/admin/scrapers"
-                    className={({ isActive }) =>
-                      `navbar__link ${isActive ? 'navbar__link--active' : ''}`
-                    }
-                  >
-                    Scrapers & APIs
-                  </NavLink>
-                  <NavLink
                     to="/admin/whatsapp-settings"
                     className={({ isActive }) =>
                       `navbar__link ${isActive ? 'navbar__link--active' : ''}`
@@ -311,10 +310,20 @@ export default function Navbar() {
                     }
                     title="Administración de Accesos y Usuarios"
                   >
-                    ⚙️ Accesos
+                    Accesos
                   </NavLink>
                 </>
               )}
+                {canAccessScrapers && (
+                  <NavLink
+                    to="/admin/scrapers"
+                    className={({ isActive }) =>
+                      `navbar__link ${isActive ? 'navbar__link--active' : ''}`
+                    }
+                  >
+                    Scrapers & APIs
+                  </NavLink>
+                )}
             </>
           )}
         </div>
@@ -338,7 +347,7 @@ export default function Navbar() {
                 </span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: user?.rol === 'sup_admin' ? 700 : 500 }}>
                   {user?.nombre}
-                  {user?.rol === 'sup_admin' && <span title="Super Administrador (SUP_ADMIN)" style={{ color: '#FFD700', fontSize: '0.85rem' }}>👑</span>}
+                    {user?.rol === 'sup_admin' && <span title="Super Administrador (SUP_ADMIN)" style={{ color: '#FFD700', fontSize: '0.85rem' }}>SUP_ADMIN</span>}
                 </span>
               </div>
               <button className="navbar__logout-btn" onClick={handleLogout} title="Cerrar Sesión">

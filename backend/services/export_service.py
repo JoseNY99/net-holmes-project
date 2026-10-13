@@ -23,6 +23,27 @@ def generate_cbn_investigation_pdf(db, reporte, perfil):
     return _gen(db, reporte, perfil)
 
 def fetch_and_compress_image(reporte):
+    def capture_fallback_image():
+        try:
+            from services.screenshot_service import STATIC_SCREENSHOTS_DIR, take_screenshot_threaded
+
+            screenshot_path = STATIC_SCREENSHOTS_DIR / f"reporte_{reporte.id}.jpg"
+            captured = take_screenshot_threaded(
+                str(reporte.url_evidencia), screenshot_path, timeout=30
+            )
+            if not captured or not screenshot_path.exists():
+                return None
+            img = PILImage.open(screenshot_path)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.thumbnail((800, 800), PILImage.Resampling.LANCZOS)
+            compressed_io = BytesIO()
+            img.save(compressed_io, format="JPEG", quality=50, optimize=True)
+            compressed_io.seek(0)
+            return compressed_io
+        except Exception:
+            return None
+
     try:
         from pathlib import Path
         base_dir = Path(__file__).resolve().parent.parent
@@ -56,6 +77,8 @@ def fetch_and_compress_image(reporte):
             plat_data = reporte.tiktok_data
         elif plat == "mercadolibre" and hasattr(reporte, "mercadolibre_data"):
             plat_data = reporte.mercadolibre_data
+        if isinstance(plat_data, (list, tuple)):
+            plat_data = plat_data[0] if plat_data else None
             
         image_url = None
         if plat_data and hasattr(plat_data, "image_urls") and plat_data.image_urls:
@@ -77,12 +100,12 @@ def fetch_and_compress_image(reporte):
                 pass
                 
         if not image_url:
-            return None
+            return capture_fallback_image()
             
         # Download
         response = requests.get(image_url, timeout=5)
         if response.status_code != 200:
-            return None
+            return capture_fallback_image()
             
         # Compress using PIL
         img = PILImage.open(BytesIO(response.content))
@@ -99,7 +122,7 @@ def fetch_and_compress_image(reporte):
         return compressed_io
     except Exception as e:
         print(f"Error procesando imagen para export: {e}")
-        return None
+        return capture_fallback_image()
 
 def generate_investigation_pdf(db: Session, reporte, perfil):
     buffer = io.BytesIO()

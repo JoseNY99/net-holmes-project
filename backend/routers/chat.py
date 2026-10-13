@@ -34,28 +34,28 @@ CURTIS_WELCOME = (
 TEST_PHONE_DEFAULT = "+595984716528"
 
 
-def get_time_based_greeting() -> str:
-    """Genera un saludo dinámico según la hora local del sistema o la plantilla configurada."""
-    hour = datetime.now().hour
-    if 6 <= hour < 13:
-        saludo = "Buenos días"
-    elif 13 <= hour < 20:
-        saludo = "Buenas tardes"
-    else:
-        saludo = "Buenas noches"
+def get_time_based_greeting(custom_message: str | None = None) -> str:
+    """Use only opening messages that disclose automation and avoid sensitive-data requests."""
+    from services.bot_persona_service import DEFAULT_OPENING_MESSAGE, get_bot_persona_config
 
+    candidates = [custom_message]
     try:
-        from services.bot_persona_service import get_bot_persona_config
-        cfg = get_bot_persona_config()
-        if cfg and cfg.get("opening_message"):
-            msg = cfg["opening_message"]
-            if "{saludo}" in msg:
-                return msg.replace("{saludo}", saludo)
-            return msg
+        candidates.append(get_bot_persona_config().get("opening_message"))
     except Exception:
         pass
 
-    return f"¡Hola! {saludo}, vi tu publicación. ¿Sigue disponible? ¿Cuánto sale y cómo coordinamos?"
+    for candidate in candidates:
+        message = (candidate or "").strip()
+        normalized = message.casefold()
+        discloses_automation = "asistente automatizado" in normalized or "asistente automatizada" in normalized
+        requests_sensitive_data = any(
+            term in normalized
+            for term in ("cbu", "cvu", "alias", "clave bancaria", "número de cuenta", "titular de la cuenta")
+        )
+        if message and discloses_automation and not requests_sensitive_data:
+            return message
+
+    return DEFAULT_OPENING_MESSAGE
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
@@ -643,6 +643,12 @@ async def start_bot_command(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversación no encontrada")
 
+    if conv.mode == "Cerrado":
+        raise HTTPException(
+            status_code=409,
+            detail="La conversación está cerrada por privacidad. Reábrela primero en modo manual para revisión.",
+        )
+
     conv.mode = "bot"
     conv.is_bot_active = True
     db.commit()
@@ -652,11 +658,7 @@ async def start_bot_command(
         or (conv.reporte and conv.reporte.titular_cuenta == CURTIS_TITULAR)
     )
 
-    opening_text = (
-        data.custom_message.strip()
-        if (data.custom_message and data.custom_message.strip())
-        else get_time_based_greeting()
-    )
+    opening_text = get_time_based_greeting(data.custom_message)
 
     wa_sent = False
     wa_detail = None
@@ -825,8 +827,17 @@ def toggle_mode(
     if not conv:
         raise HTTPException(status_code=404, detail="Conversación no encontrada")
 
-    conv.mode = data.mode
-    conv.is_bot_active = data.mode.lower() == "bot"
+    requested_mode = data.mode.strip().lower()
+    if requested_mode not in {"bot", "analista"}:
+        raise HTTPException(status_code=422, detail="El modo debe ser 'bot' o 'analista'.")
+    if conv.mode == "Cerrado" and requested_mode == "bot":
+        raise HTTPException(
+            status_code=409,
+            detail="La conversación está cerrada por privacidad. Reábrela primero en modo manual.",
+        )
+
+    conv.mode = requested_mode
+    conv.is_bot_active = requested_mode == "bot"
     db.commit()
 
     cron_logger.log(

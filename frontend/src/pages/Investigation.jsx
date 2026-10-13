@@ -6,7 +6,7 @@ import { exportReport } from '../services/reportService';
 import { 
   FaBoxOpen, FaSearch, FaUserSecret, FaFilter, FaDownload, 
   FaFilePdf, FaFileWord, FaFileExcel, FaLayerGroup, FaCheckCircle, 
-  FaTimesCircle, FaExclamationTriangle, FaExternalLinkAlt 
+  FaTimesCircle, FaExclamationTriangle, FaExternalLinkAlt, FaSort, FaSortUp, FaSortDown
 } from 'react-icons/fa';
 import './Investigation.css';
 
@@ -28,6 +28,7 @@ export default function Investigation() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [exporting, setExporting] = useState(false);
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
   // Cargar marcas para el filtro
   useEffect(() => {
@@ -46,7 +47,7 @@ export default function Investigation() {
     if (activeTab === 'fase1') {
       setFilterEstado('Pendiente');
     } else if (activeTab === 'fase2') {
-      setFilterEstado('Sospechoso');
+      setFilterEstado('Investigando|Sospechoso');
     } else if (activeTab === 'fase3') {
       setFilterEstado('Confirmado');
     } else if (activeTab === 'todos') {
@@ -113,8 +114,22 @@ export default function Investigation() {
 
   const totalPages = Math.ceil(total / limit);
 
+  const handleSort = (key) => {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const renderSortIcon = (key) => {
+    if (sortConfig.key !== key) return <FaSort aria-hidden="true" />;
+    return sortConfig.direction === 'asc'
+      ? <FaSortUp aria-hidden="true" />
+      : <FaSortDown aria-hidden="true" />;
+  };
+
   // Filtrado local por término de búsqueda si el usuario escribe
-  const displayItems = searchQuery.trim()
+  const filteredItems = searchQuery.trim()
     ? reportes.filter(r => 
         (r.titular_cuenta || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (r.marca_afectada || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -122,6 +137,26 @@ export default function Investigation() {
         (r.descripcion_post || '').toLowerCase().includes(searchQuery.toLowerCase())
       )
     : reportes;
+  const displayItems = sortConfig.key
+    ? [...filteredItems].sort((leftReport, rightReport) => {
+        const sortFields = {
+          marca: leftReport.marca_afectada,
+          infractor: leftReport.titular_cuenta,
+          ubicacion: leftReport.direccion_publica || leftReport.pais || 'Argentina',
+          estado: leftReport.estado
+        };
+        const leftValue = String(sortFields[sortConfig.key] || '');
+        const rightFields = {
+          marca: rightReport.marca_afectada,
+          infractor: rightReport.titular_cuenta,
+          ubicacion: rightReport.direccion_publica || rightReport.pais || 'Argentina',
+          estado: rightReport.estado
+        };
+        const rightValue = String(rightFields[sortConfig.key] || '');
+        const comparison = leftValue.localeCompare(rightValue, 'es', { sensitivity: 'base', numeric: true });
+        return sortConfig.direction === 'asc' ? comparison : -comparison;
+      })
+    : filteredItems;
 
   return (
     <div className="page-container fade-in" style={{ maxWidth: '1600px', margin: '0 auto' }}>
@@ -161,7 +196,7 @@ export default function Investigation() {
             onClick={() => { setActiveTab('fase1'); setSearchParams({ tab: 'fase1' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'fase1' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'fase1' ? '#000' : 'var(--text-secondary)' }}
           >
-            📌 Fase 1: Triage & Hallazgos
+            Fase 1: Triage & Hallazgos
           </button>
           <button 
             type="button"
@@ -169,7 +204,7 @@ export default function Investigation() {
             onClick={() => { setActiveTab('fase2'); setSearchParams({ tab: 'fase2' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'fase2' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'fase2' ? '#000' : 'var(--text-secondary)' }}
           >
-            🔍 Fase 2: Investigaciones Activas
+            Fase 2: Investigaciones Activas
           </button>
           <button 
             type="button"
@@ -177,7 +212,7 @@ export default function Investigation() {
             onClick={() => { setActiveTab('fase3'); setSearchParams({ tab: 'fase3' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'fase3' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'fase3' ? '#000' : 'var(--text-secondary)' }}
           >
-            📄 Fase 3: Casos Confirmados & Reportes
+            Fase 3: Casos Confirmados & Reportes
           </button>
           <button 
             type="button"
@@ -185,7 +220,7 @@ export default function Investigation() {
             onClick={() => { setActiveTab('todos'); setSearchParams({ tab: 'todos' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'todos' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'todos' ? '#000' : 'var(--text-secondary)' }}
           >
-            🌐 Vista Global (Todos)
+            Vista Global (Todos)
           </button>
         </div>
 
@@ -276,12 +311,28 @@ export default function Investigation() {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.03)' }}>
                 <th style={{ padding: '14px 16px' }}>Ref</th>
-                <th style={{ padding: '14px 16px' }}>Marca</th>
+                <th aria-sort={sortConfig.key === 'marca' ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'} style={{ padding: '14px 16px' }}>
+                  <button type="button" onClick={() => handleSort('marca')} aria-label={`Ordenar Marca ${sortConfig.direction === 'asc' && sortConfig.key === 'marca' ? 'Z-A' : 'A-Z'}`} title="Ordenar alfabéticamente por marca" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', border: 0, padding: 0, background: 'transparent', color: 'inherit', font: 'inherit', fontWeight: 600, cursor: 'pointer' }}>
+                    Marca {renderSortIcon('marca')}
+                  </button>
+                </th>
                 <th style={{ padding: '14px 16px' }}>Plataforma</th>
-                <th style={{ padding: '14px 16px' }}>Vendedor / Infractor</th>
-                <th style={{ padding: '14px 16px' }}>Contacto / Ubicación</th>
+                <th aria-sort={sortConfig.key === 'infractor' ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'} style={{ padding: '14px 16px' }}>
+                  <button type="button" onClick={() => handleSort('infractor')} aria-label={`Ordenar Infractor ${sortConfig.direction === 'asc' && sortConfig.key === 'infractor' ? 'Z-A' : 'A-Z'}`} title="Ordenar alfabéticamente por infractor" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', border: 0, padding: 0, background: 'transparent', color: 'inherit', font: 'inherit', fontWeight: 600, cursor: 'pointer' }}>
+                    Vendedor / Infractor {renderSortIcon('infractor')}
+                  </button>
+                </th>
+                <th aria-sort={sortConfig.key === 'ubicacion' ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'} style={{ padding: '14px 16px' }}>
+                  <button type="button" onClick={() => handleSort('ubicacion')} aria-label={`Ordenar Ubicación ${sortConfig.direction === 'asc' && sortConfig.key === 'ubicacion' ? 'Z-A' : 'A-Z'}`} title="Ordenar alfabéticamente por ubicación" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', border: 0, padding: 0, background: 'transparent', color: 'inherit', font: 'inherit', fontWeight: 600, cursor: 'pointer' }}>
+                    Contacto / Ubicación {renderSortIcon('ubicacion')}
+                  </button>
+                </th>
                 <th style={{ padding: '14px 16px' }}>Precio Cotizado</th>
-                <th style={{ padding: '14px 16px' }}>Estado</th>
+                <th aria-sort={sortConfig.key === 'estado' ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : 'none'} style={{ padding: '14px 16px' }}>
+                  <button type="button" onClick={() => handleSort('estado')} aria-label={`Ordenar Estado ${sortConfig.direction === 'asc' && sortConfig.key === 'estado' ? 'Z-A' : 'A-Z'}`} title="Ordenar alfabéticamente por estado" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', border: 0, padding: 0, background: 'transparent', color: 'inherit', font: 'inherit', fontWeight: 600, cursor: 'pointer' }}>
+                    Estado {renderSortIcon('estado')}
+                  </button>
+                </th>
                 <th style={{ padding: '14px 16px', textAlign: 'right' }}>Acción</th>
               </tr>
             </thead>
@@ -307,16 +358,16 @@ export default function Investigation() {
                       <div style={{ fontWeight: 600 }}>{report.titular_cuenta}</div>
                       {report.seguidores_infractor !== null && report.seguidores_infractor !== undefined && (
                         <small style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
-                          👥 {Number(report.seguidores_infractor).toLocaleString()} seguidores
+                          {Number(report.seguidores_infractor).toLocaleString()} seguidores
                         </small>
                       )}
                     </td>
                     <td style={{ padding: '14px 16px', fontSize: '0.85rem' }}>
                       {report.telefono_publico && (
-                        <div style={{ color: '#2ECC71' }}>📞 {report.telefono_publico}</div>
+                        <div style={{ color: '#2ECC71' }}>{report.telefono_publico}</div>
                       )}
                       <div style={{ color: 'var(--text-secondary)' }}>
-                        📍 {report.direccion_publica || report.pais || 'Argentina'}
+                        {report.direccion_publica || report.pais || 'Argentina'}
                       </div>
                     </td>
                     <td style={{ padding: '14px 16px', fontWeight: 600, color: '#F1F5F9' }}>

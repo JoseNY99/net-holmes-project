@@ -15,7 +15,14 @@ def get_reportes(db: Session, estado: str = None, plataforma: str = None, skip: 
     try:
         query = db.query(ReporteBrandDefense)
         if estado and estado.strip():
-            query = query.filter(ReporteBrandDefense.estado.ilike(f"%{estado.strip()}%"))
+            from sqlalchemy import cast, String, or_
+            estados = [value.strip() for value in estado.split("|") if value.strip()]
+            query = query.filter(
+                or_(*[
+                    cast(ReporteBrandDefense.estado, String).ilike(f"%{value}%")
+                    for value in estados
+                ])
+            )
         if plataforma and plataforma.strip():
             query = query.filter(ReporteBrandDefense.plataforma.ilike(f"%{plataforma.strip()}%"))
         if marca_id and str(marca_id).strip():
@@ -116,6 +123,9 @@ def ingest_reportes(db: Session, reportes_data: List[ReporteCreate]):
         nuevo = ReporteBrandDefense(**dump)
         db.add(nuevo)
         db.flush() # Para obtener el ID
+
+        from services.phase_transition import start_phase_two_automatically
+        start_phase_two_automatically(db, nuevo)
         
         # Procesar datos específicos de plataforma
         if platform_data and nuevo.plataforma:

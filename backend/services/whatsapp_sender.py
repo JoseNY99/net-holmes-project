@@ -303,6 +303,16 @@ async def send_honeypot_reply(db, conversation, incoming_message):
         cron_logger.log("[WhatsApp Sender] ⚠️ Sin número de WhatsApp para responder.")
         return
 
+    from services.chat_safety import close_conversation_for_privacy, contains_bank_details
+    if conversation.mode == "Cerrado" or not conversation.is_bot_active:
+        return None
+    if contains_bank_details(incoming_message.text):
+        close_conversation_for_privacy(db, conversation)
+        cron_logger.log(
+            f"[WhatsApp Privacy] Conversación #{conversation.id} cerrada antes de generar o enviar una respuesta."
+        )
+        return None
+
     from models.chat import Message
     from services.llm_client import generate_honeypot_response
 
@@ -322,6 +332,7 @@ async def send_honeypot_reply(db, conversation, incoming_message):
             "marca": conversation.reporte.marca_afectada,
             "plataforma": conversation.reporte.plataforma,
             "titular": conversation.reporte.titular_cuenta,
+            "pais": conversation.reporte.pais,
         }
     else:
         from models.reporte import ReporteBrandDefense
@@ -333,6 +344,7 @@ async def send_honeypot_reply(db, conversation, incoming_message):
                 "marca": reporte.marca_afectada,
                 "plataforma": reporte.plataforma,
                 "titular": reporte.titular_cuenta,
+                "pais": reporte.pais,
             }
 
     # Generar respuesta con LLM DeepSeek

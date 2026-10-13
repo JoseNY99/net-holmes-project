@@ -438,7 +438,7 @@ export default function WhatsAppSettings() {
                 marginLeft: 'auto'
               }}
             >
-              <FaVial /> {testing ? 'Probando...' : '🧪 Probar Conexión'}
+              <FaVial /> {testing ? 'Probando...' : 'Probar Conexión'}
             </button>
           </div>
         </form>

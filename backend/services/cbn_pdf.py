@@ -5,11 +5,12 @@ Replica la estructura visual del documento institucional 025-26-IN-PU.
 import os
 import io
 import json
+import html
 import requests
 from PIL import Image as PILImage
 from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer,
-    Table, TableStyle, Image as RLImage, NextPageTemplate, PageBreak, KeepTogether
+    Table, TableStyle, Image as RLImage, PageBreak
 )
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -139,6 +140,32 @@ def _draw_header_footer(canvas, doc):
     canvas.restoreState()
 
 
+def _draw_final_header_footer(canvas, doc):
+    """Compact corporate masthead for the final investigation report."""
+    canvas.saveState()
+    width, height = A4
+    header_height = 2.15 * cm
+
+    canvas.setFillColor(CBN_NAVY)
+    canvas.rect(0, height - header_height, width, header_height, fill=1, stroke=0)
+    canvas.setFillColor(CBN_WHITE)
+    canvas.setFont("Helvetica-Bold", 13)
+    canvas.drawString(1.5 * cm, height - 1.35 * cm, "CBN INTERNATIONAL")
+    canvas.setFont("Helvetica", 8.5)
+    canvas.drawRightString(width - 1.5 * cm, height - 0.95 * cm, "CORPORATE INTELLIGENCE IN ACTION")
+    canvas.setFont("Helvetica-Bold", 8.5)
+    canvas.drawRightString(width - 1.5 * cm, height - 1.45 * cm, "CONFIDENTIAL REPORT")
+
+    canvas.setStrokeColor(colors.HexColor("#CCCCCC"))
+    canvas.setLineWidth(0.5)
+    canvas.line(1.5 * cm, 1.35 * cm, width - 1.5 * cm, 1.35 * cm)
+    canvas.setFillColor(CBN_TEXT)
+    canvas.setFont("Helvetica", 8)
+    canvas.drawString(1.5 * cm, 0.95 * cm, "NET HOLMES OSINT | CONFIDENCIAL")
+    canvas.drawRightString(width - 1.5 * cm, 0.95 * cm, f"PÁGINA {doc.page}")
+    canvas.restoreState()
+
+
 # ── Styles ───────────────────────────────────────────────────────────────────
 
 def _styles():
@@ -172,8 +199,8 @@ def _section_header_table(text):
 
 def _overview_table_style():
     return TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), CBN_NAVY),
-        ("TEXTCOLOR", (0, 0), (0, -1), CBN_WHITE),
+        ("BACKGROUND", (0, 0), (-1, -1), CBN_TABLE_BG),
+        ("TEXTCOLOR", (0, 0), (0, -1), CBN_NAVY),
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (0, -1), 9),
         ("ALIGN", (0, 0), (0, -1), "LEFT"),
@@ -250,6 +277,8 @@ def _collect_evidence_images(reporte, limit=6):
 
     for attr in ("instagram_data", "tiktok_data", "facebook_data", "mercadolibre_data"):
         pd = getattr(reporte, attr, None)
+        if isinstance(pd, (list, tuple)):
+            pd = pd[0] if pd else None
         if pd and getattr(pd, "image_urls", None):
             try:
                 parsed = json.loads(pd.image_urls)
@@ -289,38 +318,76 @@ def _collect_evidence_images(reporte, limit=6):
     return images
 
 
+def _capture_report_evidence(reporte):
+    """Capture the public listing when its stored product image is unavailable."""
+    from services.screenshot_service import STATIC_SCREENSHOTS_DIR, take_screenshot_threaded
+
+    screenshot_path = STATIC_SCREENSHOTS_DIR / f"reporte_{reporte.id}.jpg"
+    if screenshot_path.exists() and screenshot_path.stat().st_size > 1000:
+        return
+    url = getattr(reporte, "url_evidencia", None)
+    if url and str(url).startswith("http"):
+        try:
+            take_screenshot_threaded(str(url), screenshot_path, timeout=30)
+        except Exception:
+            pass
+
+
 # ── Main Generator ───────────────────────────────────────────────────────────
 
 def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
     buffer = io.BytesIO()
     doc = BaseDocTemplate(
         buffer, pagesize=A4,
-        leftMargin=2 * cm, rightMargin=2 * cm,
-        topMargin=3.5 * cm, bottomMargin=2.8 * cm,
+        leftMargin=1.5 * cm, rightMargin=1.5 * cm,
+        topMargin=2.75 * cm, bottomMargin=1.8 * cm,
     )
 
-    cover_frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="cover")
-    body_frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="body")
+    body_frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="final")
     doc.addPageTemplates([
-        PageTemplate(id="Cover", frames=cover_frame, onPage=_draw_cover),
-        PageTemplate(id="Body", frames=body_frame, onPage=_draw_header_footer),
+        PageTemplate(id="Final", frames=body_frame, onPage=_draw_final_header_footer),
     ])
 
     ss, title_s, normal, bold_s, hw, small = _styles()
     S = []  # Story
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # PAGE 1 ─ Cover
-    # ══════════════════════════════════════════════════════════════════════════
-    S.append(Spacer(1, 1))
-    S.append(NextPageTemplate("Body"))
-    S.append(PageBreak())
+    estado = getattr(reporte.estado, "value", reporte.estado) or "N/D"
+    estado_upper = html.escape(str(estado).upper())
+    estado_color = {
+        "CONFIRMADO": colors.HexColor("#2D8A56"),
+        "DESCARTADO": colors.HexColor("#687782"),
+        "PENDIENTE": colors.HexColor("#D35400"),
+        "INVESTIGANDO": colors.HexColor("#00639B"),
+        "SOSPECHOSO": colors.HexColor("#C0392B"),
+    }.get(str(estado).upper(), colors.HexColor("#D35400"))
+    banner_data = [[
+        Paragraph("<b>NET HOLMES OSINT — INFORME FINAL DE INVESTIGACIÓN</b>", hw),
+        Paragraph(f"<b>ESTADO: {estado_upper}</b>", hw),
+    ]]
+    banner = Table(banner_data, colWidths=[12.5 * cm, 5.5 * cm])
+    banner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), CBN_NAVY),
+        ("BACKGROUND", (1, 0), (1, 0), estado_color),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    S.append(banner)
+    S.append(Spacer(1, 8))
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # PAGE 2 ─ Company Overview
-    # ══════════════════════════════════════════════════════════════════════════
     pais = (reporte.pais or "ARGENTINA").upper()
-    S.append(Paragraph(f"{pais} \u2013 INTELLIGENCE REPORT", title_s))
+    marca = html.escape(str(reporte.marca_afectada or "N/D").upper())
+    plataforma = html.escape(str(reporte.plataforma or "N/D").upper())
+    S.append(Paragraph(f"INFORME FINAL — {marca} ({plataforma})", title_s))
+    fecha_captura = reporte.fecha_captura.strftime("%d/%m/%Y %H:%M") if reporte.fecha_captura else "N/D"
+    referencia = html.escape(str(reporte.referencia_interna or "N/D"))
+    S.append(Paragraph(
+        f"Referencia técnica: #{referencia} | Fecha de captura: {fecha_captura} | País: {html.escape(pais)}",
+        small,
+    ))
+    S.append(Spacer(1, 8))
 
     username = reporte.titular_cuenta or "Desconocido"
     username_clean = username.replace("@", "").strip()
@@ -339,28 +406,69 @@ def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
     if not banco_parts:
         banco_parts = [Paragraph("\u2014", normal)]
 
-    url_link = Paragraph(
-        f"<a href='{reporte.url_evidencia}' color='#00639B'>{reporte.url_evidencia}</a>", normal
+    safe_url = html.escape(str(reporte.url_evidencia or ""), quote=True)
+    safe_url_link = Paragraph(
+        f"<a href='{safe_url}' color='#00639B'>{safe_url}</a>", normal
     )
+    precio_publicado = (
+        f"{getattr(reporte, 'moneda', None) or 'ARS'} {reporte.precio_publico:,.2f}"
+        if reporte.precio_publico is not None else "No especificado"
+    )
+    detection_data = [
+        [Paragraph("<b>MARCA AFECTADA</b>", bold_s), Paragraph(html.escape(str(reporte.marca_afectada or "N/D")), normal),
+         Paragraph("<b>PLATAFORMA</b>", bold_s), Paragraph(plataforma, normal)],
+        [Paragraph("<b>PRODUCTO / KEYWORD</b>", bold_s), Paragraph(html.escape(str(reporte.producto_catalogo or "Búsqueda general")), normal),
+         Paragraph("<b>PRECIO PUBLICADO</b>", bold_s), Paragraph(html.escape(precio_publicado), normal)],
+        [Paragraph("<b>USUARIO / TITULAR</b>", bold_s), Paragraph(html.escape(username_clean), normal),
+         Paragraph("<b>TELÉFONO PÚBLICO</b>", bold_s), Paragraph(html.escape(str(reporte.telefono_publico or "No detectado")), normal)],
+        [Paragraph("<b>UBICACIÓN DETECTADA</b>", bold_s), Paragraph(html.escape(str(reporte.direccion_publica or reporte.pais or "N/D")), normal),
+         Paragraph("<b>SEGUIDORES / REP.</b>", bold_s), Paragraph(str(reporte.seguidores_infractor if reporte.seguidores_infractor is not None else "N/D"), normal)],
+    ]
+    detection_table = Table(detection_data, colWidths=[4 * cm, 5 * cm, 4 * cm, 5 * cm])
+    detection_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), CBN_TABLE_BG),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CCCCCC")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    S.append(detection_table)
+    S.append(Spacer(1, 8))
+    url_table = Table(
+        [[Paragraph("<b>ENLACE DIRECTO:</b>", bold_s), safe_url_link]],
+        colWidths=[3.5 * cm, 14.5 * cm],
+    )
+    url_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#EBF5FB")),
+        ("BOX", (0, 0), (-1, -1), 1, CBN_ACCENT),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    S.append(url_table)
+    S.append(Spacer(1, 10))
+
     sales_desc = Paragraph(
-        f"According to the investigation, the subject offers retail and wholesale "
-        f"of counterfeit products bearing the <b>{reporte.marca_afectada}</b> trademark.",
+        f"Según el relevamiento, se detectó una publicación asociada a la marca "
+        f"<b>{marca}</b>. La información se presenta como evidencia para revisión del analista.",
         normal,
     )
 
     overview_data = [
-        [Paragraph("<b>COMPANY OVERVIEW</b>", hw), ""],
-        ["FANTASY NAME", Paragraph(username_clean, normal)],
-        ["OWNER", Paragraph(username_clean, normal)],
-        ["DNI (PERSONAL ID)", Paragraph(pf("dni_cedula"), normal)],
-        ["CUIT/CUIL (TAX ID)", Paragraph(pf("cuit_cuil_ruc"), normal)],
-        ["BANKING ACCOUNT", banco_parts],
-        ["ADDRESS", Paragraph(pf("direccion_exacta"), normal)],
-        ["TELEPHONE NUMBER", Paragraph(pf("telefono_privado"), normal)],
-        ["EMAIL", Paragraph(pf("email"), normal)],
-        ["WEBSITE / CATALOGUE", url_link],
-        ["SALES", sales_desc],
-        ["EST. QTY OF PRODUCTS", Paragraph("See evidence section", normal)],
+        [Paragraph("<b>DATOS DEL RELEVAMIENTO</b>", hw), ""],
+        ["Titular / vendedor", Paragraph(html.escape(username_clean), normal)],
+        ["DNI / cédula", Paragraph(html.escape(str(pf("dni_cedula"))), normal)],
+        ["CUIT / CUIL / RUC", Paragraph(html.escape(str(pf("cuit_cuil_ruc"))), normal)],
+        ["Banco / cuenta", banco_parts],
+        ["Dirección relevada", Paragraph(html.escape(str(pf("direccion_exacta"))), normal)],
+        ["Teléfono privado", Paragraph(html.escape(str(pf("telefono_privado"))), normal)],
+        ["Correo electrónico", Paragraph(html.escape(str(pf("email"))), normal)],
+        ["Resultado", sales_desc],
+        ["Evidencia fotográfica", Paragraph("Ver sección de evidencia", normal)],
     ]
     t = Table(overview_data, colWidths=[5 * cm, 11 * cm])
     st = _overview_table_style()
@@ -566,7 +674,7 @@ def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
     S.append(Spacer(1, 15))
 
     # Correlation links
-    S.append(Paragraph("<b>Cross-Platform Correlation Analysis</b>", bold_s))
+    S.append(Paragraph("<b>Análisis de correlaciones entre plataformas</b>", bold_s))
     S.append(Spacer(1, 6))
 
     try:
@@ -611,6 +719,9 @@ def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
     S.append(Spacer(1, 10))
 
     imgs = _collect_evidence_images(reporte, limit=6)
+    if not imgs:
+        _capture_report_evidence(reporte)
+        imgs = _collect_evidence_images(reporte, limit=6)
 
     if imgs:
         for idx, im in enumerate(imgs):

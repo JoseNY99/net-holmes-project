@@ -73,7 +73,7 @@ function AppRoutes() {
       <Route
         path="/manual-scan"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute adminOnly>
             <ManualScan />
           </ProtectedRoute>
         }
@@ -129,7 +129,7 @@ function AppRoutes() {
       <Route
         path="/admin/scrapers"
         element={
-          <ProtectedRoute adminOnly>
+          <ProtectedRoute allowedRoles={['admin', 'developer']}>
             <ScraperSettings />
           </ProtectedRoute>
         }

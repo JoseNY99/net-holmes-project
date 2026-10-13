@@ -9,10 +9,10 @@ import './CronConfig.css';
 const PLATFORM_OPTIONS = ['tiktok', 'facebook', 'instagram', 'mercadolibre'];
 const EXTRACTION_LIMITS = [2, 5, 10, 20, 25, 50, 75, 100];
 const PROVEEDOR_OPTIONS = [
-  { value: 'google_meli_osint', label: '🌐 Google Serper + MeLi Developers + Certstream (OSINT Avanzado)' },
-  { value: 'playwright', label: '🆓 Gratuito / Local (DuckDuckGo OSINT + API ML + Playwright)' },
-  { value: 'rapidapi', label: '🔑 RapidAPI — Alternativa (APIs de terceros vía RapidAPI Key)' },
-  { value: 'apify', label: '☁️ Apify Cloud (Escaneo de Pago - Alta Precisión)' }
+  { value: 'google_meli_osint', label: 'Google Serper + MeLi Developers + Certstream (OSINT Avanzado)' },
+  { value: 'playwright', label: 'Gratuito / Local (DuckDuckGo OSINT + API ML + Playwright)' },
+  { value: 'rapidapi', label: 'RapidAPI — Alternativa (APIs de terceros vía RapidAPI Key)' },
+  { value: 'apify', label: 'Apify Cloud (Escaneo de Pago - Alta Precisión)' }
 ];
 const PROVINCIAS_AR = [
   "CABA", "Buenos Aires", "Catamarca", "Chaco", "Chubut", "Córdoba", "Corrientes",
@@ -279,7 +279,7 @@ export default function CronConfig() {
 
   const handleManualRun = async () => {
     try {
-      setLogs(prev => ["[Sistema] 🚀 Disparando escaneo forzado inmediato...", ...prev]);
+      setLogs(prev => ["[Sistema] Disparando escaneo forzado inmediato...", ...prev]);
       await triggerManualRun();
       setCronRunning(true);
       showNoticeModal({
@@ -463,7 +463,7 @@ export default function CronConfig() {
             <button className="btn-ghost" style={{fontSize: '0.8rem', padding: '4px 10px'}} onClick={deselectAllProvincias} disabled={isEditingDisabled}>Deseleccionar Todas</button>
           </div>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(91, 141, 239, 0.08)', padding: '8px 12px', borderRadius: '6px', border: '1px solid rgba(91, 141, 239, 0.15)' }}>
-            📍 Las provincias solo aplican a <strong>Facebook Marketplace</strong>. Instagram, TikTok y MercadoLibre buscan a nivel nacional (Argentina).
+            Las provincias solo aplican a <strong>Facebook Marketplace</strong>. Instagram, TikTok y MercadoLibre buscan a nivel nacional (Argentina).
           </p>
 
           <h3><FaClock /> Horario de Ejecución (Hora ARG)</h3>
@@ -478,12 +478,12 @@ export default function CronConfig() {
           </select>
           {proveedor === 'rapidapi' && (
             <p style={{ fontSize: '0.8rem', color: 'var(--warning)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              ⚠️ Requiere <code>RAPIDAPI_KEY</code> configurada en el archivo <code>.env</code> del backend.
+              Requiere <code>RAPIDAPI_KEY</code> configurada en el archivo <code>.env</code> del backend.
             </p>
           )}
           {proveedor === 'google_meli_osint' && (
             <p style={{ fontSize: '0.8rem', color: 'var(--accent-color, #38bdf8)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(56, 189, 248, 0.1)', padding: '8px 12px', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
-              ⚡ <strong>Suite OSINT Enterprise</strong>: Google Dorking estructurado (FB, IG, TikTok), API oficial de desarrolladores para Mercado Libre y monitoreo SSL de tiendas falsas (Certstream).
+              <strong>Suite OSINT Enterprise</strong>: Google Dorking estructurado (FB, IG, TikTok), API oficial de desarrolladores para Mercado Libre y monitoreo SSL de tiendas falsas (Certstream).
             </p>
           )}
           <h3 className="mt-2"><FaSlidersH /> Plataformas y Límites</h3>
@@ -602,11 +602,11 @@ export default function CronConfig() {
             <div ref={terminalLogsRef} className="terminal-console-body">
               {logs.map((log, i) => {
                 let logType = "log-normal";
-                if (log.includes("✅") || log.includes("Éxito") || log.includes("guardada con éxito")) logType = "log-success";
-                else if (log.includes("⚠️") || log.includes("Warning") || log.includes("Aviso")) logType = "log-warning";
-                else if (log.includes("❌") || log.includes("Error") || log.includes("Fallo")) logType = "log-danger";
-                else if (log.includes("🌐") || log.includes("Serper") || log.includes("OSINT")) logType = "log-osint";
-                else if (log.includes("📸") || log.includes("Screenshot")) logType = "log-photo";
+                if (log.includes("Éxito") || log.includes("guardada con éxito")) logType = "log-success";
+                else if (log.includes("Warning") || log.includes("Aviso")) logType = "log-warning";
+                else if (log.includes("Error") || log.includes("Fallo")) logType = "log-danger";
+                else if (log.includes("Serper") || log.includes("OSINT")) logType = "log-osint";
+                else if (log.includes("Screenshot")) logType = "log-photo";
                 else if (log.includes("======") || log.includes("---")) logType = "log-divider";
 
                 const matchTime = log.match(/^(\[\d{2}:\d{2}:\d{2}\])\s*(.*)$/);

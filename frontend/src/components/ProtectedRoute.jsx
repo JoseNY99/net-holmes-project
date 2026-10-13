@@ -2,8 +2,8 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-export default function ProtectedRoute({ children, adminOnly = false }) {
-  const { isAuthenticated, isAdmin, loading } = useAuth();
+export default function ProtectedRoute({ children, adminOnly = false, allowedRoles }) {
+  const { user, isAuthenticated, isAdmin, loading } = useAuth();
 
   // Mostrar spinner mientras verifica sesión
   if (loading) {
@@ -22,6 +22,10 @@ export default function ProtectedRoute({ children, adminOnly = false }) {
   // Redirigir si no está autenticado
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user?.rol)) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   // Redirigir si requiere admin y no lo es

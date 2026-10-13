@@ -487,7 +487,9 @@ export default function ChatCenter() {
   const toggleChatMode = async () => {
     if (!activeConversation || !activeConvId) return;
     try {
-      const newMode = activeConversation.is_bot_active ? 'analista' : 'bot';
+      const newMode = activeConversation.mode === 'Cerrado'
+        ? 'analista'
+        : activeConversation.is_bot_active ? 'analista' : 'bot';
       const res = await chatService.toggleMode(activeConvId, newMode);
       setActiveConversation(prev => ({ ...prev, is_bot_active: res.data.is_bot_active, mode: res.data.mode }));
     } catch (error) {
@@ -686,7 +688,7 @@ export default function ChatCenter() {
                   )}
 
                   {/* Botón Dar Orden de Arrancar al Bot para WhatsApp real */}
-                  {!isCurtisActive && isAdmin && (
+                  {!isCurtisActive && isAdmin && activeConversation.mode !== 'Cerrado' && (
                     <button
                       type="button"
                       className="btn-start-bot"
@@ -706,7 +708,9 @@ export default function ChatCenter() {
                     style={{ padding: '8px 15px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '6px' }}
                     title={activeConversation.is_bot_active ? 'Haz clic para pausar el bot y chatear tú como analista humano' : 'Haz clic para activar el bot automático'}
                   >
-                    {activeConversation.is_bot_active ? (
+                    {activeConversation.mode === 'Cerrado' ? (
+                      <><FaUserEdit /> Reabrir en modo manual</>
+                    ) : activeConversation.is_bot_active ? (
                       <><FaUserEdit /> Cambiar a Modo Manual (Analista)</>
                     ) : (
                       <><FaRobot /> Activar Bot Autónomo</>
@@ -731,7 +735,7 @@ export default function ChatCenter() {
                     <strong>{deliveryNotice.text}</strong>
                     {deliveryNotice.detail && <p style={{ margin: '2px 0 0 0', opacity: 0.9, fontSize: '0.82rem' }}>{deliveryNotice.detail}</p>}
                   </div>
-                  <button type="button" onClick={() => setDeliveryNotice(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>✕</button>
+                  <button type="button" aria-label="Cerrar aviso" onClick={() => setDeliveryNotice(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>x</button>
                 </div>
               )}
 
@@ -748,28 +752,28 @@ export default function ChatCenter() {
                         className="scenario-chip"
                         onClick={() => setChatInput("¡Hola! ¿Cuánto salen las zapatillas y qué talles tenés disponibles?")}
                       >
-                        👟 Preguntar Precio y Talles
+                        Preguntar Precio y Talles
                       </button>
                       <button 
                         type="button" 
                         className="scenario-chip"
                         onClick={() => setChatInput("Dale me sirve, ¿qué Alias o CBU me pasás para hacerte la transferencia ahora?")}
                       >
-                        💳 Pedir Alias / CBU
+                        Pedir Alias / CBU
                       </button>
                       <button 
                         type="button" 
                         className="scenario-chip"
                         onClick={() => setChatInput("¿Por qué zona están para pasar a retirar en persona hoy? ¿Tienen local?")}
                       >
-                        📍 Preguntar Zona / Showroom
+                        Preguntar Zona / Showroom
                       </button>
                       <button 
                         type="button" 
                         className="scenario-chip"
                         onClick={() => setChatInput("¿Hacés envíos en el día por motomensajería a Capital Federal?")}
                       >
-                        📦 Consultar Envíos
+                        Consultar Envíos
                       </button>
                     </>
                   ) : (
@@ -779,28 +783,28 @@ export default function ChatCenter() {
                         className="scenario-chip"
                         onClick={() => setChatInput("Tengo zapatillas Nike a $65.000, transferime al alias fer.indumentaria.mp o CVU 0000003100012345678901")}
                       >
-                        🏷️ Pasar Alias y CBU ($65.000)
+                        Pasar Alias y CBU ($65.000)
                       </button>
                       <button 
                         type="button" 
                         className="scenario-chip"
                         onClick={() => setChatInput("Estamos en Flores cerca de Nazca y Avellaneda, atendemos de lunes a sábado.")}
                       >
-                        📍 Showroom en Flores
+                        Showroom en Flores
                       </button>
                       <button 
                         type="button" 
                         className="scenario-chip"
                         onClick={() => setChatInput("¿Quién te dio mi número? ¿Sos de la policía o por qué tantas preguntas?")}
                       >
-                        🛡️ Prueba Hostil / Evasiva
+                        Prueba Hostil / Evasiva
                       </button>
                       <button 
                         type="button" 
                         className="scenario-chip"
                         onClick={() => setChatInput("Mi DNI es 37.890.123 y el CUIT 20-37890123-4. Transferime y te las separo.")}
                       >
-                        🆔 DNI y CUIT
+                        DNI y CUIT
                       </button>
                     </>
                   )}
@@ -842,14 +846,14 @@ export default function ChatCenter() {
                           }}>
                             <span>
                               {isCurtisMessage 
-                                ? '🤖 CURTIS HOLMES (HONEYPOT AI)' 
+                                ? 'CURTIS HOLMES (HONEYPOT AI)' 
                                 : msg.sender === 'bot' 
-                                  ? '🤖 HONEYPOT AI' 
+                                  ? 'HONEYPOT AI' 
                                   : msg.sender === 'analista' 
-                                    ? '👤 ANALISTA' 
+                                    ? 'ANALISTA' 
                                     : isCurtisActive 
-                                      ? '🎭 VENDEDOR SIMULADO' 
-                                      : '👤 CONTACTO / INFRACTOR'}
+                                      ? 'VENDEDOR SIMULADO' 
+                                      : 'CONTACTO / INFRACTOR'}
                             </span>
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
                               <span style={{ opacity: 0.65, fontWeight: 'normal', fontSize: '0.72rem' }}>
@@ -1005,7 +1009,7 @@ export default function ChatCenter() {
                                     fontSize: '0.85rem' 
                                   }}
                                 >
-                                  📄 Abrir Documento Adjunto
+                                  Abrir Documento Adjunto
                                 </a>
                               )}
                             </div>
@@ -1066,7 +1070,7 @@ export default function ChatCenter() {
                         onClick={() => setSimSender('analista')}
                         title="Tú investigas como Analista y DeepSeek responde como Vendedor infractor"
                       >
-                        🎭 Bot es Vendedor Simulado (Tú investigas)
+                        Bot es Vendedor Simulado (Tú investigas)
                       </button>
                       <button 
                         type="button" 
@@ -1074,7 +1078,7 @@ export default function ChatCenter() {
                         onClick={() => setSimSender('infractor')}
                         title="Tú eres el vendedor y DeepSeek responde como Analista Honeypot"
                       >
-                        🤖 Bot es Analista Honeypot (Tú vendes)
+                        Bot es Analista Honeypot (Tú vendes)
                       </button>
                     </div>
                   </div>
@@ -1109,7 +1113,7 @@ export default function ChatCenter() {
                   {activeConversation.is_bot_active && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '8px 14px', background: 'rgba(16, 197, 201, 0.08)', border: '1px solid rgba(16, 197, 201, 0.25)', borderRadius: '8px', fontSize: '0.82rem' }}>
                       <span style={{ color: 'var(--text-primary)' }}>
-                        🤖 <strong>Bot Autónomo Activo:</strong> Responderá solo a los mensajes entrantes. Puedes enviar un mensaje manual en cualquier momento.
+                        <strong>Bot Autónomo Activo:</strong> Responderá solo a los mensajes entrantes. Puedes enviar un mensaje manual en cualquier momento.
                       </span>
                       <button 
                         type="button" 
@@ -1135,10 +1139,10 @@ export default function ChatCenter() {
                       alignItems: 'center'
                     }}>
                       <div>
-                        <strong>⚠️ {deliveryNotice.text}</strong>
+                        <strong>{deliveryNotice.text}</strong>
                         {deliveryNotice.detail && <p style={{ margin: '3px 0 0 0', opacity: 0.95, fontSize: '0.82rem' }}>{deliveryNotice.detail}</p>}
                       </div>
-                      <button type="button" onClick={() => setDeliveryNotice(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '1rem', padding: '0 4px' }}>✕</button>
+                      <button type="button" aria-label="Cerrar aviso" onClick={() => setDeliveryNotice(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '1rem', padding: '0 4px' }}>x</button>
                     </div>
                   )}
                   <form onSubmit={handleSendChat} style={{ display: 'flex', gap: '10px' }}>
@@ -1258,10 +1262,10 @@ export default function ChatCenter() {
             ) : (
               systemLogs.map((log, i) => {
                 let color = '#c9d1d9';
-                if (log.includes('✅') || log.includes('Éxito') || log.includes('exitosa')) color = '#3fb950';
-                else if (log.includes('❌') || log.includes('Error') || log.includes('error')) color = '#f85149';
-                else if (log.includes('⚠️') || log.includes('Warning')) color = '#d29922';
-                else if (log.includes('🔄') || log.includes('🤖')) color = '#a5d6ff';
+                if (log.includes('Éxito') || log.includes('exitosa')) color = '#3fb950';
+                else if (log.includes('Error') || log.includes('error')) color = '#f85149';
+                else if (log.includes('Warning')) color = '#d29922';
+                else if (log.includes('[Bot') || log.includes('HONEYPOT')) color = '#a5d6ff';
                 else if (log.includes('[WhatsApp')) color = '#3fb950';
                 else if (log.includes('[Curtis')) color = '#d2a8ff';
                 else if (log.includes('[Honeypot')) color = '#f0883e';
@@ -1327,7 +1331,7 @@ export default function ChatCenter() {
                 className="scenario-chip"
                 onClick={() => setAddForm(prev => ({ ...prev, phone: '+595984716528', name: 'Sujeto de Prueba (+595984716528)' }))}
               >
-                🇵🇾 Sujeto (+595984716528)
+                Sujeto (+595984716528)
               </button>
             </div>
           </div>
@@ -1355,7 +1359,7 @@ export default function ChatCenter() {
                   checked={addForm.initial_mode === 'bot'} 
                   onChange={() => setAddForm(prev => ({ ...prev, initial_mode: 'bot' }))} 
                 />
-                🤖 Bot Automático (Curtis AI)
+                Bot Automático (Curtis AI)
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                 <input 
@@ -1365,7 +1369,7 @@ export default function ChatCenter() {
                   checked={addForm.initial_mode === 'analista'} 
                   onChange={() => setAddForm(prev => ({ ...prev, initial_mode: 'analista' }))} 
                 />
-                👤 Control Manual (Analista)
+                Control Manual (Analista)
               </label>
             </div>
           </div>
@@ -1377,7 +1381,7 @@ export default function ChatCenter() {
                 checked={addForm.send_opening_message} 
                 onChange={e => setAddForm(prev => ({ ...prev, send_opening_message: e.target.checked }))} 
               />
-              🚀 Enviar mensaje inicial de apertura por WhatsApp ahora
+              Enviar mensaje inicial de apertura por WhatsApp ahora
             </label>
 
             {addForm.send_opening_message && (
@@ -1442,7 +1446,7 @@ export default function ChatCenter() {
               style={{ width: '100%' }}
             />
             <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '5px' }}>
-              💡 Si el usuario lo metió mal (ej: sin código de país o con un dígito errado), corrígelo aquí para que las respuestas se sincronicen por WhatsApp.
+              Si el usuario lo metió mal (ej: sin código de país o con un dígito errado), corrígelo aquí para que las respuestas se sincronicen por WhatsApp.
             </small>
             <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
@@ -1450,7 +1454,7 @@ export default function ChatCenter() {
                 className="scenario-chip"
                 onClick={() => setEditForm(prev => ({ ...prev, phone: '+595984716528', titular: prev.titular || 'Sujeto de Prueba' }))}
               >
-                🇵🇾 Sujeto (+595984716528)
+                Sujeto (+595984716528)
               </button>
             </div>
           </div>
@@ -1475,7 +1479,7 @@ export default function ChatCenter() {
       <Modal
         isOpen={showBotConfigModal}
         onClose={() => setShowBotConfigModal(false)}
-        title="🧠 Personalización del Bot (Instrucciones y Mensajes)"
+        title="Personalización del Bot (Instrucciones y Mensajes)"
         footer={
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
             <button
@@ -1529,7 +1533,7 @@ export default function ChatCenter() {
 
             <div>
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>
-                💬 Mensaje Inicial de Apertura (Primer Mensaje)
+                Mensaje Inicial de Apertura (Primer Mensaje)
               </label>
               <textarea
                 className="input-field"
@@ -1546,7 +1550,7 @@ export default function ChatCenter() {
 
             <div>
               <label style={{ display: 'block', marginBottom: '6px', fontWeight: 'bold' }}>
-                🧠 Instrucciones de Inteligencia y Personalidad (System Prompt)
+                Instrucciones de Inteligencia y Personalidad (System Prompt)
               </label>
               <textarea
                 className="input-field"
@@ -1563,7 +1567,7 @@ export default function ChatCenter() {
                 }}
               />
               <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '4px' }}>
-                💡 <b>Consejo:</b> Indícale respuestas cortas (1 o 2 oraciones), tono casual de WhatsApp, y pedir con naturalidad el Alias/CBU de transferencia y la zona de retiro.
+                <b>Consejo:</b> Indícale respuestas cortas (1 o 2 oraciones), tono casual de WhatsApp, y pedir con naturalidad el Alias/CBU de transferencia y la zona de retiro.
               </small>
             </div>
           </form>

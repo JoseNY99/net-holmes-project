@@ -7,6 +7,18 @@ from sqlalchemy.orm import relationship
 
 from database import Base
 
+RECOLECCION_FIELDS = (
+    "dni_cedula",
+    "cuit_cuil_ruc",
+    "banco",
+    "alias_bancario",
+    "cvu_cbu",
+    "email",
+    "direccion_exacta",
+    "telefono_privado",
+    "precio_final_cotizado",
+)
+
 class PerfilInvestigacion(Base):
     __tablename__ = "perfil_investigacion"
 
@@ -42,3 +54,15 @@ class PerfilInvestigacion(Base):
 
     # Relaciones
     reporte = relationship("ReporteBrandDefense", back_populates="perfil", lazy="select")
+
+    @property
+    def progreso_recoleccion(self) -> int:
+        completados = sum(
+            bool((getattr(self, campo) or "").strip())
+            for campo in RECOLECCION_FIELDS
+        )
+        return round(completados * 100 / len(RECOLECCION_FIELDS))
+
+    @property
+    def umbral_80_alcanzado(self) -> bool:
+        return self.progreso_recoleccion >= 80

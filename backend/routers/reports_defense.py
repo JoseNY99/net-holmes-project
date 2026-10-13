@@ -1,3 +1,7 @@
+import logging
+import math
+from io import BytesIO
+
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
@@ -5,14 +9,59 @@ from pydantic import BaseModel
 
 from database import get_db
 from models.user import User
+from models.reporte import ReporteBrandDefense
+from models.reporte_final import ReporteFinal
 from schemas.reporte import ReporteResponse, ReporteCreate, ReporteUpdate, ReporteDetail, PaginatedReportes, ReporteQuickEdit
 from schemas.perfil_investigacion import PerfilUpdate, PerfilResponse
 from schemas.audit_log import AuditLogResponse
 
 from services import reports_defense_service, perfil_service
-from middleware.auth_middleware import get_current_user
+from middleware.auth_middleware import get_current_user, require_admin
+from services.report_completion import RECOLECCION_FIELDS, calculate_completion_percentage, get_missing_recollection_fields
 
 router = APIRouter(prefix="/api/reports_defense", tags=["Reportes Defense"])
+analyst_alert_logger = logging.getLogger("analyst.alerts")
+FINAL_REPORT_COMPLETION_THRESHOLD = 80
+AUTOMATIC_PHASE_TWO_STATES = {"Sospechoso", "Investigando"}
+
+
+def _reject_manual_phase_two_transition(estado):
+    state_value = getattr(estado, "value", estado)
+    if state_value in AUTOMATIC_PHASE_TWO_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La Fase 2 se inicia automáticamente al ingresar un hallazgo elegible.",
+        )
+
+
+def _require_report_completion(reporte, perfil, analyst: User) -> float:
+    percentage = calculate_completion_percentage({"perfil": perfil})
+    if percentage < FINAL_REPORT_COMPLETION_THRESHOLD:
+        missing_fields = get_missing_recollection_fields({"perfil": perfil})
+        required_fields = math.ceil(len(RECOLECCION_FIELDS) * FINAL_REPORT_COMPLETION_THRESHOLD / 100)
+        completed_count = len(RECOLECCION_FIELDS) - len(missing_fields)
+        remaining_count = max(0, required_fields - completed_count)
+        analyst_alert_logger.warning(
+            "Alerta para analista: el reporte final no se emitió; "
+            "reporte_id=%s referencia=%s porcentaje=%s umbral=%s "
+            "analyst_user_id=%s analyst_email=%s",
+            reporte.id,
+            reporte.referencia_interna,
+            percentage,
+            FINAL_REPORT_COMPLETION_THRESHOLD,
+            analyst.id,
+            analyst.correo,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"No se puede generar el reporte final: relevamiento completado "
+                f"al {percentage}% ({completed_count}/9 datos). Se requieren al menos "
+                f"{required_fields}/9; completa {remaining_count} más. Campos pendientes: "
+                f"{', '.join(missing_fields)}. Se notificó al analista."
+            ),
+        )
+    return percentage
 
 @router.get("/general")
 def get_general_stats(db: Session = Depends(get_db)):
@@ -67,6 +116,7 @@ def get_reporte(reporte_id: int, db: Session = Depends(get_db), _user: User = De
 
 @router.patch("/{reporte_id}", response_model=ReporteResponse)
 def update_reporte_status(reporte_id: int, data: ReporteUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    _reject_manual_phase_two_transition(data.estado)
     result = reports_defense_service.update_reporte_status(db, reporte_id, data.estado)
     
     # Cuando pasa a Sospechoso → Fase 2: disparar correlación profunda multicuenta
@@ -87,6 +137,7 @@ def update_reporte_status(reporte_id: int, data: ReporteUpdate, db: Session = De
 def quick_edit_reporte(reporte_id: int, data: ReporteQuickEdit, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     """Permite editar campos de Fase 1 (precio, moneda, teléfono, calle, notas) sin cambiar de fase."""
     update_data = data.model_dump(exclude_unset=True)
+    _reject_manual_phase_two_transition(update_data.get("estado"))
     result = reports_defense_service.quick_update_reporte(db, reporte_id, update_data)
     return result
 
@@ -96,7 +147,7 @@ class ManualScanRequest(BaseModel):
     brand_id: int | str
 
 @router.post("/scan/manual")
-async def scan_manual_url(req: ManualScanRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def scan_manual_url(req: ManualScanRequest, db: Session = Depends(get_db), _admin: User = Depends(require_admin)):
     """Analiza una URL arbitraria usando el Generic Scraper y lo guarda como un reporte manual."""
     try:
         scraped_data = await scrape_generic_url(req.url)
@@ -146,105 +197,91 @@ def get_audit_logs(reporte_id: int, db: Session = Depends(get_db), _user: User =
     return perfil_service.get_audit_logs(db, reporte_id)
 
 from fastapi.responses import StreamingResponse
-from services.export_service import generate_investigation_pdf, generate_investigation_docx, generate_cbn_investigation_pdf
-from services.cbn_pdf import generate_fase1_preview_pdf
+from services.export_service import (
+    generate_cbn_investigation_pdf,
+    generate_investigation_pdf,
+    generate_investigation_docx,
+)
 
-@router.get("/{reporte_id}/export/fase1-preview-pdf")
-def export_fase1_preview_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+
+def _get_final_report_data(reporte_id: int, db: Session, current_user: User):
     reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
-    if str(reporte.estado).lower() not in ["pendiente", "descartado"]:
+    from models.perfil_investigacion import PerfilInvestigacion
+    perfil = db.query(PerfilInvestigacion).filter(PerfilInvestigacion.reporte_id == reporte_id).first()
+    completion_percentage = _require_report_completion(reporte, perfil, current_user)
+    estado = getattr(reporte.estado, "value", reporte.estado)
+    if str(estado).lower() in {"pendiente", "descartado"}:
         raise HTTPException(
-            status_code=400, 
-            detail="La Vista Previa (Fase 1) solo está disponible para reportes en estado Pendiente o Descartado. Para reportes relevados utilice el Reporte Oficial CBN."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El informe final requiere un caso en Fase 2 de relevamiento.",
         )
-    
-    pdf_buffer = generate_fase1_preview_pdf(db, reporte)
-    
-    import uuid
-    random_id = uuid.uuid4().hex[:6]
-    platform_name = str(reporte.plataforma).lower()
-    filename = f"vista_previa_fase1_{platform_name}_{random_id}.pdf"
-    
-    headers = {
-        "Content-Disposition": f"attachment; filename={filename}"
-    }
-    return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
+    return reporte, perfil, completion_percentage
+
 
 @router.get("/{reporte_id}/export/pdf")
-def export_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
-    if str(reporte.estado).lower() in ["pendiente", "descartado"]:
-        raise HTTPException(
-            status_code=400, 
-            detail="Este reporte fue escaneado por el bot y aún se encuentra en Fase 1 (Pendiente). Debe ser aprobado en la fase de investigación y contar con relevamiento de datos antes de poder ser exportado o impreso."
-        )
-    
-    from models.perfil_investigacion import PerfilInvestigacion
-    perfil = db.query(PerfilInvestigacion).filter(PerfilInvestigacion.reporte_id == reporte_id).first()
-    
+def export_pdf(reporte_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    reporte, perfil, _ = _get_final_report_data(reporte_id, db, current_user)
     pdf_buffer = generate_investigation_pdf(db, reporte, perfil)
-    
-    import uuid
-    random_id = uuid.uuid4().hex[:6]
-    platform_name = reporte.plataforma.lower()
-    filename = f"rep_inv_{platform_name}_{random_id}.pdf"
-    
-    headers = {
-        "Content-Disposition": f"attachment; filename={filename}"
-    }
-    return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
+    filename = f"reporte_final_{reporte_id}.pdf"
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
-@router.get("/{reporte_id}/export/cbn-pdf")
-def export_cbn_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
-    if str(reporte.estado).lower() in ["pendiente", "descartado"]:
-        raise HTTPException(
-            status_code=400, 
-            detail="El reporte oficial CBN requiere que el caso haya sido relevado a la fase de investigación y cuente con datos de identidad completados en Fase 2."
-        )
-    
-    from models.perfil_investigacion import PerfilInvestigacion
-    perfil = db.query(PerfilInvestigacion).filter(PerfilInvestigacion.reporte_id == reporte_id).first()
-    
-    pdf_buffer = generate_cbn_investigation_pdf(db, reporte, perfil)
-    
-    import uuid
-    random_id = uuid.uuid4().hex[:6]
-    platform_name = reporte.plataforma.lower()
-    filename = f"cbn_report_{platform_name}_{random_id}.pdf"
-    
-    headers = {
-        "Content-Disposition": f"attachment; filename={filename}"
-    }
-    return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
 
 @router.get("/{reporte_id}/export/word")
-def export_word(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
-    if str(reporte.estado).lower() in ["pendiente", "descartado"]:
-        raise HTTPException(
-            status_code=400, 
-            detail="Este reporte fue escaneado por el bot y aún se encuentra en Fase 1 (Pendiente). Debe ser aprobado en la fase de investigación y contar con relevamiento de datos antes de poder ser exportado o impreso."
-        )
-        
+def export_word(reporte_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    reporte, perfil, _ = _get_final_report_data(reporte_id, db, current_user)
+    docx_buffer = generate_investigation_docx(db, reporte, perfil)
+    filename = f"reporte_final_{reporte_id}.docx"
+    return StreamingResponse(
+        docx_buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+@router.get("/{reporte_id}/export/cbn-pdf")
+def export_cbn_pdf(reporte_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    reporte = (
+        db.query(ReporteBrandDefense)
+        .filter(ReporteBrandDefense.id == reporte_id)
+        .with_for_update(of=ReporteBrandDefense)
+        .first()
+    )
+    if not reporte:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reporte no encontrado")
+
     from models.perfil_investigacion import PerfilInvestigacion
     perfil = db.query(PerfilInvestigacion).filter(PerfilInvestigacion.reporte_id == reporte_id).first()
-        
-    docx_buffer = generate_investigation_docx(db, reporte, perfil)
-    
-    import uuid
-    random_id = uuid.uuid4().hex[:6]
-    platform_name = reporte.plataforma.lower()
-    filename = f"rep_inv_{platform_name}_{random_id}.docx"
-    
-    headers = {
-        "Content-Disposition": f"attachment; filename={filename}"
-    }
-    return StreamingResponse(
-        docx_buffer, 
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
-        headers=headers
-    )
+    completion_percentage = _require_report_completion(reporte, perfil, current_user)
+    estado = getattr(reporte.estado, "value", reporte.estado)
+    if str(estado).lower() in {"pendiente", "descartado"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El informe final requiere un caso en Fase 2 de relevamiento.",
+        )
+
+    pdf_data = generate_cbn_investigation_pdf(db, reporte, perfil).getvalue()
+    reporte_final = db.query(ReporteFinal).filter(ReporteFinal.reporte_id == reporte_id).first()
+    if reporte_final:
+        reporte_final.completion_percentage = completion_percentage
+        reporte_final.pdf_data = pdf_data
+        reporte_final.generated_by_user_id = current_user.id
+    else:
+        db.add(ReporteFinal(
+            reporte_id=reporte_id,
+            completion_percentage=completion_percentage,
+            pdf_data=pdf_data,
+            generated_by_user_id=current_user.id,
+        ))
+    db.commit()
+
+    platform_name = (reporte.plataforma or "reporte").lower()
+    filename = f"reporte_final_{reporte_id}_{platform_name}.pdf"
+    headers = {"Content-Disposition": f"attachment; filename={filename}"}
+    return StreamingResponse(BytesIO(pdf_data), media_type="application/pdf", headers=headers)
+
 
 from services.export_service import generate_reportes_list_pdf, generate_reportes_list_docx
 
