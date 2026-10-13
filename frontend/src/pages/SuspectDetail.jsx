@@ -355,7 +355,7 @@ export default function SuspectDetail() {
   return (
     <div className="page-container fade-in">
       <div className="detail-header" style={{ marginBottom: '1rem' }}>
-        <Link to="/investigation" className="btn-ghost back-btn"><FaArrowLeft /> Volver al Triage</Link>
+        <Link to="/investigation" className="btn-ghost back-btn"><FaArrowLeft /> Volver a Investigaciones</Link>
         <div className="detail-title-row" style={{ marginTop: '1rem' }}>
           <div className="title-left">
             <div className="avatar-large"><FaBoxOpen /></div>
@@ -371,9 +371,9 @@ export default function SuspectDetail() {
               onChange={confirmStatusChange}
               style={{ background: (estado === 'Sospechoso' || estado === 'Investigando') ? 'rgba(231, 76, 60, 0.2)' : 'var(--glass-bg)', borderColor: (estado === 'Sospechoso' || estado === 'Investigando') ? 'var(--danger)' : 'var(--border-color)', transition: 'all 0.3s ease' }}
             >
-              <option value="Pendiente">Pendiente (Triage)</option>
               <option value="Investigando">Investigando (En Progreso)</option>
               <option value="Sospechoso">Sospechoso (Activar ABM)</option>
+              <option value="Confirmado">Confirmado (Falsificación)</option>
               <option value="Descartado">Descartado</option>
             </select>
           </div>

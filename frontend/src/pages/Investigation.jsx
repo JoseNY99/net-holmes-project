@@ -12,7 +12,7 @@ import './Investigation.css';
 
 export default function Investigation() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'fase1';
+  const initialTab = searchParams.get('tab') || 'fase2';
 
   const [activeTab, setActiveTab] = useState(initialTab);
   const [reportes, setReportes] = useState([]);
@@ -45,9 +45,7 @@ export default function Investigation() {
   // Ajustar estado según la pestaña activa
   useEffect(() => {
     setPage(1);
-    if (activeTab === 'fase1') {
-      setFilterEstado('Pendiente');
-    } else if (activeTab === 'fase2') {
+    if (activeTab === 'fase2') {
       setFilterEstado('Investigando,Sospechoso');
     } else if (activeTab === 'fase3') {
       setFilterEstado('Confirmado');
@@ -70,9 +68,6 @@ export default function Investigation() {
     try {
       const skip = (page - 1) * limit;
       let effectiveEstado = filterEstado;
-      if (activeTab === 'fase1' && filterEstado === 'Pendiente') {
-        effectiveEstado = 'Pendiente';
-      }
 
       const res = await getReportes({
         estado: effectiveEstado || undefined,
@@ -161,7 +156,7 @@ export default function Investigation() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
           <div>
             <h2><FaLayerGroup style={{ marginRight: '10px', color: 'var(--accent-primary)' }} /> Centro de Investigaciones & Hallazgos</h2>
-            <p>Monitoreo unificado del ciclo de vida de infracciones: Triage (Fase 1), Perfilado ABM (Fase 2) y Reportes Finales (Fase 3).</p>
+            <p>Monitoreo unificado del ciclo de vida de infracciones: Investigaciones Activas (Fase 2), Perfilado ABM y Reportes Finales (Fase 3).</p>
           </div>
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -186,14 +181,6 @@ export default function Investigation() {
 
         {/* Tabs de Fases */}
         <div className="investigation-tabs" style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '12px', marginTop: '1.5rem', overflowX: 'auto' }}>
-          <button 
-            type="button"
-            className={`tab-btn ${activeTab === 'fase1' ? 'tab-btn--active' : ''}`}
-            onClick={() => { setActiveTab('fase1'); setSearchParams({ tab: 'fase1' }); }}
-            style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'fase1' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'fase1' ? '#000' : 'var(--text-secondary)' }}
-          >
-            Fase 1: Triage & Hallazgos
-          </button>
           <button 
             type="button"
             className={`tab-btn ${activeTab === 'fase2' ? 'tab-btn--active' : ''}`}
@@ -275,7 +262,6 @@ export default function Investigation() {
               style={{ flex: '0 1 160px' }}
             >
               <option value="">Todos los Estados</option>
-              <option value="Pendiente">Pendiente (Triage)</option>
               <option value="Sospechoso">Sospechoso (Fase 2)</option>
               <option value="Investigando">Investigando (En Proceso)</option>
               <option value="Confirmado">Confirmado (Fase 3)</option>
