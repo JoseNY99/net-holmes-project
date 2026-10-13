@@ -23,7 +23,7 @@ async def scrape_generic_url(url: str) -> Dict[str, Any]:
             html = resp.text
             cron_logger.log("[Generic Scraper] HTTPX fetch exitoso.")
     except Exception as e:
-        cron_logger.log(f"⚠️ [Generic Scraper] HTTPX falló ({e}). Intentando Playwright...")
+        cron_logger.log(f" [Generic Scraper] HTTPX falló ({e}). Intentando Playwright...")
         # Lógica de fallback con Playwright para SPA / Cloudflare
         # Reutilizamos lógica de aislamiento (aislando en otro hilo si es necesario, pero acá ya estamos async)
         # Importamos de playwright_fallback o implementamos simple:
@@ -38,7 +38,7 @@ async def scrape_generic_url(url: str) -> Dict[str, Any]:
                 await browser.close()
                 cron_logger.log("[Generic Scraper] Playwright fetch exitoso.")
         except Exception as pe:
-            cron_logger.log(f"❌ [Generic Scraper] Playwright también falló: {pe}")
+            cron_logger.log(f" [Generic Scraper] Playwright también falló: {pe}")
             return {"error": str(pe)}
 
     # Parsear HTML
@@ -95,7 +95,7 @@ async def scrape_generic_url(url: str) -> Dict[str, Any]:
         seller_el = soup.find('span', class_='ui-pdp-color--BLUE')
         if seller_el: author = seller_el.text.strip()
         
-    cron_logger.log(f"✅ [Generic Scraper] Extracción exitosa. Teléfonos: {len(phones)}, Emails: {len(emails)}")
+    cron_logger.log(f" [Generic Scraper] Extracción exitosa. Teléfonos: {len(phones)}, Emails: {len(emails)}")
 
     return {
         "plataforma": "generico",

@@ -6,9 +6,9 @@ class MercadoLibreScraper:
     def __init__(self):
         pass
 
-    async def scrape(self, keyword: str, city_name: str = None):
+    async def scrape(self, keyword: str, city_name: str = None, max_results: int = 100):
         # API de MercadoLibre no bloquea para consultas públicas
-        results = await _scrape_mercadolibre_async(keyword, 10, city_name)
+        results = await _scrape_mercadolibre_async(keyword, max_results, city_name)
         for res in results:
             yield res
 
@@ -20,8 +20,9 @@ async def _scrape_mercadolibre_async(keyword: str, max_results: int = 10, city_n
     results = []
     cron_logger.log(f"[MercadoLibre] Iniciando API Request. Buscando '{keyword}' (max {max_results} res)...")
     
-    local_keyword = keyword.strip()
-    url = f"https://api.mercadolibre.com/sites/MLA/search?q={local_keyword}&limit={max_results}"
+    import urllib.parse
+    query = urllib.parse.urlencode({"q": keyword.strip(), "limit": max_results})
+    url = f"https://api.mercadolibre.com/sites/MLA/search?{query}"
     
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -77,12 +78,12 @@ async def _scrape_mercadolibre_async(keyword: str, max_results: int = 10, city_n
                         }
                     })
                 except Exception as e:
-                    cron_logger.log(f"⚠️ [MercadoLibre] Error parseando item {item.get('id')}: {e}")
+                    cron_logger.log(f" [MercadoLibre] Error parseando item {item.get('id')}: {e}")
                     continue
                     
             cron_logger.log(f"[MercadoLibre] Extracción exitosa: {len(results)} items parseados.")
     except Exception as e:
-        cron_logger.log(f"❌ [MercadoLibre] Error de scraping API para {keyword}: {e}")
+        cron_logger.log(f" [MercadoLibre] Error de scraping API para {keyword}: {e}")
         
     return results
 

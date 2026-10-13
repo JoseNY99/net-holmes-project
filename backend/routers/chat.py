@@ -377,7 +377,7 @@ async def send_curtis_simulation_message(
         db.commit()
         db.refresh(new_msg)
     except Exception as e:
-        cron_logger.log(f"[Curtis Holmes] ❌ Error guardando mensaje del usuario: {e}")
+        cron_logger.log(f"[Curtis Holmes]  Error guardando mensaje del usuario: {e}")
         db.rollback()
         raise HTTPException(
             status_code=500,
@@ -420,14 +420,14 @@ async def send_curtis_simulation_message(
                 try:
                     analyze_incoming_message(db, bot_msg)
                 except Exception as nlp_err:
-                    cron_logger.log(f"[Curtis Holmes NLP] ⚠️ {nlp_err}")
+                    cron_logger.log(f"[Curtis Holmes NLP]  {nlp_err}")
                 cron_logger.log(f"[Curtis Holmes AI - Vendedor] 🎭 Respuesta generada: {bot_reply_text[:60]}...")
         else:
             # El usuario actúa como Infractor -> Analizar mensaje del usuario con NLP de forma segura
             try:
                 analyze_incoming_message(db, new_msg)
             except Exception as nlp_err:
-                cron_logger.log(f"[Curtis Holmes NLP] ⚠️ {nlp_err}")
+                cron_logger.log(f"[Curtis Holmes NLP]  {nlp_err}")
 
             # El Bot responde como Analista Honeypot Comprador
             bot_reply_text, llm_error = await generate_honeypot_response(history, target_info)
@@ -443,7 +443,7 @@ async def send_curtis_simulation_message(
                 cron_logger.log(f"[Curtis Holmes AI - Honeypot] 🤖 Respuesta generada: {bot_reply_text[:60]}...")
 
     except Exception as e:
-        cron_logger.log(f"[Curtis Holmes] ❌ Error generando respuesta bot: {e}")
+        cron_logger.log(f"[Curtis Holmes]  Error generando respuesta bot: {e}")
         db.rollback()
         llm_error = str(e)
         bot_reply_text = "Disculpa, ocurrió un error temporal al procesar la respuesta con la IA."
@@ -681,8 +681,8 @@ async def start_bot_command(
         db.commit()
 
     cron_logger.log(
-        f"[Chat] 🚀 Orden de arranque enviada al Reporte #{reporte_id} por {_admin.nombre}. "
-        f"WhatsApp: {'✅' if wa_sent else '❌'} ({wa_detail})"
+        f"[Chat]  Orden de arranque enviada al Reporte #{reporte_id} por {_admin.nombre}. "
+        f"WhatsApp: {'' if wa_sent else ''} ({wa_detail})"
     )
 
     return {
@@ -740,7 +740,7 @@ async def analyst_send_message(
 
     cron_logger.log(
         f"[Chat] 👤 Analista ({_user.nombre}) envió mensaje al Reporte #{reporte_id}"
-        + (f" → WhatsApp {'✅' if wa_sent else '❌'} ({wa_detail})" if conv.whatsapp_phone else " (sin WhatsApp)")
+        + (f" → WhatsApp {'' if wa_sent else ''} ({wa_detail})" if conv.whatsapp_phone else " (sin WhatsApp)")
     )
 
     return {
@@ -797,7 +797,7 @@ async def send_template_to_contact(
 
     cron_logger.log(
         f"[Chat] 📲 {_user.nombre} envió plantilla '{tpl_name}' a {conv.whatsapp_phone}: "
-        f"{'✅ Éxito' if success else '❌ Falló'} ({detail})"
+        f"{' Éxito' if success else ' Falló'} ({detail})"
     )
 
     return {
@@ -973,7 +973,7 @@ async def edit_message(
             try:
                 analyze_incoming_message(db, msg)
             except Exception as e:
-                cron_logger.log(f"[Chat Edit] ⚠️ Error al reanalizar entidades NLP: {e}")
+                cron_logger.log(f"[Chat Edit]  Error al reanalizar entidades NLP: {e}")
 
         db.commit()
         db.refresh(msg)
@@ -993,7 +993,7 @@ async def edit_message(
                     )
                     meta_synced = meta_res.get("success", False)
             except Exception as meta_err:
-                cron_logger.log(f"[Chat Edit] ⚠️ No se pudo sincronizar edición con Meta: {meta_err}")
+                cron_logger.log(f"[Chat Edit]  No se pudo sincronizar edición con Meta: {meta_err}")
 
         user_ident = getattr(current_user, "correo", getattr(current_user, "nombre", "usuario"))
         cron_logger.log(
@@ -1013,7 +1013,7 @@ async def edit_message(
     except HTTPException:
         raise
     except Exception as exc:
-        cron_logger.log(f"[Chat Edit] ❌ Error inesperado al editar mensaje #{message_id}: {exc}")
+        cron_logger.log(f"[Chat Edit]  Error inesperado al editar mensaje #{message_id}: {exc}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error al editar mensaje: {str(exc)}")
 

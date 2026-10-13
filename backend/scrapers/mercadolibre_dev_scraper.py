@@ -39,19 +39,19 @@ class MercadoLibreDevScraper:
                     if resp.status_code == 200:
                         token_data = resp.json()
                         self._cached_token = token_data.get("access_token")
-                        cron_logger.log("✅ [MeLi Developers] Token OAuth obtenido exitosamente.")
+                        cron_logger.log(" [MeLi Developers] Token OAuth obtenido exitosamente.")
                         return self._cached_token
                     else:
-                        cron_logger.log(f"⚠️ [MeLi Developers] Error OAuth ({resp.status_code}): {resp.text}")
+                        cron_logger.log(f" [MeLi Developers] Error OAuth ({resp.status_code}): {resp.text}")
             except Exception as e:
-                cron_logger.log(f"⚠️ [MeLi Developers] Error obteniendo token: {e}")
+                cron_logger.log(f" [MeLi Developers] Error obteniendo token: {e}")
 
         return None
 
     async def scrape(
         self, keyword: str, limit: int = 10, city_name: str | None = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        cron_logger.log(f"📦 [MeLi Developers API] Buscando publicaciones para '{keyword}' (Límite: {limit})")
+        cron_logger.log(f" [MeLi Developers API] Buscando publicaciones para '{keyword}' (Límite: {limit})")
         token = await self._get_access_token()
         collected_count = 0
 
@@ -70,7 +70,7 @@ class MercadoLibreDevScraper:
                     if resp.status_code == 200:
                         data = resp.json()
                         results = data.get("results", [])
-                        cron_logger.log(f"✅ [MeLi Developers] {len(results)} publicaciones encontradas en API Oficial.")
+                        cron_logger.log(f" [MeLi Developers] {len(results)} publicaciones encontradas en API Oficial.")
 
                         for item in results:
                             raw_permalink = item.get("permalink", "")
@@ -121,9 +121,9 @@ class MercadoLibreDevScraper:
                             if collected_count >= limit:
                                 return
                     else:
-                        cron_logger.log(f"⚠️ [MeLi Developers] Status {resp.status_code}: {resp.text}")
+                        cron_logger.log(f" [MeLi Developers] Status {resp.status_code}: {resp.text}")
             except Exception as e:
-                cron_logger.log(f"⚠️ [MeLi Developers] Error consultando API: {e}")
+                cron_logger.log(f" [MeLi Developers] Error consultando API: {e}")
 
         # Fallback a DuckDuckGo OSINT si no hay token o falló la API
         if collected_count == 0:

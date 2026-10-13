@@ -58,7 +58,7 @@ def compress_image_bytes(data: bytes) -> tuple[bytes, str]:
         cron_logger.log(f'[Media Compressor] 🖼️ Imagen comprimida: {len(data)//1024}KB -> {len(compressed_bytes)//1024}KB ({savings}% ahorro)')
         return compressed_bytes, 'webp'
     except Exception as e:
-        cron_logger.log(f'[Media Compressor] ⚠️ Error comprimiendo imagen ({e}). Guardando original.')
+        cron_logger.log(f'[Media Compressor]  Error comprimiendo imagen ({e}). Guardando original.')
         return data, 'jpg'
 
 def compress_audio_bytes(data: bytes, ext_hint: str = 'ogg') -> tuple[bytes, str]:
@@ -91,7 +91,7 @@ def compress_audio_bytes(data: bytes, ext_hint: str = 'ogg') -> tuple[bytes, str
                 except Exception: pass
         return compressed_bytes, ext
     except Exception as e:
-        cron_logger.log(f'[Media Compressor] ⚠️ Error en compresión de audio ({e}).')
+        cron_logger.log(f'[Media Compressor]  Error en compresión de audio ({e}).')
         return data, ext_hint
 
 def compress_video_bytes(data: bytes, ext_hint: str = 'mp4') -> tuple[bytes, str]:
@@ -125,7 +125,7 @@ def compress_video_bytes(data: bytes, ext_hint: str = 'mp4') -> tuple[bytes, str
                 except Exception: pass
         return compressed_bytes, ext
     except Exception as e:
-        cron_logger.log(f'[Media Compressor] ⚠️ Error en compresión de video ({e}).')
+        cron_logger.log(f'[Media Compressor]  Error en compresión de video ({e}).')
         return data, ext_hint
 
 async def download_and_save_whatsapp_media(
@@ -139,7 +139,7 @@ async def download_and_save_whatsapp_media(
         return None, None
     token, _ = get_active_whatsapp_credentials(db)
     if not token:
-        cron_logger.log(f'[Media Downloader] ⚠️ Sin token de WhatsApp para descargar media {media_id}')
+        cron_logger.log(f'[Media Downloader]  Sin token de WhatsApp para descargar media {media_id}')
         return None, None
     headers = {'Authorization': f'Bearer {token}', 'User-Agent': 'curl/7.64.1'}
     meta_url = f'https://graph.facebook.com/v21.0/{media_id}'
@@ -147,17 +147,17 @@ async def download_and_save_whatsapp_media(
         async with httpx.AsyncClient(timeout=30.0) as client:
             meta_resp = await client.get(meta_url, headers=headers)
             if meta_resp.status_code != 200:
-                cron_logger.log(f'[Media Downloader] ❌ Error Meta ({meta_resp.status_code}) obteniendo media URL: {meta_resp.text}')
+                cron_logger.log(f'[Media Downloader]  Error Meta ({meta_resp.status_code}) obteniendo media URL: {meta_resp.text}')
                 return None, None
             meta_data = meta_resp.json()
             download_url = meta_data.get('url')
             mime_type = meta_data.get('mime_type') or mime_type_hint or 'application/octet-stream'
             if not download_url:
-                cron_logger.log(f'[Media Downloader] ❌ Meta no devolvió URL de descarga para {media_id}')
+                cron_logger.log(f'[Media Downloader]  Meta no devolvió URL de descarga para {media_id}')
                 return None, None
             file_resp = await client.get(download_url, headers=headers)
             if file_resp.status_code != 200:
-                cron_logger.log(f'[Media Downloader] ❌ Error ({file_resp.status_code}) descargando binario de {download_url}')
+                cron_logger.log(f'[Media Downloader]  Error ({file_resp.status_code}) descargando binario de {download_url}')
                 return None, None
             raw_bytes = file_resp.content
             if not raw_bytes:
@@ -191,5 +191,5 @@ async def download_and_save_whatsapp_media(
             cron_logger.log(f'[Media Downloader] 💾 Multimedia guardada: {relative_url} ({len(final_bytes)//1024} KB)')
             return relative_url, str(file_path)
     except Exception as e:
-        cron_logger.log(f'[Media Downloader] ❌ Error descargando y comprimiendo media {media_id}: {e}')
+        cron_logger.log(f'[Media Downloader]  Error descargando y comprimiendo media {media_id}: {e}')
         return None, None

@@ -23,7 +23,7 @@ class InstagramRapidAPIScraper:
         api_key = get_active_api_key("rapidapi") or self.api_key
 
         if not api_key:
-            cron_logger.log("[IG RapidAPI] ❌ ERROR: Falta RAPIDAPI_KEY en DB o entorno.")
+            cron_logger.log("[IG RapidAPI]  ERROR: Falta RAPIDAPI_KEY en DB o entorno.")
             return
 
         # Removing # if present in keyword
@@ -52,7 +52,7 @@ class InstagramRapidAPIScraper:
                     items = data.get("data")
                 
                 if not items:
-                    cron_logger.log(f"[IG RapidAPI] ⚠️ No se encontraron resultados o formato inesperado.")
+                    cron_logger.log(f"[IG RapidAPI]  No se encontraron resultados o formato inesperado.")
                     return
                 
                 for item in items:
@@ -123,12 +123,12 @@ class InstagramRapidAPIScraper:
                         if results_count >= settings.APIFY_MAX_ITEMS:
                             break
                     except Exception as e:
-                        cron_logger.log(f"[IG RapidAPI] ⚠️ Item malformado ignorado: {e}")
+                        cron_logger.log(f"[IG RapidAPI]  Item malformado ignorado: {e}")
                         continue
                         
-                cron_logger.log(f"[IG RapidAPI] ✅ Búsqueda completada. {results_count} items extraídos.")
+                cron_logger.log(f"[IG RapidAPI]  Búsqueda completada. {results_count} items extraídos.")
                 
         except httpx.HTTPError as e:
-            cron_logger.log(f"[IG RapidAPI] ❌ Error HTTP en ejecución: {e}")
+            cron_logger.log(f"[IG RapidAPI]  Error HTTP en ejecución: {e}")
         except Exception as e:
-            cron_logger.log(f"[IG RapidAPI] ❌ Error inesperado: {e}")
+            cron_logger.log(f"[IG RapidAPI]  Error inesperado: {e}")

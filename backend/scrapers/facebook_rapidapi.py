@@ -18,7 +18,7 @@ class FacebookMarketplaceScraper:
         cron_logger.log(f"[FB RapidAPI] Iniciando búsqueda para '{keyword}' en {target_city} (Límite: {settings.APIFY_MAX_ITEMS} items)")
         
         if not self.api_key:
-            cron_logger.log("[FB RapidAPI] ❌ ERROR: Falta RAPIDAPI_KEY en el entorno.")
+            cron_logger.log("[FB RapidAPI]  ERROR: Falta RAPIDAPI_KEY en el entorno.")
             return
 
         encoded_query = urllib.parse.quote(keyword)
@@ -39,7 +39,7 @@ class FacebookMarketplaceScraper:
                 
                 results = data.get("results", [])
                 if not isinstance(results, list):
-                    cron_logger.log(f"[FB RapidAPI] ⚠️ Formato inesperado. Se esperaba una lista en 'results'.")
+                    cron_logger.log(f"[FB RapidAPI]  Formato inesperado. Se esperaba una lista en 'results'.")
                     return
                 
                 for item in results:
@@ -83,12 +83,12 @@ class FacebookMarketplaceScraper:
                         if results_count >= settings.APIFY_MAX_ITEMS:
                             break
                     except Exception as e:
-                        cron_logger.log(f"[FB RapidAPI] ⚠️ Item malformado ignorado: {e}")
+                        cron_logger.log(f"[FB RapidAPI]  Item malformado ignorado: {e}")
                         continue
                 
-            cron_logger.log(f"[FB RapidAPI] ✅ Búsqueda completada. {results_count} items extraídos.")
+            cron_logger.log(f"[FB RapidAPI]  Búsqueda completada. {results_count} items extraídos.")
             
         except httpx.HTTPError as e:
-            cron_logger.log(f"[FB RapidAPI] ❌ Error HTTP en ejecución: {e}")
+            cron_logger.log(f"[FB RapidAPI]  Error HTTP en ejecución: {e}")
         except Exception as e:
-            cron_logger.log(f"[FB RapidAPI] ❌ Error inesperado: {e}")
+            cron_logger.log(f"[FB RapidAPI]  Error inesperado: {e}")

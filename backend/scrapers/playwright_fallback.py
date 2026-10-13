@@ -91,14 +91,14 @@ async def _run_playwright_async(platform: str, keyword: str, limit: int, city_na
             elif platform == "tiktok":
                 results = await _scrape_tiktok_async(page, keyword, limit, city_name, chill)
             else:
-                cron_logger.log(f"⚠️ [Playwright] Plataforma no soportada: {platform}")
+                cron_logger.log(f" [Playwright] Plataforma no soportada: {platform}")
 
             await browser.close()
     except Exception as e:
-        cron_logger.log(f"❌ [Playwright] Error crítico en hilo async: {e}")
+        cron_logger.log(f" [Playwright] Error crítico en hilo async: {e}")
         # A veces ocurre el error si no están los navegadores instalados
         if "playwright install" in str(e) or "Executable doesn't exist" in str(e):
-            cron_logger.log("💡 Sugerencia: Faltan los binarios de Playwright. Ejecuta: 'playwright install chromium' en tu terminal.")
+            cron_logger.log(" Sugerencia: Faltan los binarios de Playwright. Ejecuta: 'playwright install chromium' en tu terminal.")
 
     return results
 
@@ -139,7 +139,7 @@ async def _scrape_mercadolibre_async(page, keyword: str, limit: int, city_name: 
     try:
         await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
-        cron_logger.log(f"⚠️ [Playwright ML] Timeout: {e}")
+        cron_logger.log(f" [Playwright ML] Timeout: {e}")
         return results
 
     await chill(2.0, 4.0)
@@ -226,7 +226,7 @@ async def _scrape_mercadolibre_async(page, keyword: str, limit: int, city_name: 
         except Exception:
             continue
 
-    cron_logger.log(f"✅ [Playwright ML] {count} items extraídos.")
+    cron_logger.log(f" [Playwright ML] {count} items extraídos.")
     return results
 
 
@@ -250,7 +250,7 @@ async def _scrape_facebook_async(page, keyword: str, limit: int, city_name: str,
     try:
         await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
-        cron_logger.log(f"⚠️ [Playwright FB] Timeout: {e}")
+        cron_logger.log(f" [Playwright FB] Timeout: {e}")
         return results
 
     await chill(3.0, 5.0)
@@ -313,7 +313,7 @@ async def _scrape_facebook_async(page, keyword: str, limit: int, city_name: str,
         except Exception:
             continue
 
-    cron_logger.log(f"✅ [Playwright FB] {count} items extraídos.")
+    cron_logger.log(f" [Playwright FB] {count} items extraídos.")
     return results
 
 
@@ -324,9 +324,8 @@ async def _scrape_instagram_async(page, keyword: str, limit: int, city_name: str
     Extrae alt text y descripciones asociadas a cada post antes de
     pasarlos por el filtro de relevancia comercial.
     """
-    base_tag = keyword.replace(" ", "").lower()
-    # Forzar etiqueta local si es genérica para evitar resultados globales (USA)
-    tag = f"{base_tag}argentina" if "argentina" not in base_tag else base_tag
+    base_tag = keyword.strip().lstrip("#").replace(" ", "").lower()
+    tag = base_tag
     
     search_url = f"https://www.instagram.com/explore/tags/{tag}/"
     cron_logger.log(f"[Playwright IG] Navegando a: {search_url}")
@@ -335,7 +334,7 @@ async def _scrape_instagram_async(page, keyword: str, limit: int, city_name: str
     try:
         await page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
     except Exception:
-        cron_logger.log("⚠️ [Playwright IG] Bloqueado o timeout.")
+        cron_logger.log(" [Playwright IG] Bloqueado o timeout.")
         return results
 
     await chill(2.0, 4.0)
@@ -413,8 +412,18 @@ async def _scrape_instagram_async(page, keyword: str, limit: int, city_name: str
         except Exception:
             continue
 
-    cron_logger.log(f"✅ [Playwright IG] {count} items comerciales extraídos ({descartados} descartados por no ser venta).")
-    return results
+    # Aplicar filtro geográfico centralizado ANTES de retornar
+    from scrapers.filtro_geografico import FiltroGeografico
+    results_filtrados = []
+    for item in results:
+        debe_aceptar, motivo = FiltroGeografico.filtrar_item(item)
+        if debe_aceptar:
+            results_filtrados.append(item)
+        else:
+            cron_logger.log(f"🚫 [IG Filtro Geográfico] Descartado: {item.get('title')} - {motivo}")
+    
+    cron_logger.log(f" [Playwright IG] {len(results_filtrados)}/{count} items válidos después de filtro geográfico.")
+    return results_filtrados
 
 
 # ─── TikTok ──────────────────────────────────────────────────────────────────
@@ -424,16 +433,15 @@ async def _scrape_tiktok_async(page, keyword: str, limit: int, city_name: str, c
     Extrae la descripción visible de cada video y aplica el filtro
     de relevancia comercial para descartar memes/trends sin venta.
     """
-    # Añadimos explícitamente 'Argentina' al motor de búsqueda de TikTok
     encoded_kw = keyword.replace(' ', '%20')
-    search_url = f"https://www.tiktok.com/search?q={encoded_kw}%20Argentina"
+    search_url = f"https://www.tiktok.com/search?q={encoded_kw}"
     cron_logger.log(f"[Playwright TT] Navegando a: {search_url}")
 
     results = []
     try:
         await page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
     except Exception:
-        cron_logger.log("⚠️ [Playwright TT] Bloqueado o timeout.")
+        cron_logger.log(" [Playwright TT] Bloqueado o timeout.")
         return results
 
     await chill(2.0, 4.0)
@@ -442,10 +450,58 @@ async def _scrape_tiktok_async(page, keyword: str, limit: int, city_name: str, c
     try:
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
         await chill(1.0, 2.0)
+        # Scroll adicional para forzar carga de contenido
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await chill(2.0, 3.0)
     except Exception:
         pass
 
-    links = await page.locator("a[href*='/video/']").all()
+    # Intentar múltiples selectores TikTok (el DOM cambia con frecuencia)
+    links = []
+    selectors = [
+        "a[href*='/video/']",           # Clásico (video directo)
+        "a[href*='/@'][href*='/video']",  # Perfil + video
+        "a[href^='/@']",                # Links a perfiles
+        "div[role='link'] a",           # Links en divs
+        "a[data-e2e*='video']",         # TestID de TikTok
+        "a[href*='tiktok.com/@']",      # Genérico
+    ]
+    
+    for selector in selectors:
+        try:
+            found = await page.locator(selector).all()
+            if found and len(found) > 0:
+                links = found
+                cron_logger.log(f"[Playwright TT] ✅ Selector funcionó: {selector} ({len(links)} items)")
+                break
+        except Exception as e:
+            continue
+    
+    if not links:
+        cron_logger.log(f"[Playwright TT] ⚠️ No se encontraron videos con selectores estándar")
+        # Último recurso: buscar cualquier elemento con atributos de TikTok
+        try:
+            # Obtener todos los links de la página sin filtro
+            all_links = await page.locator("a").all()
+            if all_links:
+                # Filtrar solo los que parecen ser de TikTok
+                for link in all_links[:limit * 2]:
+                    try:
+                        href = await link.get_attribute("href")
+                        if href and ("/@" in href or "/video" in href or "tiktok.com" in href):
+                            links.append(link)
+                            if len(links) >= limit:
+                                break
+                    except Exception:
+                        pass
+            if links:
+                cron_logger.log(f"[Playwright TT] 🔍 Selector manual encontró {len(links)} items")
+        except Exception:
+            pass
+    
+    if not links:
+        cron_logger.log(f"[Playwright TT] ❌ TikTok está bloqueando Playwright o no devuelve contenido")
+    
     count = 0
     seen = set()
     descartados = 0
@@ -527,5 +583,15 @@ async def _scrape_tiktok_async(page, keyword: str, limit: int, city_name: str, c
         except Exception:
             continue
 
-    cron_logger.log(f"✅ [Playwright TT] {count} items comerciales extraídos ({descartados} descartados por no ser venta).")
-    return results
+    # Aplicar filtro geográfico centralizado ANTES de retornar
+    from scrapers.filtro_geografico import FiltroGeografico
+    results_filtrados = []
+    for item in results:
+        debe_aceptar, motivo = FiltroGeografico.filtrar_item(item)
+        if debe_aceptar:
+            results_filtrados.append(item)
+        else:
+            cron_logger.log(f"🚫 [TT Filtro Geográfico] Descartado: {item.get('title')} - {motivo}")
+    
+    cron_logger.log(f" [Playwright TT] {len(results_filtrados)}/{count} items válidos después de filtro geográfico.")
+    return results_filtrados

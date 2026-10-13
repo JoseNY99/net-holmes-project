@@ -89,7 +89,7 @@ def persistir_imagen_local(img_source: str | list, reporte_id: int, post_url: st
                 cron_logger.log(f'💾 [Evidencia Local] Foto remota descargada a {target_path.name}')
                 return f'/static/evidencias/{filename}'
         except Exception as e:
-            cron_logger.log(f'⚠️ [Evidencia Local] Error descargando foto remota: {e}')
+            cron_logger.log(f' [Evidencia Local] Error descargando foto remota: {e}')
             
     clean_post_url = limpiar_url_canonica(post_url) if post_url else None
     if clean_post_url and clean_post_url.startswith('http') and 'n/a' not in clean_post_url.lower():
@@ -117,9 +117,9 @@ def persistir_imagen_local(img_source: str | list, reporte_id: int, post_url: st
             cron_logger.log(f'📸 [Evidencia Local] Captura en vivo de {clean_post_url} para #{reporte_id}')
             ok = take_screenshot_threaded(clean_post_url, target_path, timeout=35.0)
             if ok and target_path.exists():
-                cron_logger.log(f'✅ [Evidencia Local] Captura guardada en {target_path.name}')
+                cron_logger.log(f' [Evidencia Local] Captura guardada en {target_path.name}')
                 return f'/static/evidencias/{filename}'
         except Exception as se:
-            cron_logger.log(f'⚠️ [Evidencia Local] Fallo captura: {se}')
+            cron_logger.log(f' [Evidencia Local] Fallo captura: {se}')
             
     return None

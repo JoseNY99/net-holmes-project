@@ -101,7 +101,7 @@ class CertstreamScanner:
                                 if count >= limit:
                                     return
         except Exception as e:
-            cron_logger.log(f"⚠️ [Certstream] crt.sh no disponible temporalmente ({e}). Usando Dorking Web...")
+            cron_logger.log(f" [Certstream] crt.sh no disponible temporalmente ({e}). Usando Dorking Web...")
 
         # 2. Dorking Web Abierta para Tiendas Falsas si faltan resultados
         if count < limit and settings.SERPER_API_KEY:
@@ -148,4 +148,4 @@ class CertstreamScanner:
                             if count >= limit:
                                 return
             except Exception as ew:
-                cron_logger.log(f"⚠️ [Certstream Dorking] Error en búsqueda de tiendas web: {ew}")
+                cron_logger.log(f" [Certstream Dorking] Error en búsqueda de tiendas web: {ew}")

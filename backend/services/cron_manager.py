@@ -32,7 +32,7 @@ def request_stop():
     """Señal inmediata para abortar cualquier escaneo en ejecución."""
     global _stop_requested
     _stop_requested = True
-    cron_logger.log("🛑 [Detención de Emergencia] Señal recibida. Abortando escaneo inmediatamente...")
+    cron_logger.log(" [Detención de Emergencia] Señal recibida. Abortando escaneo inmediatamente...")
 
 def get_whatsapp_number(text: str) -> str:
     """Extrae el primer número de WhatsApp o teléfono que encuentre usando regex."""
@@ -179,6 +179,14 @@ def _extract_single_clean_image_url(item: Dict[str, Any]) -> str | None:
 def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Brand, keyword: str = ""):
     """Procesa, mapea a ScanResult y guarda un único resultado en la base de datos de inmediato."""
     
+    # 0. VALIDACIÓN INICIAL: URL vacía o incompleta
+    url = item.get("url", "").strip()
+    
+    # Rechazar URLs vacías o incompletas
+    if not url or url.endswith("/@") or "/@/" in url or url == "https://www.tiktok.com/@":
+        cron_logger.log(f"🚫 [Validación URL] Descartado por URL vacía o incompleta: {url}")
+        return
+    
     # 1. Filtro Anti-Oficial / Filtro de País / Filtro de Marca
     title = item.get("title", "").lower()
     desc = item.get("description", "").lower()
@@ -190,7 +198,6 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
     
     # a. Bloquear Tiendas Oficiales mediante Lista Negra Dinámica (DB) y Filtro Básico
     titular = item.get("seller_profile", {}).get("name", "")
-    url = item.get("url", "")
     titulo = item.get("title", "")
     
     if es_cuenta_oficial(db, titular, url, titulo, brand.nombre):
@@ -227,11 +234,19 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         r'\bnicaragua\b', r'\brepublica dominicana\b', r'\bpuerto rico\b',
         r'\bmadrid\b', r'\bbarcelona\b', r'\bbogota\b', r'\blima\b', 
         r'\bsantiago de chile\b', r'\bmontevideo\b', r'\basuncion\b',
-        r'\busa\b'  # Con word boundary para no matchear "usado", "causa", etc.
+        r'\bpy\b',  # Código de país Paraguay
+        r'\bco\b',  # Código de país Colombia
+        r'\bmx\b',  # Código de país México
+        r'\bcl\b',  # Código de país Chile
+        r'\bpe\b',  # Código de país Perú
+        r'\busa\b',  # Con word boundary para no matchear "usado", "causa", etc.
+        r'\bgs\b',  # Moneda Guaraní Paraguayo
+        r'\(\d{4}\)\s+\d{3}[\s-]?\d{3}',  # Formato (0982) 610-944 (Paraguay)
+        r'\+595[\s-]?\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}',  # +595-982-XXXX (Paraguay)
     ]
-    has_foreign = any(re.search(pat, combined_text) for pat in foreign_patterns)
+    has_foreign = any(re.search(pat, combined_text, re.IGNORECASE) for pat in foreign_patterns)
     if has_foreign:
-        cron_logger.log(f"🚫 [Filtro] Descartado por ubicación extranjera evidente: {item.get('title')}")
+        cron_logger.log(f"🚫 [Filtro Geográfico] Descartado por ubicación extranjera evidente: {item.get('title')}")
         return
 
     non_apparel_patterns = [
@@ -242,10 +257,19 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         cron_logger.log(f"🚫 [Filtro] Descartado por categoría ajena a indumentaria: {item.get('title')}")
         return
 
-    # c. Limpieza de "Basura" (Debe mencionar la marca o la palabra clave)
+    # c. Limpieza de "Basura" (Debe mencionar la marca O ser claramente una falsificación)
     brand_name = brand.nombre.lower()
     kw_lower = keyword.lower() if keyword else ""
-    if brand_name not in combined_text and (not kw_lower or kw_lower not in combined_text):
+    
+    # Términos de falsificación conocida
+    terminos_falsificacion = [
+        "replica", "replicasG5", "g5", "trucho", "tailandesa", "copia", "imitacion", "clon", "aaa",
+        "fake", "falsificacion", "falsificado", "contrafaccion"
+    ]
+    tiene_termino_fake = any(term in combined_text for term in terminos_falsificacion)
+    
+    # Aceptar si: tiene la marca/keyword O tiene términos de falsificación evidente
+    if brand_name not in combined_text and (not kw_lower or kw_lower not in combined_text) and not tiene_termino_fake:
         cron_logger.log(f"🚫 [Filtro] Descartado por no tener relación con '{brand.nombre}': {item.get('title')}")
         return
 
@@ -415,7 +439,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
                 cron_logger.log(f"ℹ️ [Plataforma Data] {pe}")
 
         db.commit()
-        cron_logger.log(f"✅ [Éxito] Reporte guardado: {brand.nombre} - {item.get('plataforma')} - {new_result.url_evidencia}")
+        cron_logger.log(f" [Éxito] Reporte guardado: {brand.nombre} - {item.get('plataforma')} - {new_result.url_evidencia}")
 
         # Trigger correlación automática
         try:
@@ -425,7 +449,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
 
     except Exception as e:
         db.rollback()
-        cron_logger.log(f"⚠️ Error al guardar item de {item.get('plataforma')}: {e}")
+        cron_logger.log(f" Error al guardar item de {item.get('plataforma')}: {e}")
 
 async def run_automatic_scan(search_options: dict | None = None):
     """Ejecuta el ciclo de escaneo automático para todas las marcas."""
@@ -456,7 +480,7 @@ async def run_automatic_scan(search_options: dict | None = None):
         if not brands:
             brands = db.query(Brand).all()
         if not brands:
-            cron_logger.log("⚠️ No hay marcas registradas en el sistema. Registra marcas antes de escanear.")
+            cron_logger.log(" No hay marcas registradas en el sistema. Registra marcas antes de escanear.")
             return
 
         if search_options and search_options.get("brand_ids"):
@@ -507,7 +531,14 @@ async def run_automatic_scan(search_options: dict | None = None):
         # Excluir 'web' de escaneos automáticos (las webs quedan reservadas exclusivamente para el escaneo manual)
         plataformas_activas = [p for p in plataformas_activas if p != "web"]
 
+        # IMPORTANTE: Si viene search_options con plataformas específicas del usuario → RESPETARLAS
+        if search_options and search_options.get("plataformas"):
+            plataformas_activas = search_options["plataformas"]
+            cron_logger.log(f" Plataformas seleccionadas por usuario: {plataformas_activas}")
+
         proveedor = getattr(cron_config, 'proveedor', 'google_meli_osint') or 'google_meli_osint'
+        cron_logger.log(f" Proveedor configurado: {proveedor}")
+        cron_logger.log(f" Plataformas activas: {plataformas_activas}")
 
         # Si el proveedor es Apify o RapidAPI, excluir automáticamente MercadoLibre para evitar conflictos
         if proveedor in ("apify", "rapidapi"):
@@ -517,7 +548,7 @@ async def run_automatic_scan(search_options: dict | None = None):
         
         for brand in brands:
             if _stop_requested:
-                cron_logger.log("🛑 [Detención de Emergencia] Escaneo cancelado.")
+                cron_logger.log(" [Detención de Emergencia] Escaneo cancelado.")
                 break
             if time_limit_reached():
                 break
@@ -530,13 +561,19 @@ async def run_automatic_scan(search_options: dict | None = None):
                     break
 
                 requested_keywords = search_options.get("keywords") if search_options else None
+                
+                # Si el usuario proporciona palabras clave, usarlas
                 if requested_keywords:
                     keywords = [
                         term if brand.nombre.casefold() in term.casefold() else f"{brand.nombre} {term}"
                         for term in requested_keywords
                     ]
                 else:
-                    keywords = await generate_keywords(brand, platform_name)
+                    # El usuario NO pasó keywords: buscar SOLO por marca (respeta intención del usuario)
+                    # Antes: generar_keywords_optimizados() agregaba "zapatillas", "remera", etc.
+                    # Ahora: si el usuario solo pasa marca, respetamos eso
+                    keywords = [brand.nombre]
+                
                 cron_logger.log(f"Keywords a buscar en {platform_name}: {keywords}")
                 
                 for keyword in keywords:
@@ -561,16 +598,60 @@ async def run_automatic_scan(search_options: dict | None = None):
                                     process_and_save_single_result(db, item, brand, keyword)
                             elif platform_name == "instagram":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_ig or 10
+                                collected_ig = 0
                                 async for item in engine.scrape_instagram(keyword, provincia, proveedor):
                                     if _stop_requested or time_limit_reached():
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
+                                    collected_ig += 1
+                                
+                                if collected_ig < 3 and proveedor != "apify":
+                                    cron_logger.log(f" [Instagram] Pocos resultados ({collected_ig}). Intentando fallback con hashtags específicos usando {proveedor}...")
+                                    hashtags_fallback = [
+                                        f"{brand.nombre} replica Argentina",
+                                        f"{brand.nombre} g5 Argentina"
+                                    ]
+                                    for hashtag in hashtags_fallback:
+                                        if collected_ig >= 10:
+                                            break
+                                        async for item in engine.scrape_instagram(hashtag, provincia, proveedor):
+                                            if _stop_requested or time_limit_reached():
+                                                break
+                                            desc = item.get("description", "").lower() if isinstance(item, dict) else ""
+                                            if "original" not in desc:
+                                                process_and_save_single_result(db, item, brand, keyword)
+                                                collected_ig += 1
+                                                if collected_ig >= 10:
+                                                    break
+                                            
                             elif platform_name == "tiktok":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_tt or 10
+                                collected_tt = 0
                                 async for item in engine.scrape_tiktok(keyword, provincia, proveedor):
                                     if _stop_requested or time_limit_reached():
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
+                                    collected_tt += 1
+                                
+                                if collected_tt < 3 and proveedor != "apify":
+                                    cron_logger.log(f" [TikTok] Pocos resultados ({collected_tt}). Intentando fallback con hashtags específicos usando {proveedor}...")
+                                    hashtags_fallback = [
+                                        f"{brand.nombre} replica Argentina",
+                                        f"{brand.nombre} g5 Argentina"
+                                    ]
+                                    for hashtag in hashtags_fallback:
+                                        if collected_tt >= 10:
+                                            break
+                                        async for item in engine.scrape_tiktok(hashtag, provincia, proveedor):
+                                            if _stop_requested or time_limit_reached():
+                                                break
+                                            desc = item.get("description", "").lower() if isinstance(item, dict) else ""
+                                            if "original" not in desc:
+                                                process_and_save_single_result(db, item, brand, keyword)
+                                                collected_tt += 1
+                                                if collected_tt >= 10:
+                                                    break
+                                            
                             elif platform_name == "mercadolibre":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_ml or 10
                                 async for item in engine.scrape_mercadolibre(keyword, provincia, proveedor):
@@ -589,9 +670,32 @@ async def run_automatic_scan(search_options: dict | None = None):
                 break
                         
         if _stop_requested:
-            cron_logger.log("🛑 ====== ESCANEO DETENIDO POR EMERGENCIA ======")
+            cron_logger.log(" ====== ESCANEO DETENIDO POR EMERGENCIA ======")
         else:
-            cron_logger.log("====== ESCANEO AUTOMÁTICO FINALIZADO ======")
+            cron_logger.log("====== INICIANDO AUTO-COMPLETACIÓN DE FASE 1 ======")
+        
+        # Auto-completar todos los reportes en Pendiente (Fase 1)
+        try:
+            from services.fase1_auto_completor import Fase1AutoCompletor
+            from models.reporte import ReporteBrandDefense
+            
+            reportes_pendientes = db.query(ReporteBrandDefense).filter(
+                ReporteBrandDefense.estado == "Pendiente"
+            ).all()
+            
+            if reportes_pendientes:
+                ids = [r.id for r in reportes_pendientes]
+                resultado = Fase1AutoCompletor.auto_completar_batch(db, ids, verbose=True)
+                cron_logger.log(
+                    f"✅ [Fase1→2 AUTO] {resultado['completados']} reportes completados y avanzados a Investigación. "
+                    f"{resultado['pendientes']} en espera de más datos. {resultado['errores']} errores."
+                )
+            else:
+                cron_logger.log("ℹ️  [Fase1→2 AUTO] No hay reportes en Pendiente para auto-completar.")
+        except Exception as e:
+            cron_logger.log(f"⚠️  [Fase1→2 AUTO] Error en auto-completación: {str(e)}")
+        
+        cron_logger.log("====== ESCANEO AUTOMÁTICO FINALIZADO ======")
         
     except Exception as e:
         cron_logger.log(f"Error fatal en escaneo: {e}")
@@ -627,9 +731,9 @@ def update_job_schedule(db: Session = None):
         )
         cron_logger.log(f"⏰ [Cron Programado] ACTIVO: Programado para ejecutarse a las {hour:02d}:{minute:02d} (Hora Argentina)")
     else:
-        cron_logger.log("⏸️ [Cron Programado] Motor programado desactivado.")
+        cron_logger.log(" [Cron Programado] Motor programado desactivado.")
 
 async def trigger_manual_scan():
     """Lanza el escaneo desde el panel (sin esperar al cron)."""
-    cron_logger.log("🚀 [Manual] Inicio de escaneo forzado solicitado.")
+    cron_logger.log(" [Manual] Inicio de escaneo forzado solicitado.")
     await run_automatic_scan()

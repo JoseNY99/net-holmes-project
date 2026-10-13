@@ -64,11 +64,11 @@ async def _scrape_tiktok_async(keyword: str, max_results: int = 10, city_name: s
                     })
                     cron_logger.log(f"[TikTok] 📹 Video extraído ({count}/{max_results}): {url_evidencia}")
                 except Exception as e:
-                    cron_logger.log(f"⚠️ [TikTok] Error parseando video: {e}")
+                    cron_logger.log(f" [TikTok] Error parseando video: {e}")
                     
             cron_logger.log(f"[TikTok] Extracción exitosa: {len(results)} videos parseados.")
         except Exception as e:
-            cron_logger.log(f"❌ [TikTok] Error de scraping general para {keyword}: {e}")
+            cron_logger.log(f" [TikTok] Error de scraping general para {keyword}: {e}")
         finally:
             cron_logger.log(f"[TikTok] Cerrando instancia de Chromium...")
             await browser.close()

@@ -19,7 +19,7 @@ class TikTokScraper:
         cron_logger.log(f"[TT RapidAPI] Iniciando búsqueda de texto para '{query}' (Límite: {settings.APIFY_MAX_ITEMS} items)")
         
         if not self.api_key:
-            cron_logger.log("[TT RapidAPI] ❌ ERROR: Falta RAPIDAPI_KEY.")
+            cron_logger.log("[TT RapidAPI]  ERROR: Falta RAPIDAPI_KEY.")
             return
 
         encoded_query = urllib.parse.quote(query)
@@ -39,7 +39,7 @@ class TikTokScraper:
                 items = data.get("item_list", [])
                 
                 if not items:
-                    cron_logger.log(f"[TT RapidAPI] ⚠️ No se encontraron resultados o formato inesperado.")
+                    cron_logger.log(f"[TT RapidAPI]  No se encontraron resultados o formato inesperado.")
                     return
                     
                 for item in items:
@@ -92,12 +92,12 @@ class TikTokScraper:
                         if results_count >= settings.APIFY_MAX_ITEMS:
                             break
                     except Exception as e:
-                        cron_logger.log(f"[TT RapidAPI] ⚠️ Item malformado ignorado: {e}")
+                        cron_logger.log(f"[TT RapidAPI]  Item malformado ignorado: {e}")
                         continue
             
-            cron_logger.log(f"[TT RapidAPI] ✅ {results_count} items extraídos.")
+            cron_logger.log(f"[TT RapidAPI]  {results_count} items extraídos.")
             
         except httpx.HTTPError as e:
-            cron_logger.log(f"[TT RapidAPI] ❌ Error HTTP en ejecución: {e}")
+            cron_logger.log(f"[TT RapidAPI]  Error HTTP en ejecución: {e}")
         except Exception as e:
-            cron_logger.log(f"[TT RapidAPI] ❌ Error: {e}")
+            cron_logger.log(f"[TT RapidAPI]  Error: {e}")

@@ -130,7 +130,7 @@ def analyze_incoming_message(db: Session, message: Message):
                     __import__('services.llm_client', fromlist=['extract_entities_llm']).extract_entities_llm(text)
                 )
         except Exception as e:
-            cron_logger.log(f"[NLP LLM] ⚠️ Error en extracción LLM: {e}")
+            cron_logger.log(f"[NLP LLM]  Error en extracción LLM: {e}")
 
     # ═══ MERGE: Regex tiene prioridad (más confiable), LLM complementa ═══
     merged = {**llm_entities, **regex_entities}
@@ -145,12 +145,12 @@ def analyze_incoming_message(db: Session, message: Message):
         try:
             _upsert_perfil(db, message, merged)
         except Exception as e:
-            cron_logger.log(f"[NLP] ⚠️ Error en _upsert_perfil: {e}")
+            cron_logger.log(f"[NLP]  Error en _upsert_perfil: {e}")
 
     try:
         db.commit()
     except Exception as e:
-        cron_logger.log(f"[NLP] ⚠️ Error al guardar entidades de mensaje: {e}")
+        cron_logger.log(f"[NLP]  Error al guardar entidades de mensaje: {e}")
         db.rollback()
 
 
@@ -238,7 +238,7 @@ def _upsert_perfil(db: Session, message: Message, entities: dict):
                         )
                         db.add(audit)
                     except Exception as err:
-                        cron_logger.log(f"[NLP AuditLog] ⚠️ {err}")
+                        cron_logger.log(f"[NLP AuditLog]  {err}")
 
     if updated_fields:
-        cron_logger.log(f"[NLP → Perfil] ✅ Campos actualizados en Reporte #{reporte_id}: {updated_fields}")
+        cron_logger.log(f"[NLP → Perfil]  Campos actualizados en Reporte #{reporte_id}: {updated_fields}")

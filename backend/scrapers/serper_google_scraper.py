@@ -107,9 +107,9 @@ class SerperGoogleScraper:
                             if collected >= limit:
                                 return
                     else:
-                        cron_logger.log(f"⚠️ [Serper.dev] Status {resp.status_code}: {resp.text}")
+                        cron_logger.log(f" [Serper.dev] Status {resp.status_code}: {resp.text}")
             except Exception as e:
-                cron_logger.log(f"⚠️ [Serper.dev] Error: {e}")
+                cron_logger.log(f" [Serper.dev] Error: {e}")
 
         elif settings.GOOGLE_CSE_API_KEY and settings.GOOGLE_CSE_CX:
             cron_logger.log("🔑 [Google CSE] Ejecutando consulta via Google Custom Search...")
@@ -166,7 +166,7 @@ class SerperGoogleScraper:
                             if collected >= limit:
                                 return
             except Exception as e:
-                cron_logger.log(f"⚠️ [Google CSE] Error: {e}")
+                cron_logger.log(f" [Google CSE] Error: {e}")
 
         if collected == 0:
             cron_logger.log("🔄 [Google/Serper OSINT] Sin API Keys o 0 resultados. Derivando a DuckDuckGo OSINT...")
@@ -183,6 +183,9 @@ class SerperGoogleScraper:
         elif platform == "instagram":
             return "/p/" in u or "/reel/" in u
         elif platform == "tiktok":
+            # Rechazar URLs incompletas como "tiktok.com/@" sin username
+            if u.endswith("/@") or "/@/" in u:
+                return False
             if "vt.tiktok.com/" in u:
                 return True
             m = re.search(r'tiktok\.com/@([A-Za-z0-9_.-]+)/(?:video|photo)/\d+', u)

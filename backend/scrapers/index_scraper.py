@@ -85,7 +85,7 @@ async def _fetch_ddg_html(query: str, limit: int = 30) -> list:
             })
                 
     except Exception as e:
-        cron_logger.log(f"⚠️ [DDG OSINT] Error usando ddgs: {e}")
+        cron_logger.log(f" [DDG OSINT] Error usando ddgs: {e}")
         
     valid_results = []
     for item in results:
@@ -324,10 +324,10 @@ async def ejecutar_motor_indexado(
             results = await _fetch_ddg_html(query, limit)
 
         if not results:
-            cron_logger.log(f"[DDG Native] ❌ Sin resultados para '{keyword}' en {platform} ({loc}).")
+            cron_logger.log(f"[DDG Native]  Sin resultados para '{keyword}' en {platform} ({loc}).")
             continue
 
-        cron_logger.log(f"[DDG Native] ✅ {len(results)} resultados obtenidos para '{keyword}' en {platform} ({loc}).")
+        cron_logger.log(f"[DDG Native]  {len(results)} resultados obtenidos para '{keyword}' en {platform} ({loc}).")
 
         logo = PLATFORM_LOGOS.get(platform, "")
 
@@ -406,7 +406,7 @@ async def ejecutar_motor_indexado(
     # ── Fallback: MercadoLibre API Pública Gratuita ──
     # Si DDG no devolvió nada para ML, consultar directamente la API oficial
     if platform == "mercadolibre" and yielded_count == 0:
-        cron_logger.log(f"[DDG Native] 📦 Fallback ML: DDG devolvió 0 resultados. Consultando API pública de MercadoLibre...")
+        cron_logger.log(f"[DDG Native]  Fallback ML: DDG devolvió 0 resultados. Consultando API pública de MercadoLibre...")
         async for ml_item in _fallback_mercadolibre_api(keyword, limit):
             yield ml_item
 
@@ -447,7 +447,7 @@ async def _fallback_mercadolibre_api(keyword: str, limit: int = 10) -> AsyncGene
             response.raise_for_status()
             data = response.json()
             items = data.get("results", [])
-            cron_logger.log(f"[Fallback ML API] ✅ {len(items)} items encontrados para '{keyword}'.")
+            cron_logger.log(f"[Fallback ML API]  {len(items)} items encontrados para '{keyword}'.")
 
             for api_item in items:
                 seller = api_item.get("seller", {})

@@ -26,7 +26,7 @@ class TikTokApifyScraper:
         
         client = self._get_client()
         if not client:
-            cron_logger.log("[TT Apify] ❌ ERROR: Falta APIFY_API_TOKEN en DB o .env.")
+            cron_logger.log("[TT Apify]  ERROR: Falta APIFY_API_TOKEN en DB o .env.")
             return
 
         fetch_limit = max(settings.APIFY_MAX_ITEMS * 2, 6)
@@ -39,7 +39,7 @@ class TikTokApifyScraper:
             "proxyConfiguration": {
                 "useApifyProxy": True,
                 "apifyProxyGroups": ["RESIDENTIAL"],
-                "apifyProxyCountry": settings.DEFAULT_PROXY_COUNTRY
+                "apifyProxyCountry": "AR"
             }
         }
         
@@ -134,11 +134,11 @@ class TikTokApifyScraper:
                     if results_count >= settings.APIFY_MAX_ITEMS:
                         break
                 except Exception as e:
-                    cron_logger.log(f"[TT Apify] ⚠️ Item malformado ignorado: {e}")
+                    cron_logger.log(f"[TT Apify]  Item malformado ignorado: {e}")
                     continue
             
-            cron_logger.log(f"[TT Apify] ✅ {results_count} items extraídos.")
+            cron_logger.log(f"[TT Apify]  {results_count} items extraídos.")
             
         except Exception as e:
-            cron_logger.log(f"[TT Apify] ❌ Error: {e}")
+            cron_logger.log(f"[TT Apify]  Error: {e}")
             raise e

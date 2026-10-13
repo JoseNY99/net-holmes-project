@@ -53,6 +53,7 @@ class DashboardSearchRequest(BaseModel):
     provincias: list[str] = Field(min_length=1, max_length=24)
     keywords: list[str] = Field(default_factory=list, max_length=10)
     duration_minutes: int = Field(default=30, ge=5, le=60)
+    plataformas: list[str] = Field(default_factory=lambda: ["facebook", "instagram", "tiktok", "mercadolibre"], max_length=4)
 
 @router.post('/start')
 async def start_cron_force(
@@ -85,6 +86,7 @@ async def start_cron_force(
             "provincias": locations,
             "keywords": [keyword.strip() for keyword in req.keywords if keyword.strip()],
             "duration_minutes": req.duration_minutes,
+            "plataformas": req.plataformas,
         }
     elif current_user.rol not in ("admin", "sup_admin"):
         raise HTTPException(status_code=422, detail="Selecciona marcas y provincias para iniciar la búsqueda.")

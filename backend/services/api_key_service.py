@@ -82,7 +82,7 @@ def get_active_api_key(service_name: str, db: Session = None) -> str | None:
             return db_key.api_key.strip()
             
     except Exception as e:
-        cron_logger.log(f"⚠️ [API Key Service] Error consultando BD para {srv}: {e}")
+        cron_logger.log(f" [API Key Service] Error consultando BD para {srv}: {e}")
     finally:
         if close_db:
             db.close()

@@ -64,7 +64,7 @@ class ScraperEngine:
         """Ejecuta el escáner Premium de Apify directamente usando el motor Apify."""
         if not settings.APIFY_API_TOKEN:
             cron_logger.log(
-                f"❌ [Apify Cloud] Error: Falta APIFY_API_TOKEN en .env. "
+                f" [Apify Cloud] Error: Falta APIFY_API_TOKEN en .env. "
                 f"No se puede ejecutar Apify para {platform}."
             )
             return
@@ -87,7 +87,7 @@ class ScraperEngine:
         """Motor RapidAPI — usa scrapers de terceros vía RapidAPI key."""
         if not settings.RAPIDAPI_KEY:
             cron_logger.log(
-                f"❌ [RapidAPI] Error: Falta RAPIDAPI_KEY en .env. "
+                f" [RapidAPI] Error: Falta RAPIDAPI_KEY en .env. "
                 f"No se puede ejecutar RapidAPI para {platform}."
             )
             return
@@ -127,9 +127,9 @@ class ScraperEngine:
                     if count >= limit:
                         break
             
-            cron_logger.log(f"✅ [RapidAPI] {platform}: {count} resultados obtenidos.")
+            cron_logger.log(f" [RapidAPI] {platform}: {count} resultados obtenidos.")
         except Exception as e:
-            cron_logger.log(f"❌ [RapidAPI] Error en {platform}: {e}.")
+            cron_logger.log(f" [RapidAPI] Error en {platform}: {e}.")
 
     async def _scrape_mercadolibre_api(
         self, keyword: str, limit: int, city_name: str | None = None
@@ -180,7 +180,7 @@ class ScraperEngine:
                         },
                     }
         except Exception as e:
-            cron_logger.log(f"⚠️ [API ML Oficial] Error consultando API de MercadoLibre: {e}")
+            cron_logger.log(f" [API ML Oficial] Error consultando API de MercadoLibre: {e}")
 
     # ─── Cascada Genérica (Modo Gratuito/Local) ──────────────────────────────
 
@@ -194,19 +194,19 @@ class ScraperEngine:
         collected = []
 
         # ── NIVEL 1: DuckDuckGo OSINT ──
-        cron_logger.log(f"━━━ [Local/DDG] Nivel 1: DuckDuckGo OSINT para {platform} ━━━")
+        cron_logger.log(f" [Local/DDG] Nivel 1: DuckDuckGo OSINT para {platform} ")
         async for item in ejecutar_motor_indexado(platform, keyword, limit, city_name):
             collected.append(item)
             yield item
 
         if len(collected) >= limit:
             cron_logger.log(
-                f"✅ [Local/DDG] Nivel 1 completado: {len(collected)} resultados."
+                f" [Local/DDG] Nivel 1 completado: {len(collected)} resultados."
             )
             return
 
         # ── NIVEL 2: Playwright Stealth ──
-        cron_logger.log(f"━━━ [Local/Playwright] Nivel 2: Playwright Stealth para {platform} ━━━")
+        cron_logger.log(f" [Local/Playwright] Nivel 2: Playwright Stealth para {platform} ")
         async for item in run_playwright_fallback(platform, keyword, limit, city_name):
             collected.append(item)
             yield item
@@ -234,16 +234,37 @@ class ScraperEngine:
         self, keyword: str, city_name: str = None, proveedor: str = "playwright"
     ) -> AsyncGenerator[Dict[str, Any], None]:
         limit = settings.APIFY_MAX_ITEMS
+        collected_count = 0
+        
+        # Intentar con el proveedor configurado
         if proveedor == "apify":
-            async for item in self._run_apify_premium("instagram", keyword, city_name):
-                yield item
+            try:
+                async for item in self._run_apify_premium("instagram", keyword, city_name):
+                    collected_count += 1
+                    yield item
+            except Exception as e:
+                cron_logger.log(f"  [Instagram Apify] Fallo {e}. Cayendo a modo local...")
+                collected_count = 0
         elif proveedor == "rapidapi":
-            async for item in self._run_rapidapi("instagram", keyword, city_name, limit):
-                yield item
+            try:
+                async for item in self._run_rapidapi("instagram", keyword, city_name, limit):
+                    collected_count += 1
+                    yield item
+            except Exception as e:
+                cron_logger.log(f"  [Instagram RapidAPI] Fallo {e}. Cayendo a modo local...")
+                collected_count = 0
         elif proveedor == "google_meli_osint":
-            async for item in self.serper_scraper.scrape("instagram", keyword, limit, city_name):
-                yield item
-        else:
+            try:
+                async for item in self.serper_scraper.scrape("instagram", keyword, limit, city_name):
+                    collected_count += 1
+                    yield item
+            except Exception as e:
+                cron_logger.log(f"  [Instagram Serper] Fallo {e}. Cayendo a modo local...")
+                collected_count = 0
+        
+        # Si no se obtuvieron resultados, caer a modo local (DuckDuckGo + Playwright)
+        if collected_count == 0:
+            cron_logger.log(f" [Instagram] Usando fallback local (DuckDuckGo + Playwright)...")
             async for item in self._cascade("instagram", keyword, limit, city_name):
                 yield item
 
@@ -251,16 +272,37 @@ class ScraperEngine:
         self, keyword: str, city_name: str = None, proveedor: str = "playwright"
     ) -> AsyncGenerator[Dict[str, Any], None]:
         limit = settings.APIFY_MAX_ITEMS
+        collected_count = 0
+        
+        # Intentar con el proveedor configurado
         if proveedor == "apify":
-            async for item in self._run_apify_premium("tiktok", keyword, city_name):
-                yield item
+            try:
+                async for item in self._run_apify_premium("tiktok", keyword, city_name):
+                    collected_count += 1
+                    yield item
+            except Exception as e:
+                cron_logger.log(f"  [TikTok Apify] Fallo {e}. Cayendo a modo local...")
+                collected_count = 0
         elif proveedor == "rapidapi":
-            async for item in self._run_rapidapi("tiktok", keyword, city_name, limit):
-                yield item
+            try:
+                async for item in self._run_rapidapi("tiktok", keyword, city_name, limit):
+                    collected_count += 1
+                    yield item
+            except Exception as e:
+                cron_logger.log(f"  [TikTok RapidAPI] Fallo {e}. Cayendo a modo local...")
+                collected_count = 0
         elif proveedor == "google_meli_osint":
-            async for item in self.serper_scraper.scrape("tiktok", keyword, limit, city_name):
-                yield item
-        else:
+            try:
+                async for item in self.serper_scraper.scrape("tiktok", keyword, limit, city_name):
+                    collected_count += 1
+                    yield item
+            except Exception as e:
+                cron_logger.log(f"  [TikTok Serper] Fallo {e}. Cayendo a modo local...")
+                collected_count = 0
+        
+        # Si no se obtuvieron resultados, caer a modo local (DuckDuckGo + Playwright)
+        if collected_count == 0:
+            cron_logger.log(f" [TikTok] Usando fallback local (DuckDuckGo + Playwright)...")
             async for item in self._cascade("tiktok", keyword, limit, city_name):
                 yield item
 
@@ -270,29 +312,57 @@ class ScraperEngine:
         """
         Para MercadoLibre (Argentina):
         - google_meli_osint: Consulta la API oficial de Desarrolladores de MeLi (con fallback a DDG).
+        - apify/rapidapi: Intenta con el proveedor, cae a local
         - playwright / local: Utiliza el motor de indexación DuckDuckGo OSINT y Playwright como fallback.
         """
         limit = settings.APIFY_MAX_ITEMS
-        if proveedor == "google_meli_osint":
-            async for item in self.meli_dev.scrape(keyword, limit, city_name):
-                yield item
-            return
-
         collected = []
-        cron_logger.log(f"📦 [MercadoLibre OSINT] Buscando publicaciones para '{keyword}' (Límite: {limit})")
-        async for item in ejecutar_motor_indexado("mercadolibre", keyword, limit, city_name):
-            collected.append(item)
-            yield item
+        
+        # Intentar con proveedor configurado
+        if proveedor == "apify":
+            try:
+                cron_logger.log(f" [MercadoLibre Apify] Buscando '{keyword}'...")
+                async for item in self._run_apify_premium("mercadolibre", keyword, city_name):
+                    collected.append(item)
+                    yield item
+            except Exception as e:
+                cron_logger.log(f"  [MercadoLibre Apify] Fallo: {e}")
+        elif proveedor == "rapidapi":
+            try:
+                cron_logger.log(f" [MercadoLibre RapidAPI] Buscando '{keyword}'...")
+                async for item in self._run_rapidapi("mercadolibre", keyword, city_name, limit):
+                    collected.append(item)
+                    yield item
+            except Exception as e:
+                cron_logger.log(f"  [MercadoLibre RapidAPI] Fallo: {e}")
+        elif proveedor == "google_meli_osint":
+            try:
+                cron_logger.log(f" [MercadoLibre Developers API] Buscando '{keyword}'...")
+                async for item in self.meli_dev.scrape(keyword, limit, city_name):
+                    collected.append(item)
+                    yield item
+            except Exception as e:
+                cron_logger.log(f"  [MercadoLibre API] Fallo: {e}")
+        
+        # Si se obtuvieron pocos resultados, complementar con DuckDuckGo + Playwright
+        if len(collected) < limit:
+            cron_logger.log(f" [MercadoLibre OSINT] Complementando con DuckDuckGo + Playwright (obtenidos: {len(collected)}, falta: {limit - len(collected)})...")
+            async for item in ejecutar_motor_indexado("mercadolibre", keyword, limit, city_name):
+                collected.append(item)
+                yield item
+                if len(collected) >= limit:
+                    break
 
-        if len(collected) >= limit:
-            cron_logger.log(f"✅ [MercadoLibre OSINT] {len(collected)} publicaciones encontradas.")
-            return
-
-        # Si faltan items, fallback a Playwright
-        cron_logger.log("━━━ [MercadoLibre] Playwright Stealth Fallback ━━━")
-        async for item in run_playwright_fallback("mercadolibre", keyword, limit, city_name):
-            collected.append(item)
-            yield item
+            # Si aún faltan items, usar Playwright Stealth
+            if len(collected) < limit:
+                cron_logger.log(" [MercadoLibre] Playwright Stealth Fallback ")
+                async for item in run_playwright_fallback("mercadolibre", keyword, limit, city_name):
+                    collected.append(item)
+                    yield item
+                    if len(collected) >= limit:
+                        break
+        
+        cron_logger.log(f" [MercadoLibre] {len(collected)} publicaciones encontradas.")
 
     async def scan_certstream_domains(
         self, brand_name: str, limit: int = 5

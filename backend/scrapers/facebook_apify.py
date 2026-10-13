@@ -34,7 +34,7 @@ class FacebookApifyScraper:
         
         client = self._get_client()
         if not client:
-            cron_logger.log("[FB Apify] ❌ ERROR: Falta APIFY_API_TOKEN en DB o .env.")
+            cron_logger.log("[FB Apify]  ERROR: Falta APIFY_API_TOKEN en DB o .env.")
             return
 
         import urllib.parse
@@ -52,7 +52,7 @@ class FacebookApifyScraper:
             "proxyConfiguration": {
                 "useApifyProxy": True,
                 "apifyProxyGroups": ["RESIDENTIAL"],
-                "apifyProxyCountry": settings.DEFAULT_PROXY_COUNTRY
+                "apifyProxyCountry": "AR"
             }
         }
         
@@ -146,11 +146,11 @@ class FacebookApifyScraper:
                     if results_count >= settings.APIFY_MAX_ITEMS:
                         break
                 except Exception as e:
-                    cron_logger.log(f"[FB Apify] ⚠️ Item malformado ignorado: {e}")
+                    cron_logger.log(f"[FB Apify]  Item malformado ignorado: {e}")
                     continue
             
-            cron_logger.log(f"[FB Apify] ✅ {results_count} items extraídos.")
+            cron_logger.log(f"[FB Apify]  {results_count} items extraídos.")
             
         except Exception as e:
-            cron_logger.log(f"[FB Apify] ❌ Error: {e}")
+            cron_logger.log(f"[FB Apify]  Error: {e}")
             raise e

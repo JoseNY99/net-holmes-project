@@ -21,24 +21,32 @@ class ApifyMotorFase2:
         from services.api_key_service import get_active_api_key
         apify_token = get_active_api_key("apify") or settings.APIFY_API_TOKEN
         if not apify_token:
-            cron_logger.log("❌ [Apify Premium] Error: APIFY_API_TOKEN no configurado en DB ni en .env.")
+            cron_logger.log(" [Apify Premium] Error: APIFY_API_TOKEN no configurado en DB ni en .env.")
             return
 
-        cron_logger.log(f"🚀 [Apify Premium] Iniciando escaneo para '{keyword}' en {len(provincias)} provincias. Límite: {limite}")
+        terminos_fake = ["replica", "G5", "clon", "AAA", "importadas", "espejo"]
+        terminos_busqueda = [f"{keyword} {termino}" for termino in terminos_fake]
+        limite_efectivo = max(limite, 100)
+
+        cron_logger.log(
+            f" [Apify Premium] Iniciando {len(terminos_busqueda)} búsquedas para "
+            f"'{keyword}'. Límite por búsqueda: {limite_efectivo}"
+        )
         
         # Override the limit in settings temporarily for this run
         original_limit = settings.APIFY_MAX_ITEMS
-        settings.APIFY_MAX_ITEMS = limite
+        settings.APIFY_MAX_ITEMS = limite_efectivo
 
         try:
             for platform in plataformas:
                 cron_logger.log(f"🌐 [Apify Premium] Escaneando {platform}...")
+                ubicacion_objetivo = "Argentina" if platform == "mercadolibre" else "Buenos Aires"
                 
-                # If no provinces specified, run once with "Argentina"
-                target_locations = provincias if provincias else ["Argentina"]
-                
-                for loc in target_locations:
-                    cron_logger.log(f"📍 [Apify Premium] -> {platform} - Ubicación: {loc}")
+                for termino_busqueda in terminos_busqueda:
+                    cron_logger.log(
+                        f"🔎 [Apify Premium] -> {platform} - Búsqueda: "
+                        f"'{termino_busqueda}' - Ubicación: {ubicacion_objetivo}"
+                    )
                     
                     scraper = None
                     if platform == "facebook":
@@ -56,13 +64,25 @@ class ApifyMotorFase2:
                     try:
                         count = 0
                         descartados = 0
-                        async for item in scraper.scrape(keyword, city_name=loc):
+                        if platform == "mercadolibre":
+                            resultados = scraper.scrape(
+                                termino_busqueda,
+                                city_name=ubicacion_objetivo,
+                                max_results=limite_efectivo
+                            )
+                        else:
+                            resultados = scraper.scrape(
+                                termino_busqueda,
+                                city_name=ubicacion_objetivo
+                            )
+
+                        async for item in resultados:
                             # Ensure it's marked as Apify Premium source
                             item["platform_data"] = item.get("platform_data", {})
                             item["platform_data"]["source_engine"] = "Apify_Premium"
                             
                             # Standardize location
-                            item["location"] = loc
+                            item["location"] = ubicacion_objetivo
                             
                             # Normalizar campos devueltos por Apify
                             pd = item.get("platform_data", {})
@@ -100,18 +120,20 @@ class ApifyMotorFase2:
                             
                             yield item
                             count += 1
-                            if count >= limite:
+                            if count >= limite_efectivo:
                                 break
                         
                         if descartados > 0:
                             cron_logger.log(f"🚫 [Apify Premium] {descartados} items de {platform} descartados por no ser venta.")
                             
                     except Exception as e:
-                        cron_logger.log(f"⚠️ [Apify Premium] Error en {platform} ({loc}): {str(e)}")
+                        cron_logger.log(
+                            f" [Apify Premium] Error en {platform} "
+                            f"('{termino_busqueda}', {ubicacion_objetivo}): {str(e)}"
+                        )
                         
         finally:
             # Restore original limit
             settings.APIFY_MAX_ITEMS = original_limit
             
-        cron_logger.log("✅ [Apify Premium] Escaneo completado.")
-
+        cron_logger.log(" [Apify Premium] Escaneo completado.")

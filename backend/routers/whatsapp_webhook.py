@@ -51,7 +51,7 @@ async def delayed_process_and_reply(conversation_id: int, message_id: int):
             await send_honeypot_reply(db, conversation, new_msg)
             
     except Exception as e:
-        cron_logger.log(f"[Delay Task] ❌ Error asíncrono: {e}")
+        cron_logger.log(f"[Delay Task]  Error asíncrono: {e}")
     finally:
         db.close()
 
@@ -84,10 +84,10 @@ async def verify_webhook(
         or received_token.lower() == expected_token.lower() 
         or received_token.lower() == "operativa_123"
     ):
-        cron_logger.log(f"[WhatsApp] ✅ Webhook verificado exitosamente con Meta (Token: '{received_token}').")
+        cron_logger.log(f"[WhatsApp]  Webhook verificado exitosamente con Meta (Token: '{received_token}').")
         return Response(content=hub_challenge or "", media_type="text/plain")
     
-    cron_logger.log(f"[WhatsApp] ❌ Verificación fallida. Token recibido: '{hub_verify_token}', esperado: '{expected_token}'")
+    cron_logger.log(f"[WhatsApp]  Verificación fallida. Token recibido: '{hub_verify_token}', esperado: '{expected_token}'")
     raise HTTPException(status_code=403, detail="Verificación fallida: Token incorrecto")
 
 
@@ -124,7 +124,7 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks, d
                         err_msg = errors[0].get("message") if errors else "Falla desconocida de entrega"
                         err_code = errors[0].get("code") if errors else "N/A"
                         cron_logger.log(
-                            f"[WhatsApp Delivery ❌] Meta NO pudo entregar el mensaje {st_id} a {recipient}. "
+                            f"[WhatsApp Delivery ] Meta NO pudo entregar el mensaje {st_id} a {recipient}. "
                             f"Error ({err_code}): {err_msg}"
                         )
                     else:
@@ -272,7 +272,7 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks, d
                             cron_logger.log(f"[WhatsApp] 🆕 Nuevo reporte #{reporte.id} y conversación creados automáticamente para +{clean_digits} (Modo: Analista Manual)")
                     
                     if not conversation:
-                        cron_logger.log(f"[WhatsApp] ⚠️ No se pudo asignar conversación para {sender_phone}")
+                        cron_logger.log(f"[WhatsApp]  No se pudo asignar conversación para {sender_phone}")
                         continue
 
                     # Descarga y compresión máxima de archivos adjuntos (imágenes, audios, videos, documentos)
@@ -288,7 +288,7 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks, d
                                 db=db
                             )
                         except Exception as media_err:
-                            cron_logger.log(f"[WhatsApp] ⚠️ Error procesando multimedia {media_id}: {media_err}")
+                            cron_logger.log(f"[WhatsApp]  Error procesando multimedia {media_id}: {media_err}")
 
                     # 1. Redactamos para guardarlo en DB seguro
                     stored_text = redact_bank_details(text_body)
@@ -335,7 +335,7 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks, d
                             )
 
     except Exception as e:
-        cron_logger.log(f"[WhatsApp] ❌ Error procesando webhook: {e}")
+        cron_logger.log(f"[WhatsApp]  Error procesando webhook: {e}")
     
     # Meta espera siempre un 200 OK
     return {"status": "ok"}

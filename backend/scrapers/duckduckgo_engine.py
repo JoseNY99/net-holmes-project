@@ -53,7 +53,7 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
     try:
         results = await asyncio.to_thread(_sync_ddg_search, query_strict, limit)
     except Exception as e:
-        cron_logger.log(f"⚠️ [DDG] Error en búsqueda estricta: {e}")
+        cron_logger.log(f" [DDG] Error en búsqueda estricta: {e}")
 
     def _sync_loose(q, l):
         if not DDGS: return []
@@ -67,7 +67,7 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
         try:
             results = await asyncio.to_thread(_sync_loose, query_loose, limit)
         except Exception as e:
-            cron_logger.log(f"⚠️ [DDG] Error en búsqueda holgada: {e}")
+            cron_logger.log(f" [DDG] Error en búsqueda holgada: {e}")
 
     # Intento 3: Sin filtro de ubicación (Apertura total a todo Argentina)
     if not results and city_name:
@@ -76,7 +76,7 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
         try:
             results = await asyncio.to_thread(_sync_loose, query_global, limit)
         except Exception as e:
-            cron_logger.log(f"⚠️ [DDG] Error en búsqueda nacional: {e}")
+            cron_logger.log(f" [DDG] Error en búsqueda nacional: {e}")
 
     # Intento 4 (Fase 3): Búsqueda genérica de productos asociados a la marca
     if not results:
@@ -86,10 +86,10 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
         try:
             results = await asyncio.to_thread(_sync_loose, query_imitacion, limit)
         except Exception as e:
-            cron_logger.log(f"⚠️ [DDG] Error en Tercera Fase (genérica): {e}")
+            cron_logger.log(f" [DDG] Error en Tercera Fase (genérica): {e}")
 
     if not results:
-        cron_logger.log(f"[DDG] ⚠️ Definitivamente no hay datos reales indexados para {keyword} en {platform}.")
+        cron_logger.log(f"[DDG]  Definitivamente no hay datos reales indexados para {keyword} en {platform}.")
         return
 
     valid_results = []
@@ -101,7 +101,7 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
         valid_results.append(item)
         
     if not valid_results:
-        cron_logger.log(f"[DDG] ⚠️ Solo se encontraron anuncios o redirecciones vacías.")
+        cron_logger.log(f"[DDG]  Solo se encontraron anuncios o redirecciones vacías.")
         return
 
     for item in valid_results:

@@ -133,7 +133,7 @@ def update_whatsapp_settings(
     db.commit()
     db.refresh(setting)
 
-    cron_logger.log(f"[Settings] ✅ Configuración de WhatsApp guardada en Base de Datos por {current_user.correo}.")
+    cron_logger.log(f"[Settings]  Configuración de WhatsApp guardada en Base de Datos por {current_user.correo}.")
 
     # Sincronización secundaria opcional con .env sin romper si no hay permisos de archivo
     try:
@@ -148,7 +148,7 @@ def update_whatsapp_settings(
             if "whatsapp_verify_token" in extra:
                 dotenv.set_key(env_file, "WHATSAPP_VERIFY_TOKEN", extra["whatsapp_verify_token"])
     except Exception as e:
-        cron_logger.log(f"[Settings] ⚠️ Aviso: No se pudo escribir en .env (ignorable, datos en DB): {e}")
+        cron_logger.log(f"[Settings]  Aviso: No se pudo escribir en .env (ignorable, datos en DB): {e}")
 
     return {"status": "ok", "message": "Configuración de WhatsApp guardada correctamente en la Base de Datos"}
 

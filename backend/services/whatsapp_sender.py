@@ -133,13 +133,13 @@ async def send_template_message(
     token, phone_id = get_active_whatsapp_credentials(db)
     if not token or not phone_id:
         err = "Credenciales de WhatsApp (Token o Phone Number ID) no configuradas en BD."
-        cron_logger.log(f"[WhatsApp Sender] ⚠️ {err}")
+        cron_logger.log(f"[WhatsApp Sender]  {err}")
         return False, err
 
     clean_phone = normalize_whatsapp_phone(phone)
     if not clean_phone or len(clean_phone) < 8:
         err = f"Número de teléfono inválido ('{phone}'). Debe contener al menos 8 dígitos."
-        cron_logger.log(f"[WhatsApp Sender] ❌ {err}")
+        cron_logger.log(f"[WhatsApp Sender]  {err}")
         return False, err
 
     url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
@@ -168,7 +168,7 @@ async def send_template_message(
 
             if response.status_code == 200 and "messages" in resp_data:
                 msg_id = resp_data["messages"][0].get("id", "OK")
-                cron_logger.log(f"[WhatsApp Sender] ✅ Plantilla '{template_name}' enviada a {clean_phone} (Meta ID: {msg_id})")
+                cron_logger.log(f"[WhatsApp Sender]  Plantilla '{template_name}' enviada a {clean_phone} (Meta ID: {msg_id})")
                 return True, f"Plantilla '{template_name}' enviada con éxito (Meta ID: {msg_id})"
             else:
                 error_info = resp_data.get("error", {})
@@ -185,10 +185,10 @@ async def send_template_message(
                         "Como tu cuenta tiene un número real registrado, debes enviar 'Hola' desde tu WhatsApp al número del bot "
                         "para abrir la sesión de 24 horas, o usar una plantilla propia creada en WhatsApp Business Manager."
                     )
-                cron_logger.log(f"[WhatsApp Sender] ❌ Error Meta ({error_code}) al enviar plantilla a {clean_phone}: {human_reason}")
+                cron_logger.log(f"[WhatsApp Sender]  Error Meta ({error_code}) al enviar plantilla a {clean_phone}: {human_reason}")
                 return False, human_reason
     except Exception as e:
-        cron_logger.log(f"[WhatsApp Sender] ❌ Error de red enviando plantilla a {clean_phone}: {e}")
+        cron_logger.log(f"[WhatsApp Sender]  Error de red enviando plantilla a {clean_phone}: {e}")
         return False, str(e)
 
 
@@ -210,14 +210,14 @@ async def send_text_message(phone: str, text: str, db=None, allow_template_fallb
     token, phone_id = get_active_whatsapp_credentials(db)
     if not token or not phone_id:
         err = "Credenciales de WhatsApp (Token o Phone Number ID) no configuradas en BD."
-        cron_logger.log(f"[WhatsApp Sender] ⚠️ {err}")
+        cron_logger.log(f"[WhatsApp Sender]  {err}")
         return False, err
 
     # Normalizar número: E.164 estricto de Meta
     clean_phone = normalize_whatsapp_phone(phone)
     if not clean_phone or len(clean_phone) < 8:
         err = f"Número de teléfono inválido ('{phone}'). Debe contener al menos 8 dígitos."
-        cron_logger.log(f"[WhatsApp Sender] ❌ {err}")
+        cron_logger.log(f"[WhatsApp Sender]  {err}")
         return False, err
 
     url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
@@ -239,7 +239,7 @@ async def send_text_message(phone: str, text: str, db=None, allow_template_fallb
 
             if response.status_code == 200 and "messages" in resp_data:
                 msg_id = resp_data["messages"][0].get("id", "OK")
-                cron_logger.log(f"[WhatsApp Sender] ✅ Mensaje enviado exitosamente a {clean_phone} (Meta ID: {msg_id}): {text[:50]}...")
+                cron_logger.log(f"[WhatsApp Sender]  Mensaje enviado exitosamente a {clean_phone} (Meta ID: {msg_id}): {text[:50]}...")
                 return True, f"Mensaje enviado exitosamente (Meta ID: {msg_id})"
             else:
                 error_info = resp_data.get("error", {})
@@ -287,10 +287,10 @@ async def send_text_message(phone: str, text: str, db=None, allow_template_fallb
                 else:
                     human_reason = error_msg
                 
-                cron_logger.log(f"[WhatsApp Sender] ❌ Error Meta ({error_code}/{error_subcode}) al enviar a {clean_phone}: {human_reason}")
+                cron_logger.log(f"[WhatsApp Sender]  Error Meta ({error_code}/{error_subcode}) al enviar a {clean_phone}: {human_reason}")
                 return False, human_reason
     except Exception as e:
-        cron_logger.log(f"[WhatsApp Sender] ❌ Error de red enviando a {clean_phone}: {e}")
+        cron_logger.log(f"[WhatsApp Sender]  Error de red enviando a {clean_phone}: {e}")
         return False, str(e)
 
 
@@ -300,7 +300,7 @@ async def send_honeypot_reply(db, conversation, incoming_message):
     El objetivo es que el infractor revele datos financieros/identitarios.
     """
     if not conversation.whatsapp_phone:
-        cron_logger.log("[WhatsApp Sender] ⚠️ Sin número de WhatsApp para responder.")
+        cron_logger.log("[WhatsApp Sender]  Sin número de WhatsApp para responder.")
         return
 
     from models.chat import Message
@@ -338,7 +338,7 @@ async def send_honeypot_reply(db, conversation, incoming_message):
     # Generar respuesta con LLM DeepSeek
     reply_text, llm_err = await generate_honeypot_response(history, target_info)
     if llm_err:
-        cron_logger.log(f"[Honeypot LLM] ⚠️ Error reportado por DeepSeek: {llm_err}")
+        cron_logger.log(f"[Honeypot LLM]  Error reportado por DeepSeek: {llm_err}")
     if not reply_text:
         return None
 
@@ -378,7 +378,7 @@ async def send_honeypot_reply(db, conversation, incoming_message):
         cron_logger.log(f"[Honeypot] 🤖 Respuesta bot enviada y registrada: {reply_text[:60]}...")
         return reply_text
     else:
-        cron_logger.log(f"[Honeypot] ⚠️ Respuesta generada pero no se pudo enviar por WhatsApp.")
+        cron_logger.log(f"[Honeypot]  Respuesta generada pero no se pudo enviar por WhatsApp.")
         return None
 
 
@@ -421,8 +421,8 @@ async def edit_whatsapp_message(
                 return {"success": True, "meta_id": data["messages"][0].get("id")}
             else:
                 err_msg = data.get("error", {}).get("message", resp.text)
-                cron_logger.log(f"[WhatsApp Edit] ⚠️ Meta no pudo editar el mensaje {original_wamid}: {err_msg}")
+                cron_logger.log(f"[WhatsApp Edit]  Meta no pudo editar el mensaje {original_wamid}: {err_msg}")
                 return {"success": False, "error": err_msg}
     except Exception as e:
-        cron_logger.log(f"[WhatsApp Edit] ❌ Error de red al editar mensaje en Meta: {e}")
+        cron_logger.log(f"[WhatsApp Edit]  Error de red al editar mensaje en Meta: {e}")
         return {"success": False, "error": str(e)}

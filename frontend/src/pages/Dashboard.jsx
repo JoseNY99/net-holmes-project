@@ -73,6 +73,7 @@ export default function Dashboard() {
   const [selectedLocation, setSelectedLocation] = useState('Argentina');
   const [durationMinutes, setDurationMinutes] = useState(30);
   const [searchTerms, setSearchTerms] = useState('');
+  const [selectedPlatforms, setSelectedPlatforms] = useState(['facebook', 'instagram', 'tiktok', 'mercadolibre']);
   const [searching, setSearching] = useState(false);
   const [searchFeedback, setSearchFeedback] = useState(null);
   
@@ -142,7 +143,8 @@ export default function Dashboard() {
         brand_ids: [Number(selectedBrand)],
         provincias: [selectedLocation],
         keywords,
-        duration_minutes: durationMinutes
+        duration_minutes: durationMinutes,
+        plataformas: selectedPlatforms
       });
       setSearchFeedback({ type: 'success', text: 'Búsqueda iniciada. El progreso y los hallazgos aparecerán en el dashboard.' });
     } catch (error) {
@@ -314,7 +316,33 @@ export default function Dashboard() {
               <option value={60}>60 minutos</option>
             </select>
           </label>
-          <button className="btn-primary" type="submit" disabled={searching || !selectedBrand}>
+          <div style={{ marginTop: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
+              Plataformas
+            </label>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              {['facebook', 'instagram', 'tiktok', 'mercadolibre'].map(platform => (
+                <label key={platform} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedPlatforms.includes(platform)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedPlatforms([...selectedPlatforms, platform]);
+                      } else {
+                        setSelectedPlatforms(selectedPlatforms.filter(p => p !== platform));
+                      }
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ textTransform: 'capitalize' }}>
+                    {platform === 'mercadolibre' ? 'Mercado Libre' : platform.charAt(0).toUpperCase() + platform.slice(1)}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <button className="btn-primary" type="submit" disabled={searching || !selectedBrand || selectedPlatforms.length === 0}>
             <FaSearch /> {searching ? 'Iniciando...' : 'Iniciar búsqueda'}
           </button>
         </form>

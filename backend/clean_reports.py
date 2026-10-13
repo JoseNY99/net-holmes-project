@@ -42,7 +42,7 @@ def clean_investigations():
                     print(f"  ✓ Tabla '{table}' vaciada (DELETE).")
                 except Exception as e:
                     conn.rollback()
-                    print(f"  ⚠️ Error en tabla '{table}': {e}")
+                    print(f"   Error en tabla '{table}': {e}")
                     
     # Limpiar archivos de imágenes temporales / evidencias descargadas
     base_dir = Path(__file__).resolve().parent
@@ -56,7 +56,7 @@ def clean_investigations():
                     pass
             print(f"  ✓ Archivos estáticos en '{s_dir.name}' eliminados.")
 
-    print("\n✨ ¡Limpieza completada! El sistema está en 0 escaneos listo para el nuevo scraping.")
+    print("\n ¡Limpieza completada! El sistema está en 0 escaneos listo para el nuevo scraping.")
 
 if __name__ == "__main__":
     clean_investigations()

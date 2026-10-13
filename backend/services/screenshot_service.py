@@ -115,7 +115,7 @@ def take_screenshot_threaded(url: str, output_path: Path, timeout: float = 30.0)
         try:
             return future.result(timeout=timeout)
         except Exception as e:
-            cron_logger.log(f"⚠️ [Screenshot Worker] Error capturando {url}: {e}")
+            cron_logger.log(f" [Screenshot Worker] Error capturando {url}: {e}")
             return False
 
 async def capture_post_screenshot(url: str, reporte_id: int) -> str | None:
@@ -135,9 +135,9 @@ async def capture_post_screenshot(url: str, reporte_id: int) -> str | None:
     try:
         success = await asyncio.to_thread(take_screenshot_threaded, url, output_path)
         if success and output_path.exists():
-            cron_logger.log(f"✅ [Screenshot OSINT] Captura guardada con éxito en {output_path.name}")
+            cron_logger.log(f" [Screenshot OSINT] Captura guardada con éxito en {output_path.name}")
             return f"/static/screenshots/{filename}"
         return None
     except Exception as e:
-        cron_logger.log(f"⚠️ [Screenshot OSINT] No se pudo tomar captura de {url}: {e}")
+        cron_logger.log(f" [Screenshot OSINT] No se pudo tomar captura de {url}: {e}")
         return None

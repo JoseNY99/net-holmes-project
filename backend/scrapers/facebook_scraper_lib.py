@@ -50,7 +50,7 @@ async def scrape_facebook_public(keyword: str, max_results: int = 10, city_name:
                     cron_logger.log(f"[Facebook] 📝 Post extraído de {username} ({count}/{max_results})")
                     
         except Exception as e:
-            cron_logger.log(f"⚠️ [Facebook] Error scraping Facebook page {page}: {e}")
+            cron_logger.log(f" [Facebook] Error scraping Facebook page {page}: {e}")
             
     cron_logger.log(f"[Facebook] Extracción exitosa: {len(results)} posts parseados.")
     return results
