@@ -290,7 +290,9 @@ def _extract_single_clean_image_url(item: Dict[str, Any]) -> str | None:
         return json.dumps([clean_images[0]])
     return None
 
-def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Brand, keyword: str = ""):
+def process_and_save_single_result(
+    db: Session, item: Dict[str, Any], brand: Brand, keyword: str = ""
+) -> bool:
     """Procesa, mapea a ScanResult y guarda un único resultado en la base de datos de inmediato."""
 
     platform_name = str(item.get("plataforma") or "").lower()
@@ -331,14 +333,14 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
             f"🚫 [Filtro Argentina] País vecino o moneda extranjera en la publicación: "
             f"{title_text[:60]}"
         )
-        return
+        return False
 
     if is_explicitly_foreign_location(result_location):
         cron_logger.log(
             f"🚫 [Filtro Ubicación] Resultado extranjero descartado: "
             f"{result_location} - {item.get('title', '')}"
         )
-        return
+        return False
 
     social_text = (
         social_analysis_text
@@ -352,20 +354,20 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
                 f"🚫 [Filtro idioma] Publicación social no identificada como español: "
                 f"{title_text[:60]}"
             )
-            return
+            return False
         deteccion_social = detect_counterfeit_indicators(social_analysis_text)
         if not deteccion_social["es_falsificacion"]:
             cron_logger.log(
                 f"🚫 [Filtro falsificación] Sin indicadores explícitos en título/descripción: "
                 f"{title_text[:60]}"
             )
-            return
+            return False
         if not re.search(rf"(?<!\w){re.escape(brand.nombre)}(?!\w)", social_text, re.IGNORECASE):
             cron_logger.log(
                 f"🚫 [Filtro marca] La publicación no menciona la marca seleccionada "
                 f"'{brand.nombre}' en título/descripción."
             )
-            return
+            return False
     
     # Filtro de contenido extranjero (por moneda, idioma, términos locales)
     title = title_text.lower()
@@ -385,7 +387,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         cron_logger.log(
             f"🚫 [Filtro País] Contenido extranjero detectado (moneda/idioma/términos locales): {title[:60]}"
         )
-        return
+        return False
     
     # 1. Filtro Anti-Oficial / Filtro de País / Filtro de Marca
     title = title_text.lower()
@@ -419,7 +421,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
     
     if es_cuenta_oficial(db, titular, url, titulo, brand.nombre):
         cron_logger.log(f"🚫 [Filtro Oficial DB] Descartado por ser cuenta oficial registrada de {brand.nombre}: {titular} ({url})")
-        return
+        return False
 
     # Filtro duro extra (respaldo genérico)
     clean_seller = seller_name.replace("@", "").strip().lower()
@@ -437,7 +439,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
     ]
     if clean_seller in official_brand_handles:
         cron_logger.log(f"🚫 [Filtro Oficial DB] Descartado por parecer perfil genérico oficial ({clean_seller}): {titulo}")
-        return
+        return False
 
     # b. Bloquear ubicaciones extranjeras mencionadas en el contenido.
     # Usa word boundaries (\b) para evitar falsos positivos como "usa" dentro de "usado"
@@ -466,14 +468,14 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
     has_foreign = any(re.search(pat, combined_text) for pat in foreign_patterns)
     if has_foreign:
         cron_logger.log(f"🚫 [Filtro País Estricto] Descartado por país/moneda extranjera detectada: {item.get('title')[:50]}")
-        return
+        return False
 
     # c. Limpieza de "Basura" (Debe mencionar la marca o la palabra clave)
     brand_name = brand.nombre.lower()
     kw_lower = keyword.lower() if keyword else ""
     if brand_name not in combined_text and (not kw_lower or kw_lower not in combined_text):
         cron_logger.log(f"🚫 [Filtro] Descartado por no tener relación con '{brand.nombre}': {item.get('title')}")
-        return
+        return False
 
     from services.product_relevance import matches_configured_product
     product_text = " ".join((title, desc, raw_data_str))
@@ -482,7 +484,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
             f"[Filtro Producto] Resultado descartado por no coincidir con productos configurados de {brand.nombre}: "
             f"{item.get('title', '')}"
         )
-        return
+        return False
 
     # d. Filtro de URLs — Validación PERMISIVA (solo rechazar URLs claramente genéricas)
     item_url_raw = item.get("url", "N/A").lower()
@@ -492,7 +494,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         generic_reject = ["/discover/", "/search?", "/explore/", "/tag/", "/hashtag/", "/login", "/signup"]
         if any(p in item_url_raw for p in generic_reject):
             cron_logger.log(f"🚫 [Filtro URL] Descartado por URL genérica ({plataforma}): {item_url_raw}")
-            return
+            return False
 
         # Validación permisiva por plataforma — solo rechazar lo que NO es contenido
         if plataforma == "instagram":
@@ -500,22 +502,22 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
             # Solo rechazar la raíz desnuda (instagram.com/) sin path útil
             if re.search(r'instagram\.com/?$', item_url_raw):
                 cron_logger.log(f"🚫 [Filtro URL] Instagram descartado — URL raíz sin contenido: {item_url_raw}")
-                return
+                return False
         elif plataforma == "tiktok":
             # Aceptar /@user/video/, vt.tiktok.com short links, perfiles
             if re.search(r'tiktok\.com/?$', item_url_raw):
                 cron_logger.log(f"🚫 [Filtro URL] TikTok descartado — URL raíz sin contenido: {item_url_raw}")
-                return
+                return False
         elif plataforma == "facebook":
             # Aceptar marketplace/, posts/, photo/, reel/, groups/, shop/, perfiles
             if re.search(r'facebook\.com/?$', item_url_raw):
                 cron_logger.log(f"🚫 [Filtro URL] Facebook descartado — URL raíz sin contenido: {item_url_raw}")
-                return
+                return False
         elif plataforma == "mercadolibre":
             # Aceptar articulo.mercadolibre, /p/MLA (catálogo), listado.mercadolibre
             if not re.search(r'mercadolibre\.com\.ar/', item_url_raw):
                 cron_logger.log(f"🚫 [Filtro URL] MercadoLibre descartado — no es dominio MLA: {item_url_raw}")
-                return
+                return False
         elif plataforma in ("web", "tienda_falsa"):
             # Aceptar cualquier dominio no oficial para análisis de phishing/tiendas falsas
             pass
@@ -549,7 +551,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
                 existing = db.query(ReporteBrandDefense).filter(ReporteBrandDefense.url_evidencia == clean_url).first()
             if existing:
                 cron_logger.log(f"🔄 [Duplicado] Item ya existe en base de datos: {clean_url}")
-                return
+                return False
             
         from services.nlp_heuristics import extract_correlations
         correlaciones = extract_correlations(item)
@@ -598,7 +600,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
             cron_logger.log(f"🚩 [Falsificación Detectada] {brand.nombre}: {motivo_falsificacion}")
         else:
             cron_logger.log(f"❌ [Rechazado] {motivo_falsificacion}")
-            return  # ← RECHAZAR COMPLETAMENTE los originales/sin indicadores
+            return False  # Rechazar originales/sin indicadores.
 
         new_result = ReporteBrandDefense(
             pais=item.get("location", "Argentina"),
@@ -666,9 +668,12 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         except Exception as ce:
             cron_logger.log(f"ℹ️ [Correlación] {ce}")
 
+        return True
+
     except Exception as e:
         db.rollback()
         cron_logger.log(f"⚠️ Error al guardar item de {item.get('plataforma')}: {e}")
+        return False
 
 async def run_automatic_scan(*args, **kwargs):
     """Ejecuta el ciclo de escaneo automático para todas las marcas."""
@@ -745,56 +750,105 @@ async def run_automatic_scan(*args, **kwargs):
                 if _stop_requested:
                     break
 
+                platform_limits = {
+                    "facebook": cron_config.limite_extraccion_fb,
+                    "instagram": cron_config.limite_extraccion_ig,
+                    "tiktok": cron_config.limite_extraccion_tt,
+                    "mercadolibre": cron_config.limite_extraccion_ml,
+                }
+                platform_limit = max(1, int(platform_limits.get(platform_name) or 10))
+                inserted_count = 0
+                settings.APIFY_MAX_ITEMS = platform_limit
+                already_reported = db.query(ReporteBrandDefense.url_evidencia).filter(
+                    func.lower(ReporteBrandDefense.plataforma) == platform_name
+                ).all()
+                seen_urls = {
+                    engine._item_url_key({"url": row[0]})
+                    for row in already_reported
+                    if row[0]
+                }
+
                 keywords = await generate_keywords(brand, platform_name)
                 cron_logger.log(f"Keywords a buscar en {platform_name}: {keywords}")
-                
-                for keyword in keywords:
-                    if _stop_requested:
+
+                search_variants = ("", " réplica", " calidad premium", " importadas")
+                for pass_number, search_suffix in enumerate(search_variants, start=1):
+                    if _stop_requested or inserted_count >= platform_limit:
                         break
 
-                    # Las ubicaciones por provincia son solo para Facebook.
-                    # El resto de plataformas barren a nivel país.
-                    locs_to_search = provincias if platform_name == "facebook" else ["Argentina"]
-                    
-                    for provincia in locs_to_search:
-                        if _stop_requested:
-                            break
+                    if pass_number > 1:
+                        cron_logger.log(f"🔎 [Búsqueda ampliada] Variante: {search_suffix.strip()}")
 
-                        cron_logger.log(f"-> Escaneando {platform_name} para '{keyword}' en '{provincia}'")
-                        cron_logger.set_progress(plataforma=platform_name)
-                        
-                        try:
-                            if platform_name == "facebook":
-                                settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_fb or 10
-                                async for item in engine.scrape_facebook(keyword, provincia, proveedor):
-                                    if _stop_requested:
-                                        break
-                                    process_and_save_single_result(db, item, brand, keyword)
-                            elif platform_name == "instagram":
-                                settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_ig or 10
-                                async for item in engine.scrape_instagram(keyword, provincia, proveedor):
-                                    if _stop_requested:
-                                        break
-                                    process_and_save_single_result(db, item, brand, keyword)
-                            elif platform_name == "tiktok":
-                                settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_tt or 10
-                                async for item in engine.scrape_tiktok(keyword, provincia, proveedor):
-                                    if _stop_requested:
-                                        break
-                                    process_and_save_single_result(db, item, brand, keyword)
-                            elif platform_name == "mercadolibre":
-                                settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_ml or 10
-                                async for item in engine.scrape_mercadolibre(keyword, provincia, proveedor):
-                                    if _stop_requested:
-                                        break
-                                    process_and_save_single_result(db, item, brand, keyword)
-                            
-                            if _stop_requested:
+                    for keyword in keywords:
+                        if _stop_requested or inserted_count >= platform_limit:
+                            break
+                        search_query = f"{keyword}{search_suffix}"
+
+                        # Las ubicaciones por provincia son solo para Facebook.
+                        # El resto de plataformas barren a nivel país.
+                        locs_to_search = provincias if platform_name == "facebook" else ["Argentina"]
+
+                        for provincia in locs_to_search:
+                            if _stop_requested or inserted_count >= platform_limit:
                                 break
-                            # Pequeña pausa entre llamadas a API
-                            await asyncio.sleep(1)
-                        except Exception as e:
-                            cron_logger.log(f"Error en {platform_name} para {keyword} en {provincia}: {e}")
+
+                            cron_logger.log(f"-> Escaneando {platform_name} para '{keyword}' en '{provincia}'")
+                            cron_logger.set_progress(plataforma=platform_name)
+
+                            try:
+                                remaining = platform_limit - inserted_count
+                                settings.APIFY_MAX_ITEMS = min(max(remaining * 3, remaining), 100)
+                                if platform_name == "facebook":
+                                    item_stream = engine.scrape_facebook(
+                                        search_query, provincia, proveedor, exclude_urls=seen_urls
+                                    )
+                                elif platform_name == "instagram":
+                                    item_stream = engine.scrape_instagram(
+                                        search_query, provincia, proveedor, exclude_urls=seen_urls
+                                    )
+                                elif platform_name == "tiktok":
+                                    item_stream = engine.scrape_tiktok(
+                                        search_query, provincia, proveedor, exclude_urls=seen_urls
+                                    )
+                                elif platform_name == "mercadolibre":
+                                    item_stream = engine.scrape_mercadolibre(
+                                        search_query, provincia, proveedor
+                                    )
+                                else:
+                                    continue
+
+                                async for item in item_stream:
+                                    if _stop_requested or inserted_count >= platform_limit:
+                                        break
+                                    url_key = engine._item_url_key(item)
+                                    if url_key and url_key in seen_urls:
+                                        continue
+                                    if url_key:
+                                        seen_urls.add(url_key)
+                                    if process_and_save_single_result(db, item, brand, keyword):
+                                        inserted_count += 1
+                                        cron_logger.log(
+                                            f"📊 [Límite] {platform_name}: "
+                                            f"{inserted_count}/{platform_limit} reportes insertados."
+                                        )
+
+                                if _stop_requested:
+                                    break
+                                await asyncio.sleep(0.25)
+                            except Exception as e:
+                                cron_logger.log(
+                                    f"Error en {platform_name} para {search_query} en {provincia}: {e}"
+                                )
+
+                    if inserted_count < platform_limit and pass_number < len(search_variants):
+                        await asyncio.sleep(0.75)
+
+                if inserted_count < platform_limit:
+                    cron_logger.log(
+                        f"ℹ️ [Cupo incompleto] {platform_name}: se insertaron "
+                        f"{inserted_count}/{platform_limit}; se agotaron las variantes "
+                        "de búsqueda sin encontrar más resultados únicos que pasen los filtros."
+                    )
 
             if _stop_requested:
                 break

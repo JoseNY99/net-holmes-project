@@ -298,7 +298,37 @@ async def capture_reporte_screenshot(
     screenshot_url = await capture_post_screenshot(reporte.url_evidencia, reporte.id)
 
     if not screenshot_url:
-        raise HTTPException(status_code=500, detail="No se pudo capturar la pantalla de la publicación en este momento")
+        platform_models = {
+            "facebook": ReporteFacebookData,
+            "instagram": ReporteInstagramData,
+            "tiktok": ReporteTiktokData,
+            "mercadolibre": ReporteMercadoLibreData,
+        }
+        platform_model = platform_models.get((reporte.plataforma or "").lower())
+        product_image_url = None
+        if platform_model:
+            platform_row = db.query(platform_model).filter(
+                platform_model.reporte_id == reporte_id
+            ).first()
+            if platform_row and platform_row.image_urls:
+                try:
+                    image_urls = json.loads(platform_row.image_urls)
+                except (TypeError, json.JSONDecodeError):
+                    image_urls = [platform_row.image_urls]
+                if isinstance(image_urls, list):
+                    product_image_url = next(
+                        (url for url in image_urls if isinstance(url, str) and url.strip()),
+                        None,
+                    )
+                elif isinstance(image_urls, str):
+                    product_image_url = image_urls
+
+        return {
+            "status": "capture_unavailable",
+            "message": "La plataforma mostró un inicio de sesión o no permitió la captura.",
+            "screenshot_url": product_image_url,
+            "reporte_id": reporte_id,
+        }
 
     # Guardar la screenshot en la tabla platform_data correspondiente
     screenshot_json = json.dumps([screenshot_url])
@@ -336,4 +366,3 @@ async def capture_reporte_screenshot(
         "screenshot_url": screenshot_url,
         "reporte_id": reporte_id
     }
-

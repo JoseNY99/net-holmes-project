@@ -111,15 +111,4 @@ def persistir_imagen_local(img_source: str | list, reporte_id: int, post_url: st
         except Exception as e_og:
             pass
 
-        # 4. Fallback: Captura en vivo de pantalla con Playwright Stealth
-        try:
-            from services.screenshot_service import take_screenshot_threaded
-            cron_logger.log(f'📸 [Evidencia Local] Captura en vivo de {clean_post_url} para #{reporte_id}')
-            ok = take_screenshot_threaded(clean_post_url, target_path, timeout=35.0)
-            if ok and target_path.exists():
-                cron_logger.log(f' [Evidencia Local] Captura guardada en {target_path.name}')
-                return f'/static/evidencias/{filename}'
-        except Exception as se:
-            cron_logger.log(f' [Evidencia Local] Fallo captura: {se}')
-            
     return None

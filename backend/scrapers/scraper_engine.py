@@ -288,14 +288,25 @@ class ScraperEngine:
         if not url:
             return ""
         parsed = urlsplit(url)
-        return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"), "", ""))
+        hostname = parsed.netloc.lower()
+        for prefix in ("www.", "m.", "l."):
+            if hostname.startswith(prefix):
+                hostname = hostname[len(prefix):]
+        return urlunsplit(
+            (parsed.scheme.lower(), hostname, parsed.path.rstrip("/"), "", "")
+        )
 
     async def _scrape_social_with_fallback(
-        self, platform: str, keyword: str, city_name: str | None, limit: int
+        self,
+        platform: str,
+        keyword: str,
+        city_name: str | None,
+        limit: int,
+        exclude_urls: set[str] | None = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Usa Serper primero y completa desde los motores gratuitos hasta el límite."""
+        """Usa Serper primero y completa desde motores gratuitos, omitiendo URLs conocidas."""
         collected = 0
-        seen_urls = set()
+        seen_urls = set(exclude_urls or ())
 
         if platform == "instagram":
             candidate_items = []
@@ -333,9 +344,9 @@ class ScraperEngine:
                     candidate_urls=candidate_urls,
                 ):
                     url_key = self._item_url_key(item)
-                    if url_key and url_key in seen_urls:
-                        seen_urls.remove(url_key)
-                    elif url_key:
+                    if url_key:
+                        if url_key in (exclude_urls or set()):
+                            continue
                         seen_urls.add(url_key)
                     yield item
                     collected += 1
@@ -369,7 +380,7 @@ class ScraperEngine:
         instagram_kind_counts = {"p": 0, "reel": 0}
 
         try:
-            async for item in self.serper_scraper.scrape(platform, keyword, limit, city_name):
+            async for item in self.serper_scraper.scrape(platform, keyword, limit * 3, city_name):
                 url_key = self._item_url_key(item)
                 if url_key and url_key in seen_urls:
                     continue
@@ -419,34 +430,76 @@ class ScraperEngine:
     # ─── Métodos Públicos por Plataforma ─────────────────────────────────────
 
     async def scrape_facebook(
-        self, keyword: str, city_name: str = None, proveedor: str = "playwright"
+        self,
+        keyword: str,
+        city_name: str = None,
+        proveedor: str = "playwright",
+        exclude_urls: set[str] | None = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         limit = settings.APIFY_MAX_ITEMS
+        seen_urls = set(exclude_urls or ())
+        source = None
         if proveedor == "apify":
-            async for item in self._run_apify_premium("facebook", keyword, city_name):
-                yield item
+            source = self._run_apify_premium("facebook", keyword, city_name)
         elif proveedor == "rapidapi":
-            async for item in self._run_rapidapi("facebook", keyword, city_name, limit):
-                yield item
+            source = self._run_rapidapi("facebook", keyword, city_name, limit)
         elif proveedor == "google_meli_osint":
             async for item in self._scrape_social_with_fallback(
-                "facebook", keyword, city_name, limit
+                "facebook", keyword, city_name, limit, seen_urls
             ):
                 yield item
+            return
         else:
-            async for item in self._cascade("facebook", keyword, limit, city_name):
+            source = self._cascade(
+                "facebook", keyword, limit, city_name, exclude_urls=seen_urls
+            )
+
+        collected = 0
+        async for item in source:
+            key = self._item_url_key(item)
+            if key and key in seen_urls:
+                continue
+            if key:
+                seen_urls.add(key)
+            yield item
+            collected += 1
+
+        if proveedor != "google_meli_osint" and collected < limit:
+            remaining = limit - collected
+            cron_logger.log(
+                f"[Facebook] Proveedor entregó {collected}/{limit}; "
+                f"completando {remaining} desde búsqueda gratuita."
+            )
+            async for item in self._cascade(
+                "facebook", keyword, remaining, city_name, exclude_urls=seen_urls
+            ):
+                key = self._item_url_key(item)
+                if key and key in seen_urls:
+                    continue
+                if key:
+                    seen_urls.add(key)
                 yield item
 
     async def scrape_instagram(
-        self, keyword: str, city_name: str = None, proveedor: str = "playwright"
+        self,
+        keyword: str,
+        city_name: str = None,
+        proveedor: str = "playwright",
+        exclude_urls: set[str] | None = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         limit = settings.APIFY_MAX_ITEMS
         collected_count = 0
+        seen_urls = set(exclude_urls or ())
 
         # Intentar con el proveedor configurado
         if proveedor == "apify":
             try:
                 async for item in self._run_apify_premium("instagram", keyword, city_name):
+                    key = self._item_url_key(item)
+                    if key and key in seen_urls:
+                        continue
+                    if key:
+                        seen_urls.add(key)
                     collected_count += 1
                     yield item
             except Exception as exc:
@@ -454,32 +507,53 @@ class ScraperEngine:
         elif proveedor == "rapidapi":
             try:
                 async for item in self._run_rapidapi("instagram", keyword, city_name, limit):
+                    key = self._item_url_key(item)
+                    if key and key in seen_urls:
+                        continue
+                    if key:
+                        seen_urls.add(key)
                     collected_count += 1
                     yield item
             except Exception as exc:
                 cron_logger.log(f"[Instagram RapidAPI] Falló: {exc}. Activando motor gratuito.")
         elif proveedor == "google_meli_osint":
             async for item in self._scrape_social_with_fallback(
-                "instagram", keyword, city_name, limit
+                "instagram", keyword, city_name, limit, seen_urls
             ):
                 yield item
             return
 
-        if collected_count == 0:
-            cron_logger.log("[Instagram] Sin resultados del proveedor; usando DDG/Playwright.")
-            async for item in self._cascade("instagram", keyword, limit, city_name):
+        if collected_count < limit:
+            remaining = limit - collected_count
+            cron_logger.log(
+                f"[Instagram] Proveedor entregó {collected_count}/{limit}; "
+                f"completando {remaining} desde DDG/Playwright."
+            )
+            async for item in self._cascade(
+                "instagram", keyword, remaining, city_name, exclude_urls=seen_urls
+            ):
                 yield item
 
     async def scrape_tiktok(
-        self, keyword: str, city_name: str = None, proveedor: str = "playwright"
+        self,
+        keyword: str,
+        city_name: str = None,
+        proveedor: str = "playwright",
+        exclude_urls: set[str] | None = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         limit = settings.APIFY_MAX_ITEMS
         collected_count = 0
+        seen_urls = set(exclude_urls or ())
 
         # Intentar con el proveedor configurado
         if proveedor == "apify":
             try:
                 async for item in self._run_apify_premium("tiktok", keyword, city_name):
+                    key = self._item_url_key(item)
+                    if key and key in seen_urls:
+                        continue
+                    if key:
+                        seen_urls.add(key)
                     collected_count += 1
                     yield item
             except Exception as exc:
@@ -487,20 +561,31 @@ class ScraperEngine:
         elif proveedor == "rapidapi":
             try:
                 async for item in self._run_rapidapi("tiktok", keyword, city_name, limit):
+                    key = self._item_url_key(item)
+                    if key and key in seen_urls:
+                        continue
+                    if key:
+                        seen_urls.add(key)
                     collected_count += 1
                     yield item
             except Exception as exc:
                 cron_logger.log(f"[TikTok RapidAPI] Falló: {exc}. Activando motor gratuito.")
         elif proveedor == "google_meli_osint":
             async for item in self._scrape_social_with_fallback(
-                "tiktok", keyword, city_name, limit
+                "tiktok", keyword, city_name, limit, seen_urls
             ):
                 yield item
             return
 
-        if collected_count == 0:
-            cron_logger.log("[TikTok] Sin resultados del proveedor; usando DDG/Playwright.")
-            async for item in self._cascade("tiktok", keyword, limit, city_name):
+        if collected_count < limit:
+            remaining = limit - collected_count
+            cron_logger.log(
+                f"[TikTok] Proveedor entregó {collected_count}/{limit}; "
+                f"completando {remaining} desde DDG/Playwright."
+            )
+            async for item in self._cascade(
+                "tiktok", keyword, remaining, city_name, exclude_urls=seen_urls
+            ):
                 yield item
 
     async def scrape_mercadolibre(

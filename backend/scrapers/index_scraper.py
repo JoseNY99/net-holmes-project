@@ -10,6 +10,7 @@ import re
 import httpx
 from bs4 import BeautifulSoup
 import urllib.parse
+from time import monotonic
 from typing import AsyncGenerator, Dict, Any
 from services.cron_logger import cron_logger
 from scrapers.filtro_comercial import FAKE_SEARCH_TERMS, obtener_senales_falsificacion
@@ -29,20 +30,20 @@ DORK_TEMPLATES = {
     "facebook": {
         "strict": 'site:facebook.com/marketplace/ "{kw}" {fake_terms} {loc_term}',
         "brand_only": 'site:facebook.com/marketplace/ "{brand}" {fake_terms} {loc_term}',
-        "loose":  'site:facebook.com/marketplace/ "{kw}" {fake_terms} {loc_term}',
-        "ultra":  'site:facebook.com/marketplace/ "{brand}" {fake_terms} {loc_term}',
+        "loose":  'site:facebook.com/marketplace/ {kw} {loc_term}',
+        "ultra":  'site:facebook.com "{brand}" (marketplace OR venta OR vendo) {loc_term}',
     },
     "instagram": {
         "strict": '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" {fake_terms} {loc_term}',
         "brand_only": '(site:instagram.com/p/ OR site:instagram.com/reel/) "{brand}" {fake_terms} {loc_term}',
-        "loose":  '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" {fake_terms} {loc_term}',
-        "ultra":  'site:instagram.com "{brand}" {fake_terms} {loc_term}',
+        "loose":  '(site:instagram.com/p/ OR site:instagram.com/reel/) {kw} {loc_term}',
+        "ultra":  '(site:instagram.com/p/ OR site:instagram.com/reel/) "{brand}" (venta OR vendo OR replicas) {loc_term}',
     },
     "tiktok": {
         "strict": 'site:tiktok.com/@*/video/ "{kw}" {fake_terms} {loc_term}',
         "brand_only": 'site:tiktok.com/@*/video/ "{brand}" {fake_terms} {loc_term}',
-        "loose":  'site:tiktok.com/@*/video/ "{kw}" {fake_terms} {loc_term}',
-        "ultra":  'site:tiktok.com "{brand}" {fake_terms} {loc_term}',
+        "loose":  'site:tiktok.com/@*/video/ {kw} {loc_term}',
+        "ultra":  'site:tiktok.com/@*/video/ "{brand}" (venta OR vendo OR replicas) {loc_term}',
     },
 }
 
@@ -53,6 +54,9 @@ PLATFORM_LOGOS = {
     "tiktok":       "https://upload.wikimedia.org/wikipedia/en/a/a9/TikTok_logo.svg",
 }
 
+_DDG_RETRY_AFTER = 0.0
+_DDG_FAILURE_COOLDOWN_SECONDS = 30
+
 
 # ─── Scraper Nativo DDG HTML ───────────────────────────────────────────────────
 
@@ -61,13 +65,13 @@ async def _fetch_ddg_html(query: str, limit: int = 30) -> list:
     Usa el paquete ddgs oficial que maneja correctamente los tokens VQD y bypasses de TLS (curl_cffi)
     para evitar el agresivo anti-bot de DuckDuckGo (Error 202/302).
     """
+    global _DDG_RETRY_AFTER
+
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
     except ImportError:
-        try:
-            from ddgs import DDGS
-        except ImportError:
-            DDGS = None
+        cron_logger.log("[DDG OSINT] Falta el paquete ddgs; se omite esta consulta.")
+        return []
             
     import logging
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -75,24 +79,43 @@ async def _fetch_ddg_html(query: str, limit: int = 30) -> list:
     if not DDGS:
         return []
 
+    if monotonic() < _DDG_RETRY_AFTER:
+        cron_logger.log(
+            "[DDG OSINT] Se omite consulta durante la pausa temporal tras fallos de red."
+        )
+        return []
+
     results = []
-    try:
-        def fetch():
-            with DDGS() as ddgs:
-                return list(ddgs.text(query, region="ar-es", max_results=limit))
-        
-        # Ejecutar en threadpool porque DDGS es síncrono
-        raw_results = await asyncio.to_thread(fetch)
-        
-        for item in raw_results:
-            results.append({
-                "title": item.get("title", ""),
-                "href": item.get("href", ""),
-                "body": item.get("body", "")
-            })
-                
-    except Exception as e:
-        cron_logger.log(f" [DDG OSINT] Error usando ddgs: {e}")
+    for attempt in range(1, 3):
+        try:
+            def fetch():
+                with DDGS() as ddgs:
+                    return list(ddgs.text(query, region="ar-es", max_results=limit))
+
+            # DDGS is synchronous; retry once on transient network timeouts.
+            raw_results = await asyncio.to_thread(fetch)
+            results = [
+                {
+                    "title": item.get("title", ""),
+                    "href": item.get("href", ""),
+                    "body": item.get("body", ""),
+                }
+                for item in raw_results
+            ]
+            _DDG_RETRY_AFTER = 0.0
+            break
+        except Exception as exc:
+            if attempt == 2:
+                _DDG_RETRY_AFTER = monotonic() + _DDG_FAILURE_COOLDOWN_SECONDS
+                cron_logger.log(
+                    f" [DDG OSINT] Error usando ddgs tras {attempt} intentos; "
+                    f"se pausa DDG por {_DDG_FAILURE_COOLDOWN_SECONDS}s: {exc}"
+                )
+            else:
+                cron_logger.log(
+                    f" [DDG OSINT] Intento {attempt}/2 falló; reintentando: {exc}"
+                )
+                await asyncio.sleep(1)
         
     valid_results = []
     for item in results:
@@ -326,39 +349,38 @@ async def ejecutar_motor_indexado(
         else:
             loc_term = f'("{loc}" Argentina)'
         
-        # ── Estrategia 1: Estricto (o Brand Only si es solo marca) ──
+        # Ejecutar variantes complementarias aun si la primera trae resultados:
+        # los buscadores repiten los primeros enlaces y el filtro posterior puede descartarlos.
+        query_variants = []
         if is_brand_only and "brand_only" in templates:
-            # Mantener marca, señales de falsificación y ubicación también en búsquedas de marca sola.
-            query = templates["brand_only"].format(
-                kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word,
-                fake_terms=FAKE_SEARCH_TERMS,
-            )
-            cron_logger.log(f"[DDG Native] 🔍 Solo Marca (sin modificadores): {query}")
+            query_variants.append(("Solo Marca", templates["brand_only"]))
         else:
-            query = templates["strict"].format(
-                kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word,
-                fake_terms=FAKE_SEARCH_TERMS,
-            )
-            cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Estricto: {query}")
-        results = await _fetch_ddg_html(query, limit)
+            query_variants.append(("Estricto", templates["strict"]))
+        query_variants.extend(
+            (label, templates[key])
+            for label, key in (("Holgado", "loose"), ("Amplio", "ultra"))
+            if key in templates
+        )
 
-        # ── Estrategia 2: Holgado ──
-        if not results:
-            query = templates["loose"].format(
+        results = []
+        seen_result_urls = set()
+        for label, template in query_variants:
+            query = template.format(
                 kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word,
                 fake_terms=FAKE_SEARCH_TERMS,
             )
-            cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Holgado: {query}")
-            results = await _fetch_ddg_html(query, limit)
-
-        # ── Estrategia 3: Ultra (categorías genéricas de la marca) ──
-        if not results:
-            query = templates["ultra"].format(
-                kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word,
-                fake_terms=FAKE_SEARCH_TERMS,
-            )
-            cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Ultra (genérico): {query}")
-            results = await _fetch_ddg_html(query, limit)
+            cron_logger.log(f"[DDG Native] 🔍 Nivel {label}: {query}")
+            variant_results = await _fetch_ddg_html(query, limit)
+            for result in variant_results:
+                result_url = result.get("href", "").split("#", 1)[0].rstrip("/")
+                if not result_url or result_url in seen_result_urls:
+                    continue
+                seen_result_urls.add(result_url)
+                results.append(result)
+                if len(results) >= limit:
+                    break
+            if len(results) >= limit:
+                break
 
         if not results:
             cron_logger.log(f"[DDG Native]  Sin resultados para '{keyword}' en {platform} ({loc}).")
@@ -374,7 +396,7 @@ async def ejecutar_motor_indexado(
             title = item.get("title", "Sin Título")
             description_text = f"{title} {body}"
 
-            if platform in ("facebook", "instagram", "tiktok"):
+            if platform in ("facebook", "tiktok"):
                 if not obtener_senales_falsificacion(description_text):
                     continue
                 if not is_spanish_text(description_text):

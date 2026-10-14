@@ -47,6 +47,7 @@ window.navigator.permissions.query = (parameters) => (
 """
 
 
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 
 async def _run_playwright_async(
@@ -279,7 +280,7 @@ async def _scrape_facebook_async(page, keyword: str, limit: int, city_name: str,
         cron_logger.log(f" [Playwright FB] Timeout: {e}")
         return results
 
-    await chill(3.0, 5.0)
+    await chill(1.0, 1.8)
 
     item_links = await page.locator("a[href*='/marketplace/item/']").all()
     count = 0
@@ -405,30 +406,38 @@ async def _scrape_instagram_async(
 
         try:
             cron_logger.log(f"[Playwright IG] Abriendo publicación individual: {full_url}")
-            await page.goto(full_url, wait_until="domcontentloaded", timeout=20000)
-            await chill(1.0, 2.0)
+            await page.goto(full_url, wait_until="domcontentloaded", timeout=15000)
+            try:
+                await page.wait_for_selector(
+                    'meta[property="og:description"]', timeout=1200
+                )
+            except PlaywrightTimeoutError:
+                pass
 
-            caption = ""
-            for selector in (
-                'meta[property="og:description"]',
-                'meta[name="description"]',
-            ):
-                meta = page.locator(selector).first
-                if await meta.count():
-                    caption = (await meta.get_attribute("content") or "").strip()
-                    if caption:
-                        break
+            post_data = await page.evaluate("""
+                () => {
+                    const meta = (selector) =>
+                        document.querySelector(selector)?.getAttribute('content') || '';
+                    const articleText =
+                        document.querySelector('article')?.innerText || '';
+                    const locationLink =
+                        document.querySelector('a[href*="/explore/locations/"]');
+                    return {
+                        caption: meta('meta[property="og:description"]') ||
+                            meta('meta[name="description"]'),
+                        articleText,
+                        location: locationLink?.innerText || '',
+                        authorTitle: meta('meta[property="og:title"]'),
+                        image: meta('meta[property="og:image"]')
+                    };
+                }
+            """)
+            caption = (post_data.get("caption") or "").strip()
 
-            comments = []
-            article = page.locator("article").first
-            if await article.count():
-                article_text = (await article.inner_text()).strip()
-                if article_text:
-                    comments = [
-                        line.strip()
-                        for line in article_text.splitlines()
-                        if line.strip() and line.strip() not in comments
-                    ][:50]
+            article_text = (post_data.get("articleText") or "").strip()
+            comments = list(dict.fromkeys(
+                line.strip() for line in article_text.splitlines() if line.strip()
+            ))[:50]
 
             if not caption and comments:
                 caption = comments[0]
@@ -436,21 +445,15 @@ async def _scrape_instagram_async(
                 cron_logger.log(f"[Playwright IG] Publicación sin descripción accesible: {full_url}")
                 continue
 
-            location = None
-            location_link = page.locator('a[href*="/explore/locations/"]').first
-            if await location_link.count():
-                location = (await location_link.inner_text()).strip() or None
-
+            location = (post_data.get("location") or "").strip() or None
             username = "Usuario Desconocido"
-            author_meta = page.locator('meta[property="og:title"]').first
-            if await author_meta.count():
-                author_title = (await author_meta.get_attribute("content") or "").strip()
-                handle_match = re.search(r"@([A-Za-z0-9_.]+)", author_title)
-                if handle_match:
-                    username = f"@{handle_match.group(1)}"
+            handle_match = re.search(
+                r"@([A-Za-z0-9_.]+)", post_data.get("authorTitle") or ""
+            )
+            if handle_match:
+                username = f"@{handle_match.group(1)}"
 
-            image_meta = page.locator('meta[property="og:image"]').first
-            image_url = await image_meta.get_attribute("content") if await image_meta.count() else None
+            image_url = post_data.get("image") or None
             description = " ".join([caption, *comments]).strip()
             language_text = f"{caption} {' '.join(comments)}"
             if not is_spanish_text(language_text):
@@ -524,15 +527,15 @@ async def _scrape_tiktok_async(page, keyword: str, limit: int, city_name: str, c
         cron_logger.log(" [Playwright TT] Bloqueado o timeout.")
         return results
 
-    await chill(2.0, 4.0)
+    await chill(1.0, 1.8)
 
     # Intentar scroll para cargar más videos
     try:
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.5)")
-        await chill(1.0, 2.0)
+        await chill(0.4, 0.8)
         # Scroll adicional para forzar carga de contenido
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await chill(2.0, 3.0)
+        await chill(0.7, 1.2)
     except Exception:
         pass
 

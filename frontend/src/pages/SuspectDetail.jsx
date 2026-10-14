@@ -330,7 +330,14 @@ export default function SuspectDetail() {
       const res = await captureScreenshot(id);
       setScreenshotTimestamp(Date.now());
       await fetchData();
-      setMessage({ type: 'success', text: '¡Captura de pantalla en vivo tomada y guardada con éxito!' });
+      if (res.data?.status === 'capture_unavailable') {
+        setMessage({
+          type: 'error',
+          text: 'La red mostró el inicio de sesión; no se guardó esa pantalla. Se conserva la foto del producto si estaba disponible.'
+        });
+      } else {
+        setMessage({ type: 'success', text: '¡Captura de pantalla en vivo tomada y guardada con éxito!' });
+      }
     } catch (e) {
       setMessage({ type: 'error', text: 'No se pudo capturar la pantalla del post en vivo en este momento.' });
     } finally {

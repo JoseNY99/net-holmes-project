@@ -67,6 +67,53 @@ def _take_screenshot_sync(url: str, output_path: Path) -> bool:
                 pass
             time.sleep(1.5)
 
+            current_url = page.url.lower()
+            redirected_to_login = any(
+                part in current_url for part in ("/login", "/checkpoint", "/auth/")
+            )
+
+            try:
+                password_fields = page.locator('input[type="password"]').count()
+                body_text = page.locator("body").inner_text(timeout=3000).lower()
+            except Exception:
+                password_fields = 0
+                body_text = ""
+
+            login_wall = redirected_to_login or (
+                password_fields > 0
+                and any(
+                    phrase in body_text
+                    for phrase in ("iniciar sesión", "inicia sesión", "log in", "sign in")
+                )
+            )
+            # Marketplace/post pages can show a login prompt while still rendering
+            # the actual listing photo. Keep that visual evidence instead of rejecting it.
+            visible_listing_image = page.evaluate("""
+                () => Array.from(document.images).some((img) => {
+                    const rect = img.getBoundingClientRect();
+                    const style = window.getComputedStyle(img);
+                    const description = `${img.alt || ''} ${img.src || ''}`.toLowerCase();
+                    const looksLikeUi = /avatar|profile|logo|icon|emoji|sprite|rsrc\\.php/.test(description);
+                    const visible = rect.width >= 140 && rect.height >= 120 &&
+                        style.display !== 'none' && style.visibility !== 'hidden' &&
+                        Number(style.opacity || 1) > 0 &&
+                        rect.bottom > 0 && rect.right > 0 &&
+                        rect.top < window.innerHeight && rect.left < window.innerWidth;
+                    return visible && img.complete && img.naturalWidth >= 140 &&
+                        img.naturalHeight >= 120 && !looksLikeUi;
+                })
+            """)
+            if login_wall and not visible_listing_image:
+                cron_logger.log(
+                    f"[Screenshot OSINT] Se omite captura: se detectó un formulario de login ({url})."
+                )
+                return False
+            if login_wall and visible_listing_image:
+                cron_logger.log(
+                    f"[Screenshot OSINT] Se conserva la captura: hay una imagen de publicación visible "
+                    f"a pesar del formulario de login ({url})."
+                )
+
             # Intentar limpiar modales obstructivos de login/cookies
             try:
                 page.evaluate("""

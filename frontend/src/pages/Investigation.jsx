@@ -156,7 +156,7 @@ export default function Investigation() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', width: '100%' }}>
           <div>
             <h2><FaLayerGroup style={{ marginRight: '10px', color: 'var(--accent-primary)' }} /> Centro de Investigaciones & Hallazgos</h2>
-            <p>Monitoreo unificado del ciclo de vida de infracciones: Investigaciones Activas (Fase 2), Perfilado ABM y Reportes Finales (Fase 3).</p>
+            <p>Monitoreo unificado del ciclo de vida de infracciones: Investigaciones Activas (Fase 1), Perfilado ABM y Reportes Finales (Fase 2).</p>
           </div>
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -187,7 +187,7 @@ export default function Investigation() {
             onClick={() => { setActiveTab('fase2'); setSearchParams({ tab: 'fase2' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'fase2' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'fase2' ? '#000' : 'var(--text-secondary)' }}
           >
-            Fase 2: Investigaciones Activas
+            Fase 1: Investigaciones Activas
           </button>
           <button 
             type="button"
@@ -195,7 +195,7 @@ export default function Investigation() {
             onClick={() => { setActiveTab('fase3'); setSearchParams({ tab: 'fase3' }); }}
             style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, background: activeTab === 'fase3' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)', color: activeTab === 'fase3' ? '#000' : 'var(--text-secondary)' }}
           >
-            Fase 3: Casos Confirmados & Reportes
+            Fase 2: Casos Confirmados & Reportes
           </button>
           <button 
             type="button"
