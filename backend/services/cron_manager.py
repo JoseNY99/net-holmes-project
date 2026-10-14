@@ -4,23 +4,27 @@ from sqlalchemy.orm import Session
 import re
 import json
 import datetime
-import time
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from config import settings, PROVINCIAS_AR
+from config import settings
 from database import SessionLocal
 from models.brand import Brand
 from services.cron_logger import cron_logger
 from services.keyword_generator import generate_keywords
 from scrapers.scraper_engine import ScraperEngine
 from models.reporte import ReporteBrandDefense
-from models.perfil_investigacion import PerfilInvestigacion
 from models.facebook_data import ReporteFacebookData
 from models.instagram_data import ReporteInstagramData
 from models.tiktok_data import ReporteTiktokData
 from models.mercadolibre_data import ReporteMercadoLibreData
 from services.correlation_engine import CorrelationEngine
 from scrapers.filtro_comercial import es_cuenta_oficial
+from services.argentina_scope import (
+    detect_foreign_content,
+    has_non_argentina_content,
+    is_explicitly_foreign_location,
+    is_spanish_text,
+)
 
 # Instancia del scheduler con zona horaria de Argentina
 scheduler = AsyncIOScheduler(timezone="America/Argentina/Buenos_Aires")
@@ -32,7 +36,7 @@ def request_stop():
     """Señal inmediata para abortar cualquier escaneo en ejecución."""
     global _stop_requested
     _stop_requested = True
-    cron_logger.log(" [Detención de Emergencia] Señal recibida. Abortando escaneo inmediatamente...")
+    cron_logger.log("🛑 [Detención de Emergencia] Señal recibida. Abortando escaneo inmediatamente...")
 
 def get_whatsapp_number(text: str) -> str:
     """Extrae el primer número de WhatsApp o teléfono que encuentre usando regex."""
@@ -43,6 +47,116 @@ def get_whatsapp_number(text: str) -> str:
     if match:
         return match.group(0)
     return None
+
+def detect_counterfeit_indicators(text: str) -> dict:
+    """
+    Detecta indicadores de falsificación basado en palabras clave.
+    Retorna: {
+        'es_falsificacion': bool,
+        'terminos_encontrados': list,
+        'motivo': str
+    }
+    """
+    if not text:
+        return {'es_falsificacion': False, 'terminos_encontrados': [], 'motivo': 'Texto vacío'}
+    
+    text_lower = text.lower()
+
+    counterfeit_high_confidence_terms = [
+        r'\bcalidad\s*premium\b',
+        r'\btailand[eé]s[a-z]*\b',
+        r'\bimportad[oa]s?\s+premium\b',
+    ]
+    high_confidence_matches = [
+        match.group(0)
+        for term in counterfeit_high_confidence_terms
+        for match in re.finditer(term, text_lower)
+    ]
+    if high_confidence_matches:
+        terms = list(dict.fromkeys(high_confidence_matches))
+        return {
+            'es_falsificacion': True,
+            'terminos_encontrados': terms,
+            'motivo': f"Indicadores explícitos de falsificación: {', '.join(terms)}"
+        }
+    
+    # Las declaraciones positivas de autenticidad prevalecen sobre menciones ambiguas.
+    terminos_original = [
+        r'\b100%\s*original\b',
+        r'\boriginal(?:es)?\b',
+        r'\baut[eé]ntic[oa]s?\b',
+        r'\bperfecto\s*estado\b',
+        r'\busado\b',
+        r'\btienda\s*oficial\b',
+        r'\boulet\s*oficial\b',
+        r'\bstore\s*oficial\b',
+        r'\bautenticidad\b',
+        r'\bgarantía\s*oficial\b',
+    ]
+    
+    # Términos que indican falsificación
+    terminos_falsificacion = [
+        r'\br[eé]plicas?\b',
+        r'\brepliquero\b',
+        r'\bg5\b',
+        r'\bclones?\b',
+        r'\baaa\b',
+        r'\btailand[eé]s[a-z]*\b',
+        r'\bimitaci[oó]n(?:es)?\b',
+        r'\bcopias?\b',
+        r'\bfalsificad[oa]s?\b',
+        r'\bfalsificaci[oó]n\b',
+        r'\bfals[oa]s?\b',
+        r'\bpirata\b',
+        r'\btruch[oa]s?\b',
+        r'\bcalidad\s*premium\b',
+        r'\btailand[eé]s[a-z]*\b',
+        r'\bimportad[oa]s?\s+premium\b',
+        r'\bno\s+(?:es\s+)?original(?:es)?\b',
+        r'\b1\s*[:/.]\s*1\b',
+    ]
+    negaciones_falsificacion = [
+        match.span()
+        for match in re.finditer(
+            r'\bno\s+(?:es\s+)?(?:un[oa]?\s+)?'
+            r'(?:fake|falsificad[oa]s?|truch[oa]s?|r[eé]plicas?|'
+            r'imitaci[oó]n(?:es)?|copias?|clones?|clon)\b',
+            text_lower,
+        )
+    ]
+    
+    es_original = any(re.search(term, text_lower) for term in terminos_original)
+    niega_originalidad = bool(re.search(r'\bno\s+(?:es\s+)?original(?:es)?\b', text_lower))
+    if es_original and not niega_originalidad:
+        return {
+            'es_falsificacion': False,
+            'terminos_encontrados': [],
+            'motivo': 'Declara autenticidad, originalidad o condición usada'
+        }
+    
+    # Detectar términos de falsificación
+    terminos_detectados = []
+    for term in terminos_falsificacion:
+        matches = re.finditer(term, text_lower)
+        terminos_detectados.extend(
+            match.group(0)
+            for match in matches
+            if not any(start <= match.start() < end for start, end in negaciones_falsificacion)
+        )
+    
+    if terminos_detectados:
+        terminos_unicos = list(set(terminos_detectados))[:5]  # Máximo 5 términos para el log
+        return {
+            'es_falsificacion': True,
+            'terminos_encontrados': terminos_unicos,
+            'motivo': f"Encontrados términos de falsificación: {', '.join(terminos_unicos)}"
+        }
+    
+    return {
+        'es_falsificacion': False,
+        'terminos_encontrados': [],
+        'motivo': 'No hay indicadores claros de falsificación'
+    }
 
 def _normalize_url_for_dedup(url: str, plataforma: str = "") -> str:
     """
@@ -178,26 +292,129 @@ def _extract_single_clean_image_url(item: Dict[str, Any]) -> str | None:
 
 def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Brand, keyword: str = ""):
     """Procesa, mapea a ScanResult y guarda un único resultado en la base de datos de inmediato."""
+
+    platform_name = str(item.get("plataforma") or "").lower()
+    social_platforms = {"facebook", "instagram", "tiktok"}
+    title_text = str(item.get("title") or "")
+    description_text = str(item.get("description") or "")
+    platform_data = item.get("platform_data")
+    platform_data = platform_data if isinstance(platform_data, dict) else {}
+    result_location = item.get("location")
+
+    description_parts = [
+        description_text,
+        str(platform_data.get("description_full") or ""),
+        str(platform_data.get("caption_full") or ""),
+    ]
+    comments = [
+        item.get("comments_audit"),
+        item.get("comments"),
+        platform_data.get("comments_text"),
+        platform_data.get("comments"),
+    ]
+    for comment_group in comments:
+        if isinstance(comment_group, str):
+            description_parts.append(comment_group)
+        elif isinstance(comment_group, (list, tuple)):
+            description_parts.extend(
+                str(comment) for comment in comment_group if isinstance(comment, str)
+            )
+    condition = str(platform_data.get("item_condition") or item.get("condition") or "")
+    social_analysis_text = " ".join(
+        part for part in [title_text, *description_parts, condition] if part
+    )
+
+    if platform_name in social_platforms and has_non_argentina_content(
+        f"{title_text} {description_text}"
+    ):
+        cron_logger.log(
+            f"🚫 [Filtro Argentina] País vecino o moneda extranjera en la publicación: "
+            f"{title_text[:60]}"
+        )
+        return
+
+    if is_explicitly_foreign_location(result_location):
+        cron_logger.log(
+            f"🚫 [Filtro Ubicación] Resultado extranjero descartado: "
+            f"{result_location} - {item.get('title', '')}"
+        )
+        return
+
+    social_text = (
+        social_analysis_text
+        if platform_name == "instagram"
+        else f"{title_text} {description_text}"
+    )
+    deteccion_social = None
+    if platform_name in social_platforms:
+        if not is_spanish_text(social_text):
+            cron_logger.log(
+                f"🚫 [Filtro idioma] Publicación social no identificada como español: "
+                f"{title_text[:60]}"
+            )
+            return
+        deteccion_social = detect_counterfeit_indicators(social_analysis_text)
+        if not deteccion_social["es_falsificacion"]:
+            cron_logger.log(
+                f"🚫 [Filtro falsificación] Sin indicadores explícitos en título/descripción: "
+                f"{title_text[:60]}"
+            )
+            return
+        if not re.search(rf"(?<!\w){re.escape(brand.nombre)}(?!\w)", social_text, re.IGNORECASE):
+            cron_logger.log(
+                f"🚫 [Filtro marca] La publicación no menciona la marca seleccionada "
+                f"'{brand.nombre}' en título/descripción."
+            )
+            return
     
-    # 0. VALIDACIÓN INICIAL: URL vacía o incompleta
-    url = item.get("url", "").strip()
+    # Filtro de contenido extranjero (por moneda, idioma, términos locales)
+    title = title_text.lower()
+    desc = description_text.lower()
+    seller_profile = item.get("seller_profile")
+    seller_profile = seller_profile if isinstance(seller_profile, dict) else {}
+    seller_name = str(seller_profile.get("name") or "").lower()
+    raw_data_str = str(item.get("raw_data", "")).lower()
+    combined_text = f"{title} {desc} {seller_name} {raw_data_str}"
+    foreign_check_text = (
+        f"{social_text} {result_location or ''}"
+        if platform_name in social_platforms
+        else combined_text
+    )
     
-    # Rechazar URLs vacías o incompletas
-    if not url or url.endswith("/@") or "/@/" in url or url == "https://www.tiktok.com/@":
-        cron_logger.log(f"🚫 [Validación URL] Descartado por URL vacía o incompleta: {url}")
+    if detect_foreign_content(foreign_check_text):
+        cron_logger.log(
+            f"🚫 [Filtro País] Contenido extranjero detectado (moneda/idioma/términos locales): {title[:60]}"
+        )
         return
     
     # 1. Filtro Anti-Oficial / Filtro de País / Filtro de Marca
-    title = item.get("title", "").lower()
-    desc = item.get("description", "").lower()
-    seller_name = item.get("seller_profile", {}).get("name", "").lower()
+    title = title_text.lower()
+    desc = description_text.lower()
+    seller_name = str(seller_profile.get("name") or "").lower()
     raw_data_str = str(item.get("raw_data", "")).lower()
     
-    location_text = str(item.get("location", "")).lower()
-    combined_text = f"{title} {desc} {seller_name} {raw_data_str} {location_text}"
+    combined_text = f"{title} {desc} {seller_name} {raw_data_str}"
     
     # a. Bloquear Tiendas Oficiales mediante Lista Negra Dinámica (DB) y Filtro Básico
-    titular = item.get("seller_profile", {}).get("name", "")
+    titular = str(
+        seller_profile.get("name")
+        or platform_data.get("seller_name")
+        or platform_data.get("username")
+        or "Vendedor No Identificado"
+    )
+    if titular.strip().casefold() in {
+        "", "desconocido", "usuario desconocido", "vendedor no identificado",
+    }:
+        titular = str(
+            platform_data.get("seller_name")
+            or platform_data.get("username")
+            or "Vendedor No Identificado"
+        )
+    if not seller_profile.get("name") or str(seller_profile.get("name")).casefold() in {
+        "desconocido", "usuario desconocido", "vendedor no identificado",
+    }:
+        item["seller_profile"] = {**seller_profile, "name": titular}
+    url = item.get("url", "")
     titulo = item.get("title", "")
     
     if es_cuenta_oficial(db, titular, url, titulo, brand.nombre):
@@ -222,75 +439,52 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
         cron_logger.log(f"🚫 [Filtro Oficial DB] Descartado por parecer perfil genérico oficial ({clean_seller}): {titulo}")
         return
 
-    # b. Bloquear Países Extranjeros y Afianzar Localidad
+    # b. Bloquear ubicaciones extranjeras mencionadas en el contenido.
     # Usa word boundaries (\b) para evitar falsos positivos como "usa" dentro de "usado"
     foreign_patterns = [
         r'\bbrasil\b', r'\bbrazil\b', r'\beeuu\b', r'\bestados unidos\b', r'\bunited states\b',
         r'\bmiami\b', r'\borlando\b', r'\bflorida\b', r'\bcalifornia\b', r'\btexas\b', r'\bnew york\b', r'\blos angeles\b',
-        r'\bnew mexico\b', r'\bsanta fe,?\s*(?:new mexico|nm)\b',
         r'\bchile\b', r'\buruguay\b', r'\bmexico\b', r'\bespaña\b', r'\bcolombia\b',
         r'\bperu\b', r'\becuador\b', r'\bvenezuela\b', r'\bparaguay\b', r'\bbolivia\b',
         r'\bguatemala\b', r'\bcosta rica\b', r'\bpanama\b', r'\bhonduras\b', r'\bel salvador\b',
-        r'\bnicaragua\b', r'\brepublica dominicana\b', r'\bpuerto rico\b',
+        r'\bnicaragua\b', r'\brepublica dominicana\b', r'\bpuerto rico\b',r'\bparaguay\b',
         r'\bmadrid\b', r'\bbarcelona\b', r'\bbogota\b', r'\blima\b', 
         r'\bsantiago de chile\b', r'\bmontevideo\b', r'\basuncion\b',
-        r'\bpy\b',  # Código de país Paraguay
-        r'\bco\b',  # Código de país Colombia
-        r'\bmx\b',  # Código de país México
-        r'\bcl\b',  # Código de país Chile
-        r'\bpe\b',  # Código de país Perú
         r'\busa\b',  # Con word boundary para no matchear "usado", "causa", etc.
-        r'\bgs\b',  # Moneda Guaraní Paraguayo
-        r'\(\d{4}\)\s+\d{3}[\s-]?\d{3}',  # Formato (0982) 610-944 (Paraguay)
-        r'\+595[\s-]?\d{1,2}[\s-]?\d{3,4}[\s-]?\d{3,4}',  # +595-982-XXXX (Paraguay)
+        r'\bgs\b', r'\bgs\.\b', r'\bpyg\b', r'\bguaranies\b', r'\bguaraníes\b', 
+        r'\bsoles\b', r'\bpesos uruguayos\b', r'\bpesos chilenos\b', r'\bbolivianos\b'
     ]
-    has_foreign = any(re.search(pat, combined_text, re.IGNORECASE) for pat in foreign_patterns)
+    # Ciudades argentinas que funcionan como bypass (si aparecen, el item es argentino)
+    ar_city_terms = [
+        "argentina", "buenos aires", "córdoba", "cordoba", "rosario", "mendoza",
+        "tucumán", "tucuman", "salta", "santa fe", "mar del plata", "la plata",
+        "neuquén", "neuquen", "bahía blanca", "bahia blanca", "corrientes", 
+        "resistencia", "posadas", "paraná", "parana", "san juan", "san luis",
+        "jujuy", "formosa", "catamarca", "la rioja", "rio negro", "chubut",
+        "caba", "capital federal", "gba", "zona sur", "zona norte", "zona oeste"
+    ]
+    has_foreign = any(re.search(pat, combined_text) for pat in foreign_patterns)
     if has_foreign:
-        cron_logger.log(f"🚫 [Filtro Geográfico] Descartado por ubicación extranjera evidente: {item.get('title')}")
+        cron_logger.log(f"🚫 [Filtro País Estricto] Descartado por país/moneda extranjera detectada: {item.get('title')[:50]}")
         return
 
-    non_apparel_patterns = [
-        r"\btrailers?\b", r"\bremolques?\b", r"\bcamiones?\b", r"\btractores?\b",
-        r"\bautom[oó]viles?\b", r"\bautos?\b", r"\bveh[ií]culos?\b",
-    ]
-    if any(re.search(pattern, combined_text) for pattern in non_apparel_patterns):
-        cron_logger.log(f"🚫 [Filtro] Descartado por categoría ajena a indumentaria: {item.get('title')}")
-        return
-
-    # c. Limpieza de "Basura" (Debe mencionar la marca O ser claramente una falsificación)
+    # c. Limpieza de "Basura" (Debe mencionar la marca o la palabra clave)
     brand_name = brand.nombre.lower()
     kw_lower = keyword.lower() if keyword else ""
-    
-    # Términos de falsificación conocida
-    terminos_falsificacion = [
-        "replica", "replicasG5", "g5", "trucho", "tailandesa", "copia", "imitacion", "clon", "aaa",
-        "fake", "falsificacion", "falsificado", "contrafaccion"
-    ]
-    tiene_termino_fake = any(term in combined_text for term in terminos_falsificacion)
-    
-    # Aceptar si: tiene la marca/keyword O tiene términos de falsificación evidente
-    if brand_name not in combined_text and (not kw_lower or kw_lower not in combined_text) and not tiene_termino_fake:
+    if brand_name not in combined_text and (not kw_lower or kw_lower not in combined_text):
         cron_logger.log(f"🚫 [Filtro] Descartado por no tener relación con '{brand.nombre}': {item.get('title')}")
         return
 
-    # d. Filtro Estricto Brand Protection & OSINT (Falsificación vs Original/Usado y Argentina)
-    from scrapers.filtro_comercial import evaluar_publicacion_osint
-    eval_osint = evaluar_publicacion_osint(
-        plataforma=item.get("plataforma", ""),
-        descripcion=f"{item.get('title', '')} {item.get('description', '')}",
-        comentarios=item.get("comments_audit", []),
-        ubicacion=str(item.get("location", "")),
-        precio=str(item.get("price", ""))
-    )
-    if not eval_osint["es_falsificacion"]:
-        cron_logger.log(f"🚫 [Brand Protection] Descartado: {eval_osint['motivo']} ({item.get('title')})")
+    from services.product_relevance import matches_configured_product
+    product_text = " ".join((title, desc, raw_data_str))
+    if not matches_configured_product(product_text, brand.nombre, brand.products):
+        cron_logger.log(
+            f"[Filtro Producto] Resultado descartado por no coincidir con productos configurados de {brand.nombre}: "
+            f"{item.get('title', '')}"
+        )
         return
 
-    if not eval_osint["es_argentina"]:
-        cron_logger.log(f"🚫 [Brand Protection] Descartado (No Argentina): {eval_osint['motivo']} ({item.get('title')})")
-        return
-
-    # e. Filtro de URLs — Validación PERMISIVA (solo rechazar URLs claramente genéricas)
+    # d. Filtro de URLs — Validación PERMISIVA (solo rechazar URLs claramente genéricas)
     item_url_raw = item.get("url", "N/A").lower()
     plataforma = str(item.get("plataforma", "")).lower()
     if item_url_raw != "n/a":
@@ -383,23 +577,48 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
             except Exception:
                 parsed_followers = None
 
+        # Detectar indicadores de falsificación
+        condicion = str(platform_data.get("item_condition") or item.get("condition") or "")
+
+        # El término de búsqueda nunca forma parte del texto evaluado como evidencia.
+        texto_analisis = (
+            social_analysis_text
+            if platform_name in social_platforms
+            else f"{title_text} {description_text} {condicion}"
+        )
+        
+        if platform_name in social_platforms:
+            deteccion = deteccion_social or detect_counterfeit_indicators(texto_analisis)
+        else:
+            deteccion = detect_counterfeit_indicators(texto_analisis)
+        es_falsificacion = deteccion['es_falsificacion']
+        motivo_falsificacion = deteccion['motivo']
+        
+        if es_falsificacion:
+            cron_logger.log(f"🚩 [Falsificación Detectada] {brand.nombre}: {motivo_falsificacion}")
+        else:
+            cron_logger.log(f"❌ [Rechazado] {motivo_falsificacion}")
+            return  # ← RECHAZAR COMPLETAMENTE los originales/sin indicadores
+
         new_result = ReporteBrandDefense(
             pais=item.get("location", "Argentina"),
             producto_catalogo=keyword if keyword else "Desconocido",
             marca_afectada=brand.nombre,
             plataforma=item.get("plataforma") or "web",
-            titular_cuenta=item.get("seller_profile", {}).get("name", "Desconocido"),
+            titular_cuenta=titular,
             url_evidencia=item.get("url"),
-            descripcion_post=item.get("description") or item.get("title", ""),
+            descripcion_post=f"[FALSIFICACIÓN: {'SÍ' if es_falsificacion else 'NO'}] {motivo_falsificacion}\n\n{item.get('description') or item.get('title', '')}",
             precio_publico=parsed_price,
             direccion_publica=item.get("location", ""),
             telefono_publico=found_phone or item.get("phone") or item.get("platform_data", {}).get("phone"),
             seguidores_infractor=parsed_followers,
-            estado="Investigando"
+            estado="Investigando" if es_falsificacion else "Pendiente"
         )
         db.add(new_result)
         db.flush() # Obtain ID without committing entirely yet
-        db.add(PerfilInvestigacion(reporte_id=new_result.id))
+
+        from services.phase_transition import start_phase_two_automatically
+        start_phase_two_automatically(db, new_result)
 
         # 💾 Descargar físicamente la imagen al servidor local (/static/evidencias/reporte_{id}.jpg)
         local_img_path = None
@@ -439,7 +658,7 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
                 cron_logger.log(f"ℹ️ [Plataforma Data] {pe}")
 
         db.commit()
-        cron_logger.log(f" [Éxito] Reporte guardado: {brand.nombre} - {item.get('plataforma')} - {new_result.url_evidencia}")
+        cron_logger.log(f"✅ [Éxito] Reporte guardado y enviado a Fase 2: {brand.nombre} - {item.get('plataforma')} - {new_result.url_evidencia}")
 
         # Trigger correlación automática
         try:
@@ -449,24 +668,12 @@ def process_and_save_single_result(db: Session, item: Dict[str, Any], brand: Bra
 
     except Exception as e:
         db.rollback()
-        cron_logger.log(f" Error al guardar item de {item.get('plataforma')}: {e}")
+        cron_logger.log(f"⚠️ Error al guardar item de {item.get('plataforma')}: {e}")
 
-async def run_automatic_scan(search_options: dict | None = None):
+async def run_automatic_scan(*args, **kwargs):
     """Ejecuta el ciclo de escaneo automático para todas las marcas."""
     global _stop_requested
     _stop_requested = False
-    scan_deadline = None
-    if search_options and search_options.get("duration_minutes"):
-        scan_deadline = time.monotonic() + search_options["duration_minutes"] * 60
-    deadline_logged = False
-
-    def time_limit_reached():
-        nonlocal deadline_logged
-        expired = scan_deadline is not None and time.monotonic() >= scan_deadline
-        if expired and not deadline_logged:
-            cron_logger.log("Se alcanzó el tiempo máximo de búsqueda seleccionado.")
-            deadline_logged = True
-        return expired
 
     cron_logger.log("====== INICIANDO ESCANEO AUTOMÁTICO ======")
     cron_logger.set_status("running")
@@ -480,12 +687,8 @@ async def run_automatic_scan(search_options: dict | None = None):
         if not brands:
             brands = db.query(Brand).all()
         if not brands:
-            cron_logger.log(" No hay marcas registradas en el sistema. Registra marcas antes de escanear.")
+            cron_logger.log("⚠️ No hay marcas registradas en el sistema. Registra marcas antes de escanear.")
             return
-
-        if search_options and search_options.get("brand_ids"):
-            selected_ids = set(search_options["brand_ids"])
-            brands = [brand for brand in brands if brand.id in selected_ids]
 
         from services import cron_service
         import json
@@ -495,8 +698,10 @@ async def run_automatic_scan(search_options: dict | None = None):
             marcas_ids = json.loads(cron_config.marcas_seleccionadas) if cron_config.marcas_seleccionadas else []
             if marcas_ids:
                 filtered = [b for b in brands if b.id in marcas_ids]
-                if filtered:
-                    brands = filtered
+                brands = filtered
+                if not brands:
+                    cron_logger.log("⚠️ Ninguna marca seleccionada está disponible para escanear.")
+                    return
             else:
                 cron_logger.log(f"ℹ️ Marcas seleccionadas en blanco: escaneando {len(brands)} marca(s) registradas.")
         except Exception as e:
@@ -504,21 +709,10 @@ async def run_automatic_scan(search_options: dict | None = None):
         
         try:
             provincias = json.loads(cron_config.provincias_seleccionadas)
-            if not provincias: # Si el usuario lo dejó vacío, busca a nivel país
-                provincias = ["Argentina"]
-            elif isinstance(provincias, str):
-                provincias = [provincias]
+            from services.argentina_scope import normalize_argentina_locations
+            provincias = normalize_argentina_locations(provincias)
         except:
             provincias = ["Argentina"]
-
-        allowed_locations = {"argentina", *(province["name"].casefold() for province in PROVINCIAS_AR)}
-        provincias = [
-            location for location in provincias
-            if isinstance(location, str) and location.strip().casefold() in allowed_locations
-        ] or ["Argentina"]
-
-        if search_options and search_options.get("provincias"):
-            provincias = search_options["provincias"]
             
         limite = cron_config.limite_extraccion or 10
         settings.APIFY_MAX_ITEMS = limite
@@ -531,14 +725,7 @@ async def run_automatic_scan(search_options: dict | None = None):
         # Excluir 'web' de escaneos automáticos (las webs quedan reservadas exclusivamente para el escaneo manual)
         plataformas_activas = [p for p in plataformas_activas if p != "web"]
 
-        # IMPORTANTE: Si viene search_options con plataformas específicas del usuario → RESPETARLAS
-        if search_options and search_options.get("plataformas"):
-            plataformas_activas = search_options["plataformas"]
-            cron_logger.log(f" Plataformas seleccionadas por usuario: {plataformas_activas}")
-
         proveedor = getattr(cron_config, 'proveedor', 'google_meli_osint') or 'google_meli_osint'
-        cron_logger.log(f" Proveedor configurado: {proveedor}")
-        cron_logger.log(f" Plataformas activas: {plataformas_activas}")
 
         # Si el proveedor es Apify o RapidAPI, excluir automáticamente MercadoLibre para evitar conflictos
         if proveedor in ("apify", "rapidapi"):
@@ -548,42 +735,29 @@ async def run_automatic_scan(search_options: dict | None = None):
         
         for brand in brands:
             if _stop_requested:
-                cron_logger.log(" [Detención de Emergencia] Escaneo cancelado.")
-                break
-            if time_limit_reached():
+                cron_logger.log("🛑 [Detención de Emergencia] Escaneo cancelado.")
                 break
 
             cron_logger.log(f"--- Procesando marca: {brand.nombre} ---")
             cron_logger.set_progress(marca=brand.nombre)
             
             for platform_name in plataformas_activas:
-                if _stop_requested or time_limit_reached():
+                if _stop_requested:
                     break
 
-                requested_keywords = search_options.get("keywords") if search_options else None
-                
-                # Si el usuario proporciona palabras clave, usarlas
-                if requested_keywords:
-                    keywords = [
-                        term if brand.nombre.casefold() in term.casefold() else f"{brand.nombre} {term}"
-                        for term in requested_keywords
-                    ]
-                else:
-                    # El usuario NO pasó keywords: buscar SOLO por marca (respeta intención del usuario)
-                    # Antes: generar_keywords_optimizados() agregaba "zapatillas", "remera", etc.
-                    # Ahora: si el usuario solo pasa marca, respetamos eso
-                    keywords = [brand.nombre]
-                
+                keywords = await generate_keywords(brand, platform_name)
                 cron_logger.log(f"Keywords a buscar en {platform_name}: {keywords}")
                 
                 for keyword in keywords:
-                    if _stop_requested or time_limit_reached():
+                    if _stop_requested:
                         break
 
-                    locs_to_search = provincias
+                    # Las ubicaciones por provincia son solo para Facebook.
+                    # El resto de plataformas barren a nivel país.
+                    locs_to_search = provincias if platform_name == "facebook" else ["Argentina"]
                     
                     for provincia in locs_to_search:
-                        if _stop_requested or time_limit_reached():
+                        if _stop_requested:
                             break
 
                         cron_logger.log(f"-> Escaneando {platform_name} para '{keyword}' en '{provincia}'")
@@ -593,109 +767,42 @@ async def run_automatic_scan(search_options: dict | None = None):
                             if platform_name == "facebook":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_fb or 10
                                 async for item in engine.scrape_facebook(keyword, provincia, proveedor):
-                                    if _stop_requested or time_limit_reached():
+                                    if _stop_requested:
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
                             elif platform_name == "instagram":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_ig or 10
-                                collected_ig = 0
                                 async for item in engine.scrape_instagram(keyword, provincia, proveedor):
-                                    if _stop_requested or time_limit_reached():
+                                    if _stop_requested:
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
-                                    collected_ig += 1
-                                
-                                if collected_ig < 3 and proveedor != "apify":
-                                    cron_logger.log(f" [Instagram] Pocos resultados ({collected_ig}). Intentando fallback con hashtags específicos usando {proveedor}...")
-                                    hashtags_fallback = [
-                                        f"{brand.nombre} replica Argentina",
-                                        f"{brand.nombre} g5 Argentina"
-                                    ]
-                                    for hashtag in hashtags_fallback:
-                                        if collected_ig >= 10:
-                                            break
-                                        async for item in engine.scrape_instagram(hashtag, provincia, proveedor):
-                                            if _stop_requested or time_limit_reached():
-                                                break
-                                            desc = item.get("description", "").lower() if isinstance(item, dict) else ""
-                                            if "original" not in desc:
-                                                process_and_save_single_result(db, item, brand, keyword)
-                                                collected_ig += 1
-                                                if collected_ig >= 10:
-                                                    break
-                                            
                             elif platform_name == "tiktok":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_tt or 10
-                                collected_tt = 0
                                 async for item in engine.scrape_tiktok(keyword, provincia, proveedor):
-                                    if _stop_requested or time_limit_reached():
+                                    if _stop_requested:
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
-                                    collected_tt += 1
-                                
-                                if collected_tt < 3 and proveedor != "apify":
-                                    cron_logger.log(f" [TikTok] Pocos resultados ({collected_tt}). Intentando fallback con hashtags específicos usando {proveedor}...")
-                                    hashtags_fallback = [
-                                        f"{brand.nombre} replica Argentina",
-                                        f"{brand.nombre} g5 Argentina"
-                                    ]
-                                    for hashtag in hashtags_fallback:
-                                        if collected_tt >= 10:
-                                            break
-                                        async for item in engine.scrape_tiktok(hashtag, provincia, proveedor):
-                                            if _stop_requested or time_limit_reached():
-                                                break
-                                            desc = item.get("description", "").lower() if isinstance(item, dict) else ""
-                                            if "original" not in desc:
-                                                process_and_save_single_result(db, item, brand, keyword)
-                                                collected_tt += 1
-                                                if collected_tt >= 10:
-                                                    break
-                                            
                             elif platform_name == "mercadolibre":
                                 settings.APIFY_MAX_ITEMS = cron_config.limite_extraccion_ml or 10
                                 async for item in engine.scrape_mercadolibre(keyword, provincia, proveedor):
-                                    if _stop_requested or time_limit_reached():
+                                    if _stop_requested:
                                         break
                                     process_and_save_single_result(db, item, brand, keyword)
                             
-                            if _stop_requested or time_limit_reached():
+                            if _stop_requested:
                                 break
                             # Pequeña pausa entre llamadas a API
                             await asyncio.sleep(1)
                         except Exception as e:
                             cron_logger.log(f"Error en {platform_name} para {keyword} en {provincia}: {e}")
 
-            if _stop_requested or time_limit_reached():
+            if _stop_requested:
                 break
                         
         if _stop_requested:
-            cron_logger.log(" ====== ESCANEO DETENIDO POR EMERGENCIA ======")
+            cron_logger.log("🛑 ====== ESCANEO DETENIDO POR EMERGENCIA ======")
         else:
-            cron_logger.log("====== INICIANDO AUTO-COMPLETACIÓN DE FASE 1 ======")
-        
-        # Auto-completar todos los reportes en Pendiente (Fase 1)
-        try:
-            from services.fase1_auto_completor import Fase1AutoCompletor
-            from models.reporte import ReporteBrandDefense
-            
-            reportes_pendientes = db.query(ReporteBrandDefense).filter(
-                ReporteBrandDefense.estado == "Pendiente"
-            ).all()
-            
-            if reportes_pendientes:
-                ids = [r.id for r in reportes_pendientes]
-                resultado = Fase1AutoCompletor.auto_completar_batch(db, ids, verbose=True)
-                cron_logger.log(
-                    f"✅ [Fase1→2 AUTO] {resultado['completados']} reportes completados y avanzados a Investigación. "
-                    f"{resultado['pendientes']} en espera de más datos. {resultado['errores']} errores."
-                )
-            else:
-                cron_logger.log("ℹ️  [Fase1→2 AUTO] No hay reportes en Pendiente para auto-completar.")
-        except Exception as e:
-            cron_logger.log(f"⚠️  [Fase1→2 AUTO] Error en auto-completación: {str(e)}")
-        
-        cron_logger.log("====== ESCANEO AUTOMÁTICO FINALIZADO ======")
+            cron_logger.log("====== ESCANEO AUTOMÁTICO FINALIZADO ======")
         
     except Exception as e:
         cron_logger.log(f"Error fatal en escaneo: {e}")
@@ -731,9 +838,9 @@ def update_job_schedule(db: Session = None):
         )
         cron_logger.log(f"⏰ [Cron Programado] ACTIVO: Programado para ejecutarse a las {hour:02d}:{minute:02d} (Hora Argentina)")
     else:
-        cron_logger.log(" [Cron Programado] Motor programado desactivado.")
+        cron_logger.log("⏸️ [Cron Programado] Motor programado desactivado.")
 
 async def trigger_manual_scan():
     """Lanza el escaneo desde el panel (sin esperar al cron)."""
-    cron_logger.log(" [Manual] Inicio de escaneo forzado solicitado.")
+    cron_logger.log("🚀 [Manual] Inicio de escaneo forzado solicitado.")
     await run_automatic_scan()

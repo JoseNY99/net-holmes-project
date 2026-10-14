@@ -15,21 +15,17 @@ async def generate_keywords(marca: Brand, plataforma: str = "general") -> list[s
     productos = [p.nombre for p in marca.products if getattr(p, "estado", "activa") == "activa"] if getattr(marca, "products", None) else []
     comportamientos = [c.nombre for c in marca.comportamientos] if getattr(marca, "comportamientos", None) else []
     
-    # Si el administrador cargó productos (palabras clave exactas), usarlas con variantes
+    # Si el administrador cargó productos (palabras clave exactas), usarlas directamente
     if productos:
-        productos_con_marca = []
-        for p in productos:
-            productos_con_marca.append(f"{marca.nombre} {p}")
-            productos_con_marca.append(f"{marca.nombre} {p} réplica")
-        cron_logger.log(f"[Keywords] Usando palabras clave configuradas con variantes de réplica: {productos_con_marca}")
+        productos_con_marca = [f"{marca.nombre} {p}" for p in productos]
+        cron_logger.log(f"[Keywords] Usando palabras clave exactas configuradas: {productos_con_marca}")
         return productos_con_marca
 
-    # Si no hay productos, generar la marca junto con los términos clave de réplicas e importadas
-    fallback_keywords = [
-        f"{marca.nombre} réplica",
-        f"{marca.nombre} importadas",
-        f"{marca.nombre} G5",
-        marca.nombre
-    ]
-    cron_logger.log(f"[Keywords] Usando términos de mercado informal para '{marca.nombre}': {fallback_keywords}")
+    # Si no hay productos, combinar marca con términos de falsificación para maximizar captura
+    terminos_fake = ["G5", "replica", "clon", "AAA", "tailandesa", "calidad premium"]
+    fallback_keywords = [marca.nombre]  # Búsqueda base sin modificadores
+    for termino in terminos_fake:
+        fallback_keywords.append(f"{marca.nombre} {termino}")
+    
+    cron_logger.log(f"[Keywords] Generando búsquedas con términos de falsificación: {fallback_keywords}")
     return fallback_keywords

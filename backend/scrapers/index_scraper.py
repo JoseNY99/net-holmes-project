@@ -12,30 +12,37 @@ from bs4 import BeautifulSoup
 import urllib.parse
 from typing import AsyncGenerator, Dict, Any
 from services.cron_logger import cron_logger
-from scrapers.filtro_comercial import filtrar_item_comercial
+from scrapers.filtro_comercial import FAKE_SEARCH_TERMS, obtener_senales_falsificacion
+from services.argentina_scope import is_spanish_text
 
 # ─── Dorking Templates por plataforma ──────────────────────────────────────────
+
+# ─── DORK_TEMPLATES CORREGIDO Y SIMPLIFICADO ──────────────────────────────────
 
 DORK_TEMPLATES = {
     "mercadolibre": {
         "strict": 'site:articulo.mercadolibre.com.ar "{kw}" {loc_term} -"tienda oficial"',
+        "brand_only": 'site:mercadolibre.com.ar "{brand}" {loc_term} -"tienda oficial"',
         "loose":  'site:mercadolibre.com.ar {kw} {loc_term} -"tienda oficial"',
         "ultra":  'site:mercadolibre.com.ar zapatillas OR remeras OR conjunto OR calzados {brand} {loc_term} -"tienda oficial"',
     },
     "facebook": {
-        "strict": 'site:facebook.com/marketplace/ "{kw}" ("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "espejo" OR "importadas") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
-        "loose":  'site:facebook.com/marketplace/ "{kw}" ("envios" OR "showroom" OR "talles" OR "cuotas" OR "precio") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
-        "ultra":  'site:facebook.com/marketplace/ "{brand}" ("réplica" OR "replica" OR "importadas" OR "G5") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
+        "strict": 'site:facebook.com/marketplace/ "{kw}" {fake_terms} {loc_term}',
+        "brand_only": 'site:facebook.com/marketplace/ "{brand}" {fake_terms} {loc_term}',
+        "loose":  'site:facebook.com/marketplace/ "{kw}" {fake_terms} {loc_term}',
+        "ultra":  'site:facebook.com/marketplace/ "{brand}" {fake_terms} {loc_term}',
     },
     "instagram": {
-        "strict": '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" ("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "espejo" OR "importadas") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
-        "loose":  '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" ("envios" OR "showroom" OR "talles" OR "cuotas" OR "stock") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
-        "ultra":  'site:instagram.com "{brand}" ("réplica" OR "replica" OR "importadas" OR "G5") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
+        "strict": '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" {fake_terms} {loc_term}',
+        "brand_only": '(site:instagram.com/p/ OR site:instagram.com/reel/) "{brand}" {fake_terms} {loc_term}',
+        "loose":  '(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" {fake_terms} {loc_term}',
+        "ultra":  'site:instagram.com "{brand}" {fake_terms} {loc_term}',
     },
     "tiktok": {
-        "strict": 'site:tiktok.com/@*/video/ "{kw}" ("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "importadas") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
-        "loose":  'site:tiktok.com/@*/video/ "{kw}" ("talles" OR "envios" OR "precio" OR "stock" OR "cuotas" OR "showroom") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
-        "ultra":  'site:tiktok.com "{brand}" ("réplica" OR "replica" OR "importadas" OR "G5") {loc_term} -Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA',
+        "strict": 'site:tiktok.com/@*/video/ "{kw}" {fake_terms} {loc_term}',
+        "brand_only": 'site:tiktok.com/@*/video/ "{brand}" {fake_terms} {loc_term}',
+        "loose":  'site:tiktok.com/@*/video/ "{kw}" {fake_terms} {loc_term}',
+        "ultra":  'site:tiktok.com "{brand}" {fake_terms} {loc_term}',
     },
 }
 
@@ -186,13 +193,23 @@ def _extract_username(platform: str, url: str, title: str = "") -> str:
     return "Usuario Desconocido"
 
 
+def _extract_facebook_seller(text: str) -> str | None:
+    match = re.search(
+        r"\b(?:vendido\s+por|publicado\s+por|vendedor|seller|by)\s*:?\s*"
+        r"([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúñÑ.'-]*(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúñÑ.'-]*){0,3})",
+        text,
+        re.IGNORECASE,
+    )
+    return match.group(1).strip() if match else None
+
+
 def _build_platform_data(platform: str, item: dict, keyword: str) -> dict:
     """Construye el diccionario platform_data para mapear a tablas 1:1."""
     import json
     snippet = item.get("body", "")
     url = item.get("href", "")
     title = item.get("title", "")
-    username = _extract_username(platform, url, title)
+    username = item.get("seller_name") or _extract_username(platform, url, title)
     
     img_urls_match = re.findall(r'(https?://\S+\.(?:jpg|jpeg|png|gif|webp))', snippet, re.IGNORECASE)
     image_urls = json.dumps(img_urls_match) if img_urls_match else None
@@ -294,6 +311,9 @@ async def ejecutar_motor_indexado(
     templates = DORK_TEMPLATES.get(platform, DORK_TEMPLATES["facebook"])
     brand_word = keyword.split(" ")[0]  # e.g. "Adidas" de "Adidas Forum"
     
+    # Detectar si es búsqueda solo por marca (keyword sin espacios = marca sola)
+    is_brand_only = " " not in keyword
+    
     requested_locations = provincias if isinstance(provincias, list) else [provincias]
     target_locations = [loc for loc in requested_locations if loc] or ["Argentina"]
     
@@ -306,20 +326,37 @@ async def ejecutar_motor_indexado(
         else:
             loc_term = f'("{loc}" Argentina)'
         
-        # ── Estrategia 1: Estricto ──
-        query = templates["strict"].format(kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word)
-        cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Estricto: {query}")
+        # ── Estrategia 1: Estricto (o Brand Only si es solo marca) ──
+        if is_brand_only and "brand_only" in templates:
+            # Mantener marca, señales de falsificación y ubicación también en búsquedas de marca sola.
+            query = templates["brand_only"].format(
+                kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word,
+                fake_terms=FAKE_SEARCH_TERMS,
+            )
+            cron_logger.log(f"[DDG Native] 🔍 Solo Marca (sin modificadores): {query}")
+        else:
+            query = templates["strict"].format(
+                kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word,
+                fake_terms=FAKE_SEARCH_TERMS,
+            )
+            cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Estricto: {query}")
         results = await _fetch_ddg_html(query, limit)
 
         # ── Estrategia 2: Holgado ──
         if not results:
-            query = templates["loose"].format(kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word)
+            query = templates["loose"].format(
+                kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word,
+                fake_terms=FAKE_SEARCH_TERMS,
+            )
             cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Holgado: {query}")
             results = await _fetch_ddg_html(query, limit)
 
         # ── Estrategia 3: Ultra (categorías genéricas de la marca) ──
         if not results:
-            query = templates["ultra"].format(kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word)
+            query = templates["ultra"].format(
+                kw=keyword, loc=loc, loc_term=loc_term, brand=brand_word,
+                fake_terms=FAKE_SEARCH_TERMS,
+            )
             cron_logger.log(f"[DDG Native] 🔍 Nivel 1 Ultra (genérico): {query}")
             results = await _fetch_ddg_html(query, limit)
 
@@ -335,6 +372,13 @@ async def ejecutar_motor_indexado(
             href = item.get("href", "")
             body = item.get("body", "")
             title = item.get("title", "Sin Título")
+            description_text = f"{title} {body}"
+
+            if platform in ("facebook", "instagram", "tiktok"):
+                if not obtener_senales_falsificacion(description_text):
+                    continue
+                if not is_spanish_text(description_text):
+                    continue
 
             # ── Validación Estricta de Dominio por Plataforma ──
             href_low = href.lower()
@@ -350,6 +394,8 @@ async def ejecutar_motor_indexado(
             price = _extract_price(f"{title} {body}")
             followers = _extract_followers(f"{title} {body}")
             username = _extract_username(platform, href, title)
+            if platform == "facebook" and username == "Usuario Desconocido":
+                username = _extract_facebook_seller(description_text) or username
 
             # Omitir resultados de tiendas oficiales explícitamente
             if "tienda oficial" in title.lower() or (brand_word.lower() in username.lower() and "oficial" in username.lower()):
@@ -391,7 +437,11 @@ async def ejecutar_motor_indexado(
                 "seguidores_infractor": followers,
                 "location": loc_name,
                 "raw_data": item,
-                "platform_data": _build_platform_data(platform, item, keyword),
+                "platform_data": _build_platform_data(
+                    platform,
+                    {**item, "title": title, "body": body, "href": href, "seller_name": username},
+                    keyword,
+                ),
             }
 
             # Filtro de Relevancia Comercial: descartar memes, reviews, hauls sin venta

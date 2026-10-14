@@ -211,7 +211,7 @@ async def extract_entities_llm(message_text: str) -> dict:
     content, err = await call_llm_chat_completion(messages, temperature=0.1, max_tokens=500)
     if not content:
         if err:
-            cron_logger.log(f"[LLM Extracción]  {err}")
+            cron_logger.log(f"[LLM Extracción] ⚠️ {err}")
         return {}
 
     # Limpiar posible markdown wrapping
@@ -226,18 +226,18 @@ async def extract_entities_llm(message_text: str) -> dict:
     try:
         entities = json.loads(content)
         if not isinstance(entities, dict):
-            cron_logger.log(f"[LLM]  Respuesta no es un dict: {content[:100]}")
+            cron_logger.log(f"[LLM] ⚠️ Respuesta no es un dict: {content[:100]}")
             return {}
 
         entities = {k: v for k, v in entities.items() if v is not None and v != ""}
         if entities:
-            cron_logger.log(f"[LLM]  Entidades extraídas: {entities}")
+            cron_logger.log(f"[LLM] 🎯 Entidades extraídas: {entities}")
         return entities
     except json.JSONDecodeError as e:
-        cron_logger.log(f"[LLM]  Error parseando JSON del LLM: {e}")
+        cron_logger.log(f"[LLM] ⚠️ Error parseando JSON del LLM: {e}")
         return {}
     except Exception as e:
-        cron_logger.log(f"[LLM]  Error inesperado en extracción LLM: {e}")
+        cron_logger.log(f"[LLM] ❌ Error inesperado en extracción LLM: {e}")
         return {}
 
 
@@ -315,7 +315,7 @@ SELLER_SIMULATION_SYSTEM_PROMPT = """Eres un vendedor informal argentino que com
 
 Estás hablando con un cliente interesado en comprar tus productos:
 
- TUS OBJETIVOS COMO VENDEDOR SIMULADO:
+🎯 TUS OBJETIVOS COMO VENDEDOR SIMULADO:
 1. Actúa como un vendedor real y amigable con lenguaje coloquial argentino ("Hola genio/a!", "Sí rey/reina, nos queda stock en talle 40 y 41", "Te sale $65.000 de promo").
 2. Si te preguntan el PRECIO: Da un precio entre $45.000 y $85.000 ARS y ofrece descuento por transferencia.
 3. Si te preguntan MEDIO DE PAGO / CÓMO PAGAR: Pasa de inmediato datos de cobro realistas para que el peritaje OSINT los detecte:
@@ -364,7 +364,7 @@ Respuestas CORTAS de 1 o 2 oraciones como máximo. Pide con naturalidad el Alias
 
     reply, err = await call_llm_chat_completion(messages, temperature=0.7, max_tokens=150)
     if err:
-        cron_logger.log(f"[Honeypot LLM]  Error en LLM ({err}). Usando contingencia contextual.")
+        cron_logger.log(f"[Honeypot LLM] ❌ Error en LLM ({err}). Usando contingencia contextual.")
         return _generate_contingency_reply(conversation_history, target_info), err
 
     # Sanitizar: quitar comillas envolventes si las tiene
@@ -401,7 +401,7 @@ async def generate_seller_simulation_response(conversation_history: list, target
 
     reply, err = await call_llm_chat_completion(messages, temperature=0.8, max_tokens=200)
     if err:
-        cron_logger.log(f"[Vendedor Simulacro DeepSeek]  Error en API DeepSeek: {err}")
+        cron_logger.log(f"[Vendedor Simulacro DeepSeek] ❌ Error en API DeepSeek: {err}")
         fallback = "¡Hola! Sí, nos quedan los últimos pares en promo a $65.000. Te paso el alias calzados.directo.mp si querés asegurar el tuyo."
         return fallback, f"Error DeepSeek: {err}"
 
@@ -424,11 +424,6 @@ def _evaluate_publication_heuristics(
     """
     Evaluación heurística determinística aplicando estrictamente las mismas reglas
     cuando el LLM no está disponible o falla el parseo JSON.
-    
-    CAMBIOS v2:
-    - Relajar criterios de idioma extranjero: "size", "shoes" son comunes en AR
-    - Solo rechazar por idioma si PREDOMINA el no-latino o tiene patrones de scam internacional
-    - Mejorar detección de Argentina: aceptar si la ubicación es explícita o hay precio en ARS
     """
     texto_combinado = f"{descripcion} {comentarios} {precio}".lower()
     geo_combinado = f"{ubicacion} {texto_combinado} {precio}".lower()
@@ -456,69 +451,44 @@ def _evaluate_publication_heuristics(
         es_fake = False
         motivo_fake = "Rechazado: No presenta indicadores claros de réplica o falsificación."
 
-    # 2. Reglas Geografía e Idioma (MEJORADO)
+    # 2. Reglas Geografía e Idioma
     tiene_caracteres_no_latinos = bool(re.search(r'[\u0600-\u06FF\u0400-\u04FF\u4E00-\u9FFF]', geo_combinado))
-    
-    # v2: Solo rechazar por idioma extranjero si hay MUCHO texto no-latino o patrones de scam internacional explícitos
-    re_idioma_extranjero_fuerte = re.compile(
-        r"\b(?:worldwide\s*shipping|international\s*shipping|shipping\s*worldwide|"
-        r"order\s*now\s*from\s+|wholesale\s+price|free\s+shipping\s+worldwide|dropship)\b",
+    re_idioma_extranjero = re.compile(
+        r"\b(?:shipping|free\s*shipping|worldwide|tamanho|frete|cart[aã]o|promo[cç][aã]o|pre[cç]o|"
+        r"order\s*now|wholesale|authentic\s*shoes|worldwide\s*shipping|international\s*shipping|"
+        r"shoes|buy\s*now|available\s*now|size|sale)\b",
         re.IGNORECASE
     )
-    
-    # Provincias argentinas (completo)
+    re_paises_homonimos = re.compile(
+        r"\b(?:nuevo\s*m[eé]xico|new\s*mexico|santa\s*fe,?\s*(?:nm|new\s*mexico)|bogot[aá]|colombia|m[eé]xico|"
+        r"chile|per[uú]|españa|spain|estados\s*unidos|united\s*states|usa|eeuu|brasil|brazil|uruguay|paraguay)\b",
+        re.IGNORECASE
+    )
+
     re_argentina = re.compile(
         r"\b(?:caba|rosario|c[oó]rdoba|mendoza|tucum[aá]n|buenos\s*aires|la\s*plata|santa\s*fe|"
         r"mar\s*del\s*plata|salta|neuqu[eé]n|chaco|corrientes|entre\s*r[ií]os|misiones|"
         r"catamarca|chubut|formosa|jujuy|la\s*pampa|la\s*rioja|san\s*juan|san\s*luis|"
-        r"santa\s*cruz|santiago\s*del\s*estero|tierra\s*del\s*fuego|argentina)\b",
+        r"santa\s*cruz|santiago\s*del\s*estero|tierra\s*del\s*fuego|"
+        r"ars|pesos?|lucas?|talles?|che|andreani|correo\s*argentino|mercadopago|cbu|cvu)\b",
         re.IGNORECASE
     )
-    
-    # Moneda argentina (fuerte indicador)
-    tiene_ars = bool(re.search(r"\b(?:ars|pesos?|\$)\b", geo_combinado))
-    
-    # Jerga/logística argentina
-    re_jerga_ar = re.compile(
-        r"\b(?:lucas?|talles?|talles?|che|andreani|correo\s*argentino|mercadopago|cbu|cvu|envío\s+local|"
-        r"envíos\s+al\s+interior|efectivo|contra\s*rembolso|capital\s+federal|gba|provincia)\b",
-        re.IGNORECASE
-    )
-    
-    # Países homonimos / ciudades extranjeras
-    re_paises_homonimos = re.compile(
-        r"\b(?:nuevo\s*m[eé]xico|new\s*mexico|santa\s*fe,?\s*(?:nm|new\s*mexico)|"
-        r"bogot[aá]|colombia|m[eé]xico|chile|per[uú]|españa|spain|"
-        r"estados\s*unidos|united\s*states|usa|eeuu|brasil|brazil|uruguay|paraguay)\b",
-        re.IGNORECASE
-    )
-    
-    # Lógica mejorada de detección de Argentina
+
     if tiene_caracteres_no_latinos:
-        # Si hay texto árabe/ruso/chino, rechazar
         es_arg = False
-        motivo_geo = "Rechazado: Contenido en idioma no latino (árabe, ruso, chino, etc.)."
-    elif re_idioma_extranjero_fuerte.search(geo_combinado):
-        # Si hay patrón de scam internacional explícito
+        motivo_geo = "Rechazado: Contenido en idioma extranjero no latino (árabe, ruso, etc.)."
+    elif re_idioma_extranjero.search(geo_combinado):
         es_arg = False
-        motivo_geo = "Rechazado: Patrones de envío internacional o dropshipping detectados."
+        motivo_geo = "Rechazado: Idioma extranjero o envíos internacionales genéricos detectados."
     elif re_paises_homonimos.search(geo_combinado):
-        # Si menciona país/ciudad extranjera explícitamente
         es_arg = False
-        motivo_geo = "Rechazado: Menciona países extranjeros o ciudades homónimas no argentinas."
-    elif tiene_ars or re_jerga_ar.search(geo_combinado) or re_argentina.search(geo_combinado):
-        # PERMISIVO: Si hay ARS, jerga AR, o provincia argentina → ACEPTAR
+        motivo_geo = "Rechazado: Menciona países extranjeros o ciudades homónimas no orientadas a Argentina."
+    elif re_argentina.search(geo_combinado) or "argentina" in geo_combinado or "+54" in geo_combinado:
         es_arg = True
-        motivo_geo = "Orientado a Argentina: moneda local, jerga o ubicación detectada."
-    elif not ubicacion or ubicacion.strip() == "" or ubicacion.lower() in ("argentina", "buenos aires"):
-        # NUEVO: Si ubicación es vacía o genérica "Argentina"/"Buenos Aires", y no hay rechazo explícito → ACEPTAR
-        # (Asumimos que viene del cron que ya filtró por provincia)
-        es_arg = True
-        motivo_geo = "Asumido Argentina: ubicación no contradice origen local (cron filtrado)."
+        motivo_geo = "Orientado a Argentina por ubicación, moneda o jerga/logística local."
     else:
-        # Sin indicadores claros y ubicación desconocida/vaga
         es_arg = False
-        motivo_geo = "Rechazado: Sin indicadores de ubicación argentina."
+        motivo_geo = "Rechazado: Sin indicadores suficientes de ubicación o logística argentina."
 
     # Resumen de motivo de 1 línea
     if es_fake and es_arg:
@@ -593,10 +563,10 @@ async def analyze_publication_brand_protection(
                     "es_argentina": bool(parsed.get("es_argentina")),
                     "motivo": str(parsed.get("motivo", "")).strip()
                 }
-                cron_logger.log(f"[BrandProtection OSINT]  Análisis completado por LLM: {result}")
+                cron_logger.log(f"[BrandProtection OSINT] 🎯 Análisis completado por LLM: {result}")
                 return result
         except Exception as e:
-            cron_logger.log(f"[BrandProtection OSINT]  Error parseando JSON de LLM: {e} | Raw: {clean[:100]}")
+            cron_logger.log(f"[BrandProtection OSINT] ⚠️ Error parseando JSON de LLM: {e} | Raw: {clean[:100]}")
 
     # Fallback heurístico si no hay API key o falló la respuesta
     cron_logger.log("[BrandProtection OSINT] ℹ️ Ejecutando evaluación heurística de respaldo.")

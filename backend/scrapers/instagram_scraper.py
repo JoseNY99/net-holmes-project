@@ -36,7 +36,7 @@ class InstagramApifyScraper:
         
         client = self._get_client()
         if not client:
-            cron_logger.log("[IG Apify]  ERROR: Falta APIFY_API_TOKEN en DB o .env.")
+            cron_logger.log("[IG Apify] ❌ ERROR: Falta APIFY_API_TOKEN en DB o .env.")
             return
 
         fetch_limit = max(settings.APIFY_MAX_ITEMS * 2, 5)
@@ -147,13 +147,13 @@ class InstagramApifyScraper:
                     if results_count >= settings.APIFY_MAX_ITEMS:
                         break
                 except Exception as e:
-                    cron_logger.log(f"[IG Apify]  Item malformado ignorado: {e}")
+                    cron_logger.log(f"[IG Apify] ⚠️ Item malformado ignorado: {e}")
                     continue
             
-            cron_logger.log(f"[IG Apify]  {results_count} items extraídos.")
+            cron_logger.log(f"[IG Apify] ✅ {results_count} items extraídos.")
             
         except Exception as e:
-            cron_logger.log(f"[IG Apify]  Error: {e}")
+            cron_logger.log(f"[IG Apify] ❌ Error: {e}")
             raise e
 
 async def _extract_ig_profile(page, username, cache):
@@ -204,7 +204,7 @@ async def _extract_ig_profile(page, username, cache):
             if em:
                 data["email"] = em.group(0)
     except Exception as ex:
-        cron_logger.log(f" [Instagram] Error leyendo perfil @{username}: {ex}")
+        cron_logger.log(f"⚠️ [Instagram] Error leyendo perfil @{username}: {ex}")
     cache[username] = data
     return data
 
@@ -301,11 +301,11 @@ async def _scrape_instagram_async(keyword: str, max_results: int = 10, city_name
                     })
                     cron_logger.log(f"[Instagram] 📸 Post extraído ({count}/{max_results}): {titular} | Followers: {profile_data.get('followers', '?')} | {url_evidencia}")
                 except Exception as e:
-                    cron_logger.log(f" [Instagram] Error parseando post: {e}")
+                    cron_logger.log(f"⚠️ [Instagram] Error parseando post: {e}")
                     
             cron_logger.log(f"[Instagram] Extracción exitosa: {len(results)} posts parseados.")
         except Exception as e:
-            cron_logger.log(f" [Instagram] Error de scraping general para {keyword}: {e}")
+            cron_logger.log(f"❌ [Instagram] Error de scraping general para {keyword}: {e}")
         finally:
             cron_logger.log(f"[Instagram] Cerrando instancia de Chromium...")
             await browser.close()

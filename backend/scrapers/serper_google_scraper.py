@@ -7,6 +7,7 @@ import httpx
 from config import settings
 from services.cron_logger import cron_logger
 from services.image_persistence import limpiar_url_canonica
+from scrapers.filtro_comercial import FAKE_SEARCH_TERMS
 
 class SerperGoogleScraper:
     SERPER_ENDPOINT = "https://google.serper.dev/search"
@@ -15,51 +16,35 @@ class SerperGoogleScraper:
     def _build_dork(self, platform: str, keyword: str, city_name: str = None) -> str:
         kw = keyword.strip()
         loc = (city_name or "Argentina").strip()
-
-        # Operadores geográficos argentinos obligatorios
-        if loc.lower() in ("argentina", "todo el pais", "todas"):
-            geo_term = '(Argentina OR "Buenos Aires" OR CABA OR Rosario OR Córdoba OR "envios a todo el pais")'
-        else:
-            geo_term = f'("{loc}" OR Argentina)'
-
-        # Exclusiones de otros países para que Google descarte fuera de Argentina desde el origen
-        exclusiones = '-Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA'
-
-        # Señales de réplica / comercio informal para atraer publicaciones relevantes
-        fake_term = '("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "espejo" OR "importadas" OR "showroom" OR "talles" OR "envios")'
-
+        argentina_terms = (
+            f'"{loc}" Argentina {FAKE_SEARCH_TERMS}'
+        )
         if platform == "facebook":
-            return f'site:facebook.com/marketplace/ "{kw}" {fake_term} {geo_term} {exclusiones}'
+            return f'site:facebook.com/marketplace "{kw}" {argentina_terms}'
         elif platform == "instagram":
-            return f'(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" {fake_term} {geo_term} {exclusiones}'
+            return f'(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" {argentina_terms}'
         elif platform == "tiktok":
-            return f'site:tiktok.com/@*/video/ "{kw}" {fake_term} {geo_term} {exclusiones}'
-        return f'"{kw}" {fake_term} {geo_term} {exclusiones}'
+            return f'site:tiktok.com/@ "{kw}" {argentina_terms}'
+        return f'"{kw}" Argentina "{loc}"'
 
     async def scrape(self, platform: str, keyword: str, limit: int = 10, city_name: str = None) -> AsyncGenerator[Dict[str, Any], None]:
         dork = self._build_dork(platform, keyword, city_name)
-        loc = (city_name or "Argentina").strip()
-        cron_logger.log(f"🌐 [Google/Serper OSINT] Buscando en Argentina para {platform} ({keyword}): {dork}")
+        cron_logger.log(f"🌐 [Google/Serper OSINT] Buscando para {platform} ({keyword}): {dork}")
         collected = 0
 
         from services.api_key_service import get_active_api_key
         serper_key = get_active_api_key("serper")
         if serper_key:
-            cron_logger.log("🔑 [Serper.dev] Ejecutando Google Dorking geolocalizado en Argentina...")
+            cron_logger.log("🔑 [Serper.dev] Ejecutando Google Dorking via Serper API...")
             try:
                 headers = {"X-API-KEY": serper_key, "Content-Type": "application/json"}
-                location_val = f"{loc}, Argentina" if loc.lower() != "argentina" else "Argentina"
-                payload = {
-                    "q": dork,
-                    "gl": "ar",
-                    "hl": "es-419",
-                    "location": location_val,
-                    "num": min(max(limit * 2, 10), 50)
-                }
+                payload = {"q": dork, "gl": "ar", "hl": "es-419", "num": min(max(limit * 2, 10), 50)}
                 async with httpx.AsyncClient(timeout=20.0) as client:
                     resp = await client.post(self.SERPER_ENDPOINT, headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
+                        total_organic = len(data.get("organic", []))
+                        cron_logger.log(f"✅ [Serper.dev] Respuesta OK - {total_organic} resultados encontrados")
                         for item in data.get("organic", []):
                             raw_link = item.get("link", "")
                             clean_link = limpiar_url_canonica(raw_link)
@@ -107,14 +92,14 @@ class SerperGoogleScraper:
                             if collected >= limit:
                                 return
                     else:
-                        cron_logger.log(f" [Serper.dev] Status {resp.status_code}: {resp.text}")
+                        cron_logger.log(f"⚠️ [Serper.dev] Status {resp.status_code}: {resp.text}")
             except Exception as e:
-                cron_logger.log(f" [Serper.dev] Error: {e}")
+                cron_logger.log(f"⚠️ [Serper.dev] Error: {e}")
 
         elif settings.GOOGLE_CSE_API_KEY and settings.GOOGLE_CSE_CX:
             cron_logger.log("🔑 [Google CSE] Ejecutando consulta via Google Custom Search...")
             try:
-                params = {"key": settings.GOOGLE_CSE_API_KEY, "cx": settings.GOOGLE_CSE_CX, "q": dork, "gl": "ar", "cr": "countryAR", "lr": "lang_es", "num": min(limit, 10)}
+                params = {"key": settings.GOOGLE_CSE_API_KEY, "cx": settings.GOOGLE_CSE_CX, "q": dork, "gl": "ar", "lr": "lang_es", "num": min(limit, 10)}
                 async with httpx.AsyncClient(timeout=20.0) as client:
                     resp = await client.get(self.GOOGLE_CSE_ENDPOINT, params=params)
                     if resp.status_code == 200:
@@ -166,7 +151,7 @@ class SerperGoogleScraper:
                             if collected >= limit:
                                 return
             except Exception as e:
-                cron_logger.log(f" [Google CSE] Error: {e}")
+                cron_logger.log(f"⚠️ [Google CSE] Error: {e}")
 
         if collected == 0:
             cron_logger.log("🔄 [Google/Serper OSINT] Sin API Keys o 0 resultados. Derivando a DuckDuckGo OSINT...")
@@ -183,7 +168,7 @@ class SerperGoogleScraper:
         elif platform == "instagram":
             return "/p/" in u or "/reel/" in u
         elif platform == "tiktok":
-            # Rechazar URLs incompletas como "tiktok.com/@" sin username
+            # Rechazar URLs incompletas como "https://www.tiktok.com/@"
             if u.endswith("/@") or "/@/" in u:
                 return False
             if "vt.tiktok.com/" in u:
@@ -224,14 +209,22 @@ class SerperGoogleScraper:
                     return u_cand
             return "@vendedor_tiktok"
         elif platform == "facebook":
-            # 1. En Facebook marketplace a veces viene 'en Venta por Seller' o 'de Seller' o 'Seller publicó...'
-            m_fb = re.search(r'(?:por|by|seller|vendedor|publicado por|contacto:?)\s+([A-Za-zÁÉÍÓÚáéíóúñÑ0-9\s]{3,25})', f"{title} {snippet}", re.IGNORECASE)
+            # Marketplace listings often expose the seller in the indexed snippet.
+            m_fb = re.search(
+                r"(?:vendido por|publicado por|vendedor|seller|contacto)\s*:?\s*"
+                r"([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúñÑ.'-]*"
+                r"(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúñÑ.'-]*){0,3})",
+                f"{title} {snippet}",
+                re.IGNORECASE,
+            )
             if m_fb:
                 return m_fb.group(1).strip()
-            # 2. Si no hay nombre explícito debido a la privacidad de Meta, etiquetar con ubicación
-            loc = self._extract_location(f"{title} {snippet}")
-            loc_short = loc.split(',')[0].strip() if loc else "Buenos Aires"
-            return f"Vendedor MP ({loc_short})"
+            profile_match = re.search(r"facebook\.com/([^/?#]+)", url, re.IGNORECASE)
+            if profile_match and profile_match.group(1).lower() not in {
+                "marketplace", "groups", "watch", "events", "share", "login",
+            }:
+                return f"@{profile_match.group(1)}"
+            return "Vendedor No Identificado"
         return "Vendedor No Identificado"
 
     def _extract_followers(self, text: str) -> int | None:

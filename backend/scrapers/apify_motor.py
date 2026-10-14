@@ -21,7 +21,7 @@ class ApifyMotorFase2:
         from services.api_key_service import get_active_api_key
         apify_token = get_active_api_key("apify") or settings.APIFY_API_TOKEN
         if not apify_token:
-            cron_logger.log(" [Apify Premium] Error: APIFY_API_TOKEN no configurado en DB ni en .env.")
+            cron_logger.log("❌ [Apify Premium] Error: APIFY_API_TOKEN no configurado en DB ni en .env.")
             return
 
         terminos_fake = ["replica", "G5", "clon", "AAA", "importadas", "espejo"]
@@ -29,7 +29,7 @@ class ApifyMotorFase2:
         limite_efectivo = max(limite, 100)
 
         cron_logger.log(
-            f" [Apify Premium] Iniciando {len(terminos_busqueda)} búsquedas para "
+            f"🚀 [Apify Premium] Iniciando {len(terminos_busqueda)} búsquedas para "
             f"'{keyword}'. Límite por búsqueda: {limite_efectivo}"
         )
         
@@ -128,7 +128,7 @@ class ApifyMotorFase2:
                             
                     except Exception as e:
                         cron_logger.log(
-                            f" [Apify Premium] Error en {platform} "
+                            f"⚠️ [Apify Premium] Error en {platform} "
                             f"('{termino_busqueda}', {ubicacion_objetivo}): {str(e)}"
                         )
                         
@@ -136,4 +136,4 @@ class ApifyMotorFase2:
             # Restore original limit
             settings.APIFY_MAX_ITEMS = original_limit
             
-        cron_logger.log(" [Apify Premium] Escaneo completado.")
+        cron_logger.log("✅ [Apify Premium] Escaneo completado.")

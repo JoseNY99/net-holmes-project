@@ -5,13 +5,13 @@ from services.cron_logger import cron_logger
 
 # Importación síncrona, ejecutaremos en thread para no bloquear
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
 except ImportError:
     DDGS = None
 
 def _sync_ddg_search(query: str, limit: int):
     if not DDGS:
-        raise ImportError("duckduckgo_search no está instalado.")
+        raise ImportError("ddgs no está instalado.")
     with DDGS() as ddgs:
         # timelimit='w' para restringir a la última semana (temporalidad estricta)
         return list(ddgs.text(query, region='ar-es', safesearch='off', timelimit='w', max_results=limit))
@@ -22,26 +22,24 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
     platform: 'mercadolibre', 'facebook', 'instagram', 'tiktok'
     """
     def _build_dork(kw, loc, strict=True):
+        q = ""
         kw_str = f'"{kw}"' if strict else kw
-        fake_term = '("réplica" OR "replica" OR "G5" OR "AAA" OR "1.1" OR "clon" OR "espejo" OR "importadas" OR "showroom")'
-        exclusiones = '-Colombia -México -Mexico -Chile -España -Perú -Peru -Bogotá -Bogota -Medellín -Lima -Santiago -USA'
-
-        loc_str = loc or "Argentina"
-        if loc_str.lower() in ("argentina", "todo el pais", "todas"):
-            geo_term = '(Argentina OR "Buenos Aires" OR CABA OR Rosario OR Córdoba OR "envios a todo el pais")'
-        else:
-            geo_term = f'("{loc_str}" Argentina)'
-
         if platform == "mercadolibre":
-            q = f'site:articulo.mercadolibre.com.ar {kw_str} {geo_term} -"tienda oficial" -"oficial"'
+            q = f'site:articulo.mercadolibre.com.ar {kw_str} Argentina Buenos Aires -"tienda oficial" -"oficial"'
         elif platform == "facebook":
-            q = f'site:facebook.com/marketplace/ {kw_str} {fake_term} {geo_term} {exclusiones}'
+            # Forzar Argentina: buscar en marketplace de Buenos Aires o menciones de Argentina
+            q = f'site:facebook.com/marketplace {kw_str} (Argentina OR "Buenos Aires" OR Córdoba OR Mendoza OR -Brazil -Brasil -Colombia -Chile)'
         elif platform == "instagram":
-            q = f'(site:instagram.com/p/ OR site:instagram.com/reel/) {kw_str} {fake_term} {geo_term} {exclusiones}'
+            # Forzar Argentina: excluir explícitamente otros países
+            q = f'(site:instagram.com/p/ OR site:instagram.com/reel/) {kw_str} Argentina -Brazil -Brasil -Colombia -Chile -México -Peru'
         elif platform == "tiktok":
-            q = f'site:tiktok.com/@*/video/ {kw_str} {fake_term} {geo_term} {exclusiones}'
+            # Forzar Argentina: excluir explícitamente otros países
+            q = f'(site:tiktok.com/t/ OR site:tiktok.com/@) {kw_str} Argentina -Brazil -Brasil -Colombia -Chile -México'
+        
+        if loc:
+            q += f' {loc}'
         else:
-            q = f'{kw_str} {fake_term} {geo_term} {exclusiones}'
+            q += ' Argentina'  # Asegurar que siempre busque en Argentina
         return q
 
     # Intentos de búsqueda: 1) Estricto, 2) Holgado, 3) Dataset Kaggle (Demo)
@@ -53,7 +51,7 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
     try:
         results = await asyncio.to_thread(_sync_ddg_search, query_strict, limit)
     except Exception as e:
-        cron_logger.log(f" [DDG] Error en búsqueda estricta: {e}")
+        cron_logger.log(f"⚠️ [DDG] Error en búsqueda estricta: {e}")
 
     def _sync_loose(q, l):
         if not DDGS: return []
@@ -67,7 +65,7 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
         try:
             results = await asyncio.to_thread(_sync_loose, query_loose, limit)
         except Exception as e:
-            cron_logger.log(f" [DDG] Error en búsqueda holgada: {e}")
+            cron_logger.log(f"⚠️ [DDG] Error en búsqueda holgada: {e}")
 
     # Intento 3: Sin filtro de ubicación (Apertura total a todo Argentina)
     if not results and city_name:
@@ -76,7 +74,7 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
         try:
             results = await asyncio.to_thread(_sync_loose, query_global, limit)
         except Exception as e:
-            cron_logger.log(f" [DDG] Error en búsqueda nacional: {e}")
+            cron_logger.log(f"⚠️ [DDG] Error en búsqueda nacional: {e}")
 
     # Intento 4 (Fase 3): Búsqueda genérica de productos asociados a la marca
     if not results:
@@ -86,10 +84,10 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
         try:
             results = await asyncio.to_thread(_sync_loose, query_imitacion, limit)
         except Exception as e:
-            cron_logger.log(f" [DDG] Error en Tercera Fase (genérica): {e}")
+            cron_logger.log(f"⚠️ [DDG] Error en Tercera Fase (genérica): {e}")
 
     if not results:
-        cron_logger.log(f"[DDG]  Definitivamente no hay datos reales indexados para {keyword} en {platform}.")
+        cron_logger.log(f"[DDG] ⚠️ Definitivamente no hay datos reales indexados para {keyword} en {platform}.")
         return
 
     valid_results = []
@@ -101,7 +99,7 @@ async def search_duckduckgo(platform: str, keyword: str, limit: int, city_name: 
         valid_results.append(item)
         
     if not valid_results:
-        cron_logger.log(f"[DDG]  Solo se encontraron anuncios o redirecciones vacías.")
+        cron_logger.log(f"[DDG] ⚠️ Solo se encontraron anuncios o redirecciones vacías.")
         return
 
     for item in valid_results:

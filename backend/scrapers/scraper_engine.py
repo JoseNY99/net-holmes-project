@@ -15,6 +15,7 @@ Reglas:
 
 import os
 from typing import AsyncGenerator, Dict, Any
+from urllib.parse import urlsplit, urlunsplit
 
 from config import settings
 from services.cron_logger import cron_logger
@@ -185,19 +186,81 @@ class ScraperEngine:
     # ─── Cascada Genérica (Modo Gratuito/Local) ──────────────────────────────
 
     async def _cascade(
-        self, platform: str, keyword: str, limit: int, city_name: str | None
+        self,
+        platform: str,
+        keyword: str,
+        limit: int,
+        city_name: str | None,
+        exclude_urls: set[str] | None = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Ejecuta el modo Local/Gratuito (DuckDuckGo OSINT + Playwright).
         NO invoca Apify ni RapidAPI.
         """
         collected = []
+        seen_urls = set(exclude_urls or ())
+
+        if platform == "instagram":
+            indexed_items = []
+            async for item in ejecutar_motor_indexado(platform, keyword, limit * 3, city_name):
+                url_key = self._item_url_key(item)
+                if url_key and url_key in seen_urls:
+                    continue
+                if url_key:
+                    seen_urls.add(url_key)
+                indexed_items.append(item)
+
+            candidate_urls = [
+                str(item.get("url"))
+                for item in indexed_items
+                if item.get("url")
+            ]
+            cron_logger.log(
+                f"[Local/Instagram] Extrayendo publicaciones desde {len(candidate_urls)} URLs indexadas."
+            )
+            async for item in run_playwright_fallback(
+                "instagram",
+                keyword,
+                limit,
+                city_name,
+                candidate_urls=candidate_urls,
+            ):
+                url_key = self._item_url_key(item)
+                if url_key:
+                    seen_urls.add(url_key)
+                collected.append(item)
+                yield item
+                if len(collected) >= limit:
+                    return
+
+            remaining = limit - len(collected)
+            if remaining:
+                async for item in run_playwright_fallback(
+                    "instagram", keyword, remaining, city_name
+                ):
+                    url_key = self._item_url_key(item)
+                    if url_key and url_key in seen_urls:
+                        continue
+                    if url_key:
+                        seen_urls.add(url_key)
+                    collected.append(item)
+                    yield item
+                    if len(collected) >= limit:
+                        break
+            return
 
         # ── NIVEL 1: DuckDuckGo OSINT ──
         cron_logger.log(f" [Local/DDG] Nivel 1: DuckDuckGo OSINT para {platform} ")
         async for item in ejecutar_motor_indexado(platform, keyword, limit, city_name):
+            url_key = self._item_url_key(item)
+            if url_key and url_key in seen_urls:
+                continue
+            if url_key:
+                seen_urls.add(url_key)
             collected.append(item)
             yield item
+            if len(collected) >= limit:
+                break
 
         if len(collected) >= limit:
             cron_logger.log(
@@ -207,9 +270,151 @@ class ScraperEngine:
 
         # ── NIVEL 2: Playwright Stealth ──
         cron_logger.log(f" [Local/Playwright] Nivel 2: Playwright Stealth para {platform} ")
-        async for item in run_playwright_fallback(platform, keyword, limit, city_name):
+        remaining = limit - len(collected)
+        async for item in run_playwright_fallback(platform, keyword, remaining, city_name):
+            url_key = self._item_url_key(item)
+            if url_key and url_key in seen_urls:
+                continue
+            if url_key:
+                seen_urls.add(url_key)
             collected.append(item)
             yield item
+            if len(collected) >= limit:
+                break
+
+    @staticmethod
+    def _item_url_key(item: Dict[str, Any]) -> str:
+        url = str(item.get("url") or "").strip()
+        if not url:
+            return ""
+        parsed = urlsplit(url)
+        return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"), "", ""))
+
+    async def _scrape_social_with_fallback(
+        self, platform: str, keyword: str, city_name: str | None, limit: int
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Usa Serper primero y completa desde los motores gratuitos hasta el límite."""
+        collected = 0
+        seen_urls = set()
+
+        if platform == "instagram":
+            candidate_items = []
+            try:
+                async for item in self.serper_scraper.scrape(
+                    platform, keyword, limit * 3, city_name
+                ):
+                    url_key = self._item_url_key(item)
+                    if url_key and url_key in seen_urls:
+                        continue
+                    if url_key:
+                        seen_urls.add(url_key)
+                    candidate_items.append(item)
+            except Exception as exc:
+                cron_logger.log(
+                    f"[Instagram] Serper no disponible para '{keyword}': {exc}. "
+                    "Se buscarán URLs con DDG gratuito."
+                )
+
+            candidate_urls = [
+                str(item.get("url"))
+                for item in candidate_items
+                if item.get("url")
+            ]
+            if candidate_urls:
+                cron_logger.log(
+                    f"[Instagram] Abriendo {len(candidate_urls)} URLs de Serper/DDG "
+                    "para extraer caption, comentarios e idioma."
+                )
+                async for item in run_playwright_fallback(
+                    "instagram",
+                    keyword,
+                    limit,
+                    city_name,
+                    candidate_urls=candidate_urls,
+                ):
+                    url_key = self._item_url_key(item)
+                    if url_key and url_key in seen_urls:
+                        seen_urls.remove(url_key)
+                    elif url_key:
+                        seen_urls.add(url_key)
+                    yield item
+                    collected += 1
+                    if collected >= limit:
+                        return
+
+            remaining = limit - collected
+            if remaining:
+                cron_logger.log(
+                    f"[Instagram] Fallback gratuito local; faltan {remaining} de {limit}."
+                )
+                async for item in self._cascade(
+                    "instagram",
+                    keyword,
+                    remaining,
+                    city_name,
+                    exclude_urls=seen_urls,
+                ):
+                    url_key = self._item_url_key(item)
+                    if url_key and url_key in seen_urls:
+                        continue
+                    if url_key:
+                        seen_urls.add(url_key)
+                    yield item
+                    collected += 1
+                    if collected >= limit:
+                        break
+            cron_logger.log(f"[Instagram] Resultados extraídos: {collected}/{limit}.")
+            return
+
+        instagram_kind_counts = {"p": 0, "reel": 0}
+
+        try:
+            async for item in self.serper_scraper.scrape(platform, keyword, limit, city_name):
+                url_key = self._item_url_key(item)
+                if url_key and url_key in seen_urls:
+                    continue
+                if url_key:
+                    seen_urls.add(url_key)
+                yield item
+                collected += 1
+                if collected >= limit:
+                    cron_logger.log(
+                        f"[{platform}] Límite alcanzado con Serper/DDG: {collected}/{limit}."
+                    )
+                    return
+        except Exception as exc:
+            cron_logger.log(
+                f"[{platform}] Serper no disponible para '{keyword}': {exc}. "
+                "Continuando con DDG/Playwright gratuitos."
+            )
+
+        remaining = limit - collected
+        if remaining <= 0:
+            return
+
+        cron_logger.log(
+            f"[{platform}] Completando resultados con motores gratuitos: "
+            f"faltan {remaining} de {limit}."
+        )
+        try:
+            async for item in self._cascade(
+                platform, keyword, remaining, city_name, exclude_urls=seen_urls
+            ):
+                url_key = self._item_url_key(item)
+                if url_key and url_key in seen_urls:
+                    continue
+                if url_key:
+                    seen_urls.add(url_key)
+                yield item
+                collected += 1
+                if collected >= limit:
+                    break
+        except Exception as exc:
+            cron_logger.log(
+                f"[{platform}] Falló también el fallback gratuito para '{keyword}': {exc}"
+            )
+
+        cron_logger.log(f"[{platform}] Resultados reunidos: {collected}/{limit}.")
 
     # ─── Métodos Públicos por Plataforma ─────────────────────────────────────
 
@@ -224,7 +429,9 @@ class ScraperEngine:
             async for item in self._run_rapidapi("facebook", keyword, city_name, limit):
                 yield item
         elif proveedor == "google_meli_osint":
-            async for item in self.serper_scraper.scrape("facebook", keyword, limit, city_name):
+            async for item in self._scrape_social_with_fallback(
+                "facebook", keyword, city_name, limit
+            ):
                 yield item
         else:
             async for item in self._cascade("facebook", keyword, limit, city_name):
@@ -235,36 +442,31 @@ class ScraperEngine:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         limit = settings.APIFY_MAX_ITEMS
         collected_count = 0
-        
+
         # Intentar con el proveedor configurado
         if proveedor == "apify":
             try:
                 async for item in self._run_apify_premium("instagram", keyword, city_name):
                     collected_count += 1
                     yield item
-            except Exception as e:
-                cron_logger.log(f"  [Instagram Apify] Fallo {e}. Cayendo a modo local...")
-                collected_count = 0
+            except Exception as exc:
+                cron_logger.log(f"[Instagram Apify] Falló: {exc}. Activando motor gratuito.")
         elif proveedor == "rapidapi":
             try:
                 async for item in self._run_rapidapi("instagram", keyword, city_name, limit):
                     collected_count += 1
                     yield item
-            except Exception as e:
-                cron_logger.log(f"  [Instagram RapidAPI] Fallo {e}. Cayendo a modo local...")
-                collected_count = 0
+            except Exception as exc:
+                cron_logger.log(f"[Instagram RapidAPI] Falló: {exc}. Activando motor gratuito.")
         elif proveedor == "google_meli_osint":
-            try:
-                async for item in self.serper_scraper.scrape("instagram", keyword, limit, city_name):
-                    collected_count += 1
-                    yield item
-            except Exception as e:
-                cron_logger.log(f"  [Instagram Serper] Fallo {e}. Cayendo a modo local...")
-                collected_count = 0
-        
-        # Si no se obtuvieron resultados, caer a modo local (DuckDuckGo + Playwright)
+            async for item in self._scrape_social_with_fallback(
+                "instagram", keyword, city_name, limit
+            ):
+                yield item
+            return
+
         if collected_count == 0:
-            cron_logger.log(f" [Instagram] Usando fallback local (DuckDuckGo + Playwright)...")
+            cron_logger.log("[Instagram] Sin resultados del proveedor; usando DDG/Playwright.")
             async for item in self._cascade("instagram", keyword, limit, city_name):
                 yield item
 
@@ -273,36 +475,31 @@ class ScraperEngine:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         limit = settings.APIFY_MAX_ITEMS
         collected_count = 0
-        
+
         # Intentar con el proveedor configurado
         if proveedor == "apify":
             try:
                 async for item in self._run_apify_premium("tiktok", keyword, city_name):
                     collected_count += 1
                     yield item
-            except Exception as e:
-                cron_logger.log(f"  [TikTok Apify] Fallo {e}. Cayendo a modo local...")
-                collected_count = 0
+            except Exception as exc:
+                cron_logger.log(f"[TikTok Apify] Falló: {exc}. Activando motor gratuito.")
         elif proveedor == "rapidapi":
             try:
                 async for item in self._run_rapidapi("tiktok", keyword, city_name, limit):
                     collected_count += 1
                     yield item
-            except Exception as e:
-                cron_logger.log(f"  [TikTok RapidAPI] Fallo {e}. Cayendo a modo local...")
-                collected_count = 0
+            except Exception as exc:
+                cron_logger.log(f"[TikTok RapidAPI] Falló: {exc}. Activando motor gratuito.")
         elif proveedor == "google_meli_osint":
-            try:
-                async for item in self.serper_scraper.scrape("tiktok", keyword, limit, city_name):
-                    collected_count += 1
-                    yield item
-            except Exception as e:
-                cron_logger.log(f"  [TikTok Serper] Fallo {e}. Cayendo a modo local...")
-                collected_count = 0
-        
-        # Si no se obtuvieron resultados, caer a modo local (DuckDuckGo + Playwright)
+            async for item in self._scrape_social_with_fallback(
+                "tiktok", keyword, city_name, limit
+            ):
+                yield item
+            return
+
         if collected_count == 0:
-            cron_logger.log(f" [TikTok] Usando fallback local (DuckDuckGo + Playwright)...")
+            cron_logger.log("[TikTok] Sin resultados del proveedor; usando DDG/Playwright.")
             async for item in self._cascade("tiktok", keyword, limit, city_name):
                 yield item
 
@@ -370,4 +567,3 @@ class ScraperEngine:
         """Escanea dominios SSL de phishing y tiendas falsas para la marca."""
         async for item in self.certstream.scan_brand_domains(brand_name, limit):
             yield item
-

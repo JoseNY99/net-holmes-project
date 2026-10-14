@@ -47,19 +47,59 @@ _CATEGORIA_RE = re.compile(
 
 # REGLAS DE EVALUACIÓN (FALSIFICACIÓN - RECHAZAR / NO ES FAKE)
 _ORIGINAL_RE = re.compile(
-    r"\b(?:100%\s*original|aut[eé]ntic[oa]s?|tienda\s+oficial|distribuidor\s+autorizado|"
+    r"\b(?:100%\s*original|original(?:es)?|aut[eé]ntic[oa]s?|tienda\s+oficial|distribuidor\s+autorizado|"
     r"importado\s+oficial|usad[oa]s?|pre-loved|segunda\s+mano|vendo\s+mis\s+zapatillas)\b",
     re.IGNORECASE,
 )
 
 # REGLAS DE EVALUACIÓN (FALSIFICACIÓN - ES FAKE)
 _FAKE_RE = re.compile(
-    r"(?<!no\s)(?<!no\ses\s)\b(?:fake|falsificad[oa]s?|falsificaci[oó]n|truch[oa]s?|"
+    r"\b(?:fake|falsificad[oa]s?|falsificaci[oó]n|truch[oa]s?|"
     r"r[eé]plicas?|imitaci[oó]n|copias?|clones?|clon|aaa|triple\s+a|g5|"
-    r"1\s*[:/.]\s*1|1\.1|mirror|espejo|super\s+fake|importadas?|"
-    r"calidad\s+(?:de\s+)?r[eé]plica)\b",
+    r"1\s*[:/.]\s*1|1\.1|mirror|espejo|super\s+fake|"
+    r"calidad\s+(?:de\s+)?(?:r[eé]plica|premium)|"
+    r"tailand[eé]s[a-z]*|importad[oa]s?\s+premium)\b",
     re.IGNORECASE,
 )
+
+FAKE_SEARCH_TERMS = (
+    '("réplica" OR "replica" OR "G5" OR "AAA" OR "clon" OR '
+    '"calidad premium" OR "tailandesa" OR "importadas premium")'
+)
+
+_NEGATED_FAKE_RE = re.compile(
+    r"\bno\s+(?:es\s+)?(?:un[oa]?\s+)?(?:fake|falsificad[oa]|truch[oa]|"
+    r"r[eé]plica|imitaci[oó]n|copia|clon)\b|\bno\s+(?:es\s+)?original\b",
+    re.IGNORECASE,
+)
+
+
+def obtener_senales_falsificacion(texto: str) -> list[str]:
+    """Devuelve indicadores positivos de falsificación, ignorando negaciones explícitas."""
+    if not isinstance(texto, str) or not texto.strip():
+        return []
+
+    high_confidence = re.compile(
+        r"\b(?:calidad\s+premium|tailand[eé]s[a-z]*|importad[oa]s?\s+premium)\b",
+        re.IGNORECASE,
+    )
+    direct_signals = {match.group(0).lower() for match in high_confidence.finditer(texto)}
+    if direct_signals:
+        return sorted(direct_signals)
+
+    if _ORIGINAL_RE.search(texto) and not re.search(
+        r"\bno\s+(?:es\s+)?original\b", texto, re.IGNORECASE
+    ):
+        return []
+
+    negaciones = [match.span() for match in _NEGATED_FAKE_RE.finditer(texto)]
+    senales = set()
+    for match in _FAKE_RE.finditer(texto):
+        if any(start <= match.start() < end for start, end in negaciones):
+            continue
+        senales.add(match.group(0).lower())
+    return sorted(senales)
+
 
 _EDITORIAL_RE = re.compile(
     r"\b(?:noticias?|reportajes?|entrevistas?|gu[ií]as?|tutoriales?|"
@@ -241,10 +281,7 @@ def evaluar_relevancia(item: dict, marca_buscada: str, platform: str = "desconoc
         return descartar("DESCARTADO_ORIGINAL", "DECLARA_SER_ORIGINAL_O_USADO")
 
     # 5. Buscar señales explícitas de falsificación (AHORA INCLUYE HASHTAGS)
-    resultado["senales_fake"] = sorted({
-        coincidencia.group(0).lower()
-        for coincidencia in _FAKE_RE.finditer(texto)
-    })
+    resultado["senales_fake"] = obtener_senales_falsificacion(texto)
 
     if not resultado["senales_fake"]:
         return descartar("DESCARTADO_SIN_SENALES_FAKE", "SIN_EVIDENCIA_DE_FALSIFICACION")

@@ -15,9 +15,11 @@ import sys
 import asyncio
 import random
 import re
+from urllib.parse import urlparse
 from typing import AsyncGenerator, Dict, Any, List
 from services.cron_logger import cron_logger
 from scrapers.filtro_comercial import es_publicacion_comercial, filtrar_item_comercial
+from services.argentina_scope import is_spanish_text
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -47,7 +49,13 @@ window.navigator.permissions.query = (parameters) => (
 
 from playwright.async_api import async_playwright
 
-async def _run_playwright_async(platform: str, keyword: str, limit: int, city_name: str = None) -> List[Dict[str, Any]]:
+async def _run_playwright_async(
+    platform: str,
+    keyword: str,
+    limit: int,
+    city_name: str = None,
+    candidate_urls: List[str] | None = None,
+) -> List[Dict[str, Any]]:
     """Ejecuta Playwright de forma asíncrona nativa."""
     results = []
 
@@ -87,7 +95,9 @@ async def _run_playwright_async(platform: str, keyword: str, limit: int, city_na
             elif platform == "facebook":
                 results = await _scrape_facebook_async(page, keyword, limit, city_name, chill)
             elif platform == "instagram":
-                results = await _scrape_instagram_async(page, keyword, limit, city_name, chill)
+                results = await _scrape_instagram_async(
+                    page, keyword, limit, city_name, chill, candidate_urls
+                )
             elif platform == "tiktok":
                 results = await _scrape_tiktok_async(page, keyword, limit, city_name, chill)
             else:
@@ -103,7 +113,13 @@ async def _run_playwright_async(platform: str, keyword: str, limit: int, city_na
     return results
 
 
-def _run_isolated_playwright(platform: str, keyword: str, limit: int, city_name: str) -> List[Dict[str, Any]]:
+def _run_isolated_playwright(
+    platform: str,
+    keyword: str,
+    limit: int,
+    city_name: str,
+    candidate_urls: List[str] | None = None,
+) -> List[Dict[str, Any]]:
     """Ejecuta Playwright en un nuevo event loop aislado con WindowsProactorEventLoopPolicy."""
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -111,14 +127,24 @@ def _run_isolated_playwright(platform: str, keyword: str, limit: int, city_name:
     isolated_loop = asyncio.new_event_loop()
     asyncio.set_event_loop(isolated_loop)
     try:
-        return isolated_loop.run_until_complete(_run_playwright_async(platform, keyword, limit, city_name))
+        return isolated_loop.run_until_complete(
+            _run_playwright_async(platform, keyword, limit, city_name, candidate_urls)
+        )
     finally:
         isolated_loop.close()
 
-async def ejecutar_fallback_playwright(platform: str, keyword: str, limit: int, city_name: str = None) -> AsyncGenerator[Dict[str, Any], None]:
+async def ejecutar_fallback_playwright(
+    platform: str,
+    keyword: str,
+    limit: int,
+    city_name: str = None,
+    candidate_urls: List[str] | None = None,
+) -> AsyncGenerator[Dict[str, Any], None]:
     """Wrapper asíncrono que usa run_in_executor para aislar Playwright del worker de Uvicorn."""
     loop = asyncio.get_running_loop()
-    results = await loop.run_in_executor(None, _run_isolated_playwright, platform, keyword, limit, city_name)
+    results = await loop.run_in_executor(
+        None, _run_isolated_playwright, platform, keyword, limit, city_name, candidate_urls
+    )
     for res in results:
         yield res
 
@@ -319,98 +345,149 @@ async def _scrape_facebook_async(page, keyword: str, limit: int, city_name: str,
 
 # ─── Instagram ───────────────────────────────────────────────────────────────
 
-async def _scrape_instagram_async(page, keyword: str, limit: int, city_name: str, chill) -> List[Dict[str, Any]]:
-    """Fallback para Instagram (sin login, explore tags).
-    Extrae alt text y descripciones asociadas a cada post antes de
-    pasarlos por el filtro de relevancia comercial.
-    """
-    base_tag = keyword.strip().lstrip("#").replace(" ", "").lower()
-    tag = base_tag
-    
-    search_url = f"https://www.instagram.com/explore/tags/{tag}/"
-    cron_logger.log(f"[Playwright IG] Navegando a: {search_url}")
+async def _scrape_instagram_async(
+    page,
+    keyword: str,
+    limit: int,
+    city_name: str,
+    chill,
+    candidate_urls: List[str] | None = None,
+) -> List[Dict[str, Any]]:
+    """Busca URLs de Instagram y extrae caption, comentarios y ubicación del post."""
+    from scrapers.index_scraper import _fetch_ddg_html
+
+    location = (city_name or "Argentina").strip()
+    if location.casefold() in {"argentina", "todo el pais", "todas"}:
+        location_terms = '(Argentina OR "Buenos Aires" OR CABA OR Rosario OR Córdoba OR Mendoza)'
+    else:
+        location_terms = f'"{location}" Argentina'
+
+    if candidate_urls is not None:
+        search_results = [{"href": url} for url in candidate_urls]
+    else:
+        search_results_by_kind = {}
+        search_limit = max(limit * 4, 20)
+        for kind in ("p", "reel"):
+            query = f'site:instagram.com/{kind}/ "{keyword.strip()}" {location_terms}'
+            cron_logger.log(f"[Playwright IG] Búsqueda de {kind}: {query}")
+            search_results_by_kind[kind] = await _fetch_ddg_html(query, limit=search_limit)
+
+        # Intercalar posts y reels para repartir el máximo entre ambos formatos.
+        search_results = []
+        max_results_per_kind = max(
+            len(search_results_by_kind["p"]),
+            len(search_results_by_kind["reel"]),
+        )
+        for index in range(max_results_per_kind):
+            for kind in ("p", "reel"):
+                kind_results = search_results_by_kind[kind]
+                if index < len(kind_results):
+                    search_results.append(kind_results[index])
 
     results = []
-    try:
-        await page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
-    except Exception:
-        cron_logger.log(" [Playwright IG] Bloqueado o timeout.")
-        return results
-
-    await chill(2.0, 4.0)
-
-    links = await page.locator("a[href*='/p/']").all()
-    count = 0
     seen = set()
-    descartados = 0
 
-    for el in links:
-        if count >= limit:
+    for search_result in search_results:
+        if len(results) >= limit:
             break
+
+        candidate_url = search_result.get("href", "")
+        parsed_url = urlparse(candidate_url)
+        if (parsed_url.hostname or "").lower().removeprefix("www.") != "instagram.com":
+            continue
+        if not re.fullmatch(r"/(?:p|reel)/[A-Za-z0-9_-]+/?", parsed_url.path):
+            continue
+
+        full_url = f"https://www.instagram.com{parsed_url.path.rstrip('/')}/"
+        if full_url in seen:
+            continue
+        seen.add(full_url)
+
         try:
-            href = await el.get_attribute("href")
-            if not href or href in seen:
+            cron_logger.log(f"[Playwright IG] Abriendo publicación individual: {full_url}")
+            await page.goto(full_url, wait_until="domcontentloaded", timeout=20000)
+            await chill(1.0, 2.0)
+
+            caption = ""
+            for selector in (
+                'meta[property="og:description"]',
+                'meta[name="description"]',
+            ):
+                meta = page.locator(selector).first
+                if await meta.count():
+                    caption = (await meta.get_attribute("content") or "").strip()
+                    if caption:
+                        break
+
+            comments = []
+            article = page.locator("article").first
+            if await article.count():
+                article_text = (await article.inner_text()).strip()
+                if article_text:
+                    comments = [
+                        line.strip()
+                        for line in article_text.splitlines()
+                        if line.strip() and line.strip() not in comments
+                    ][:50]
+
+            if not caption and comments:
+                caption = comments[0]
+            if not caption:
+                cron_logger.log(f"[Playwright IG] Publicación sin descripción accesible: {full_url}")
                 continue
-            seen.add(href)
-            full_url = f"https://www.instagram.com{href}" if href.startswith("/") else href
-            
-            # ── Extraer todo el texto descriptivo posible del elemento DOM ──
-            alt_text = ""
-            try:
-                img_el = el.locator("img").first
-                if await img_el.count() > 0:
-                    alt_text = await img_el.get_attribute("alt") or ""
-            except Exception:
-                pass
-            
-            # Intentar extraer texto superpuesto (captions visibles)
-            overlay_text = ""
-            try:
-                inner = await el.inner_text()
-                if inner:
-                    overlay_text = inner.replace('\n', ' ')[:300]
-            except Exception:
-                pass
-                
-            # Concatenar todo el texto disponible para el filtro
-            texto_completo = f"{keyword} {alt_text} {overlay_text}".strip()
-            
-            # ── FILTRO DE RELEVANCIA COMERCIAL ──
-            # Filtro comercial MOVIDO a cron_manager.py (capa única de filtrado)
+
+            location = None
+            location_link = page.locator('a[href*="/explore/locations/"]').first
+            if await location_link.count():
+                location = (await location_link.inner_text()).strip() or None
 
             username = "Usuario Desconocido"
-            if alt_text and " por " in alt_text:
-                try:
-                    user_part = alt_text.split(" por ")[1].split(" ")[0]
-                    if user_part:
-                        username = f"@{user_part}"
-                except:
-                    pass
+            author_meta = page.locator('meta[property="og:title"]').first
+            if await author_meta.count():
+                author_title = (await author_meta.get_attribute("content") or "").strip()
+                handle_match = re.search(r"@([A-Za-z0-9_.]+)", author_title)
+                if handle_match:
+                    username = f"@{handle_match.group(1)}"
+
+            image_meta = page.locator('meta[property="og:image"]').first
+            image_url = await image_meta.get_attribute("content") if await image_meta.count() else None
+            description = " ".join([caption, *comments]).strip()
+            language_text = f"{caption} {' '.join(comments)}"
+            if not is_spanish_text(language_text):
+                cron_logger.log(
+                    f"[Playwright IG] Publicación descartada por idioma: {full_url}"
+                )
+                continue
 
             results.append({
                 "plataforma": "instagram",
-                "title": f"Post IG: #{tag}",
-                "description": alt_text or overlay_text or f"Post relacionado con {keyword}",
+                "title": caption[:200],
+                "description": description,
+                "comments_audit": comments,
                 "price": None,
                 "url": full_url,
-                "imagen_urls": "['https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png']",
+                "imagen_urls": f'["{image_url}"]' if image_url else "[]",
                 "seller_profile": {
                     "name": username,
                     "url": full_url,
                 },
-                "location": city_name or "Argentina",
-                "raw_data": {"url": full_url, "alt_text": alt_text},
+                "location": location or city_name or "Argentina",
+                "raw_data": {
+                    "url": full_url,
+                    "caption": caption,
+                    "comments": comments,
+                },
                 "platform_data": {
-                    "username": username.replace("@", "") if username != "Usuario Desconocido" else tag,
-                    "snippet": (alt_text or overlay_text or f"Hashtag: #{tag}")[:200],
-                    "search_query": keyword,
+                    "username": username.replace("@", ""),
+                    "caption_full": caption,
+                    "comments_text": "\n".join(comments),
+                    "location": location,
+                    "image_urls": f'["{image_url}"]' if image_url else None,
                     "source_engine": "Playwright Stealth",
                 },
             })
-            count += 1
-            await chill(0.5, 1.5)
-        except Exception:
-            continue
+        except Exception as exc:
+            cron_logger.log(f"[Playwright IG] No se pudo leer la publicación {full_url}: {exc}")
 
     # Aplicar filtro geográfico centralizado ANTES de retornar
     from scrapers.filtro_geografico import FiltroGeografico
@@ -422,7 +499,10 @@ async def _scrape_instagram_async(page, keyword: str, limit: int, city_name: str
         else:
             cron_logger.log(f"🚫 [IG Filtro Geográfico] Descartado: {item.get('title')} - {motivo}")
     
-    cron_logger.log(f" [Playwright IG] {len(results_filtrados)}/{count} items válidos después de filtro geográfico.")
+    cron_logger.log(
+        f" [Playwright IG] {len(results_filtrados)}/{len(results)} items válidos "
+        "después de filtro geográfico."
+    )
     return results_filtrados
 
 
