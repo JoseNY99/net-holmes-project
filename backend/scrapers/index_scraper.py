@@ -105,11 +105,29 @@ async def _fetch_ddg_html(query: str, limit: int = 30) -> list:
             _DDG_RETRY_AFTER = 0.0
             break
         except Exception as exc:
+            error_message = str(exc).strip().lower()
+            if "no results found" in error_message or "no results" == error_message:
+                cron_logger.log(f"[DDG OSINT] Consulta sin resultados: {query}")
+                results = []
+                break
+
             if attempt == 2:
-                _DDG_RETRY_AFTER = monotonic() + _DDG_FAILURE_COOLDOWN_SECONDS
+                is_network_failure = any(
+                    marker in error_message
+                    for marker in (
+                        "timeout",
+                        "timed out",
+                        "connection",
+                        "network",
+                        "dns",
+                        "temporarily unavailable",
+                    )
+                )
+                if is_network_failure:
+                    _DDG_RETRY_AFTER = monotonic() + _DDG_FAILURE_COOLDOWN_SECONDS
                 cron_logger.log(
-                    f" [DDG OSINT] Error usando ddgs tras {attempt} intentos; "
-                    f"se pausa DDG por {_DDG_FAILURE_COOLDOWN_SECONDS}s: {exc}"
+                    f" [DDG OSINT] Error usando ddgs tras {attempt} intentos"
+                    f"{'; se pausa DDG por 30s' if is_network_failure else ''}: {exc}"
                 )
             else:
                 cron_logger.log(

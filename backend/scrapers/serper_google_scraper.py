@@ -7,7 +7,9 @@ import httpx
 from config import settings
 from services.cron_logger import cron_logger
 from services.image_persistence import limpiar_url_canonica
-from scrapers.filtro_comercial import FAKE_SEARCH_TERMS
+
+_SERPER_FREE_QUERY_UNSUPPORTED = False
+
 
 class SerperGoogleScraper:
     SERPER_ENDPOINT = "https://google.serper.dev/search"
@@ -16,24 +18,29 @@ class SerperGoogleScraper:
     def _build_dork(self, platform: str, keyword: str, city_name: str = None) -> str:
         kw = keyword.strip()
         loc = (city_name or "Argentina").strip()
-        argentina_terms = (
-            f'"{loc}" Argentina {FAKE_SEARCH_TERMS}'
-        )
+        # Keep queries as plain words: Serper's free plan rejects advanced
+        # operators such as site:, grouped ORs, and quoted phrase combinations.
+        fake_terms = "replica G5 AAA clon calidad premium tailandesa importadas premium"
+        common_terms = f"{kw} {loc} Argentina {fake_terms}"
         if platform == "facebook":
-            return f'site:facebook.com/marketplace "{kw}" {argentina_terms}'
+            return f"{common_terms} Facebook Marketplace"
         elif platform == "instagram":
-            return f'(site:instagram.com/p/ OR site:instagram.com/reel/) "{kw}" {argentina_terms}'
+            return f"{common_terms} Instagram publicación reel"
         elif platform == "tiktok":
-            return f'site:tiktok.com/@ "{kw}" {argentina_terms}'
-        return f'"{kw}" Argentina "{loc}"'
+            return f"{common_terms} TikTok video"
+        return f"{kw} Argentina {loc}"
 
     async def scrape(self, platform: str, keyword: str, limit: int = 10, city_name: str = None) -> AsyncGenerator[Dict[str, Any], None]:
         dork = self._build_dork(platform, keyword, city_name)
         cron_logger.log(f"🌐 [Google/Serper OSINT] Buscando para {platform} ({keyword}): {dork}")
         collected = 0
 
+        global _SERPER_FREE_QUERY_UNSUPPORTED
+
         from services.api_key_service import get_active_api_key
         serper_key = get_active_api_key("serper")
+        if _SERPER_FREE_QUERY_UNSUPPORTED:
+            serper_key = None
         if serper_key:
             cron_logger.log("🔑 [Serper.dev] Ejecutando Google Dorking via Serper API...")
             try:
@@ -92,7 +99,21 @@ class SerperGoogleScraper:
                             if collected >= limit:
                                 return
                     else:
-                        cron_logger.log(f"⚠️ [Serper.dev] Status {resp.status_code}: {resp.text}")
+                        response_text = resp.text
+                        if (
+                            resp.status_code == 400
+                            and "query pattern not allowed" in response_text.lower()
+                            and "free account" in response_text.lower()
+                        ):
+                            _SERPER_FREE_QUERY_UNSUPPORTED = True
+                            cron_logger.log(
+                                "⚠️ [Serper.dev] El plan gratuito rechazó el patrón; "
+                                "se desactiva Serper para este proceso y se continúa con DDG."
+                            )
+                        else:
+                            cron_logger.log(
+                                f"⚠️ [Serper.dev] Status {resp.status_code}: {response_text}"
+                            )
             except Exception as e:
                 cron_logger.log(f"⚠️ [Serper.dev] Error: {e}")
 
