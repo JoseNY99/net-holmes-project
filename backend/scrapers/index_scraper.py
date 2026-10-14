@@ -55,15 +55,15 @@ PLATFORM_LOGOS = {
 }
 
 _DDG_RETRY_AFTER = 0.0
-_DDG_FAILURE_COOLDOWN_SECONDS = 30
+_DDG_FAILURE_COOLDOWN_SECONDS = 8
 
 
 # ─── Scraper Nativo DDG HTML ───────────────────────────────────────────────────
 
 async def _fetch_ddg_html(query: str, limit: int = 30) -> list:
     """
-    Usa el paquete ddgs oficial que maneja correctamente los tokens VQD y bypasses de TLS (curl_cffi)
-    para evitar el agresivo anti-bot de DuckDuckGo (Error 202/302).
+    Usa el metasearch de ddgs para consultar múltiples motores y reducir
+    la dependencia de un único endpoint de DuckDuckGo.
     """
     global _DDG_RETRY_AFTER
 
@@ -89,8 +89,15 @@ async def _fetch_ddg_html(query: str, limit: int = 30) -> list:
     for attempt in range(1, 3):
         try:
             def fetch():
-                with DDGS() as ddgs:
-                    return list(ddgs.text(query, region="ar-es", max_results=limit))
+                with DDGS(timeout=8) as ddgs:
+                    return list(
+                        ddgs.text(
+                            query,
+                            region="ar-es",
+                            max_results=limit,
+                            backend="auto",
+                        )
+                    )
 
             # DDGS is synchronous; retry once on transient network timeouts.
             raw_results = await asyncio.to_thread(fetch)
@@ -127,7 +134,7 @@ async def _fetch_ddg_html(query: str, limit: int = 30) -> list:
                     _DDG_RETRY_AFTER = monotonic() + _DDG_FAILURE_COOLDOWN_SECONDS
                 cron_logger.log(
                     f" [DDG OSINT] Error usando ddgs tras {attempt} intentos"
-                    f"{'; se pausa DDG por 30s' if is_network_failure else ''}: {exc}"
+                    f"{'; se pausa DDG por 8s' if is_network_failure else ''}: {exc}"
                 )
             else:
                 cron_logger.log(

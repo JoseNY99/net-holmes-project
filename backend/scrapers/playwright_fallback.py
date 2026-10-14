@@ -15,7 +15,7 @@ import sys
 import asyncio
 import random
 import re
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 from typing import AsyncGenerator, Dict, Any, List
 from services.cron_logger import cron_logger
 from scrapers.filtro_comercial import es_publicacion_comercial, filtrar_item_comercial
@@ -270,7 +270,8 @@ async def _scrape_facebook_async(page, keyword: str, limit: int, city_name: str,
                 break
 
     # Forzamos el slug de la provincia en la URL para evitar que FB resuelva a USA por la IP
-    search_url = f"https://www.facebook.com/marketplace/{slug}/search/?query={keyword.replace(' ', '%20')}"
+    search_params = urlencode({"query": keyword})
+    search_url = f"https://www.facebook.com/marketplace/{slug}/search/?{search_params}"
     cron_logger.log(f"[Playwright FB] Navegando a: {search_url}")
 
     results = []
@@ -283,6 +284,25 @@ async def _scrape_facebook_async(page, keyword: str, limit: int, city_name: str,
     await chill(1.0, 1.8)
 
     item_links = await page.locator("a[href*='/marketplace/item/']").all()
+    if not item_links:
+        current_url = page.url
+        page_title = await page.title()
+        try:
+            page_text = (await page.locator("body").inner_text(timeout=1500)).lower()
+        except Exception:
+            page_text = ""
+        login_or_blocked = (
+            any(part in current_url.lower() for part in ("/login", "/checkpoint"))
+            or any(
+                marker in page_text
+                for marker in ("iniciar sesión", "inicia sesión", "log in", "contenido no disponible")
+            )
+        )
+        cron_logger.log(
+            "[Playwright FB] 0 enlaces de Marketplace; "
+            f"URL final={current_url}, título={page_title!r}, "
+            f"login/bloqueo probable={login_or_blocked}."
+        )
     count = 0
     seen = set()
 

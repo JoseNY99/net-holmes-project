@@ -8,7 +8,7 @@ from config import settings
 from services.cron_logger import cron_logger
 from services.image_persistence import limpiar_url_canonica
 
-_SERPER_FREE_QUERY_UNSUPPORTED = False
+_SERPER_DISABLED = False
 
 
 class SerperGoogleScraper:
@@ -35,11 +35,11 @@ class SerperGoogleScraper:
         cron_logger.log(f"🌐 [Google/Serper OSINT] Buscando para {platform} ({keyword}): {dork}")
         collected = 0
 
-        global _SERPER_FREE_QUERY_UNSUPPORTED
+        global _SERPER_DISABLED
 
         from services.api_key_service import get_active_api_key
         serper_key = get_active_api_key("serper")
-        if _SERPER_FREE_QUERY_UNSUPPORTED:
+        if _SERPER_DISABLED:
             serper_key = None
         if serper_key:
             cron_logger.log("🔑 [Serper.dev] Ejecutando Google Dorking via Serper API...")
@@ -100,15 +100,20 @@ class SerperGoogleScraper:
                                 return
                     else:
                         response_text = resp.text
-                        if (
-                            resp.status_code == 400
-                            and "query pattern not allowed" in response_text.lower()
-                            and "free account" in response_text.lower()
+                        response_text_lower = response_text.lower()
+                        if any(
+                            marker in response_text_lower
+                            for marker in (
+                                "not enough credits",
+                                "insufficient credits",
+                                "query pattern not allowed",
+                            )
                         ):
-                            _SERPER_FREE_QUERY_UNSUPPORTED = True
+                            _SERPER_DISABLED = True
                             cron_logger.log(
-                                "⚠️ [Serper.dev] El plan gratuito rechazó el patrón; "
-                                "se desactiva Serper para este proceso y se continúa con DDG."
+                                "⚠️ [Serper.dev] La cuenta rechazó la consulta por créditos "
+                                "insuficientes o restricción del plan; se deja de llamar "
+                                "Serper en este proceso."
                             )
                         else:
                             cron_logger.log(
@@ -173,12 +178,6 @@ class SerperGoogleScraper:
                                 return
             except Exception as e:
                 cron_logger.log(f"⚠️ [Google CSE] Error: {e}")
-
-        if collected == 0:
-            cron_logger.log("🔄 [Google/Serper OSINT] Sin API Keys o 0 resultados. Derivando a DuckDuckGo OSINT...")
-            from scrapers.index_scraper import ejecutar_motor_indexado
-            async for item in ejecutar_motor_indexado(platform, keyword, limit, city_name):
-                yield item
 
     def _is_valid_direct_link(self, platform: str, url: str) -> bool:
         if not url or not url.startswith("http"):
