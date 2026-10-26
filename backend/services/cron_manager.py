@@ -31,12 +31,35 @@ scheduler = AsyncIOScheduler(timezone="America/Argentina/Buenos_Aires")
 
 # Bandera global para detención de emergencia inmediata
 _stop_requested = False
+_active_scan_task: asyncio.Task | None = None
+_active_scan_loop: asyncio.AbstractEventLoop | None = None
 
 def request_stop():
     """Señal inmediata para abortar cualquier escaneo en ejecución."""
-    global _stop_requested
+    global _stop_requested, _active_scan_task, _active_scan_loop
     _stop_requested = True
     cron_logger.log("🛑 [Detención de Emergencia] Señal recibida. Abortando escaneo inmediatamente...")
+    if (
+        _active_scan_task
+        and not _active_scan_task.done()
+        and _active_scan_loop
+        and _active_scan_loop.is_running()
+    ):
+        _active_scan_loop.call_soon_threadsafe(_active_scan_task.cancel)
+        return True
+    return False
+
+
+def start_automatic_scan(*args, **kwargs) -> asyncio.Task | None:
+    """Inicia un escaneo en una tarea independiente que puede cancelarse."""
+    global _active_scan_task, _active_scan_loop, _stop_requested
+    if _active_scan_task and not _active_scan_task.done():
+        return None
+
+    _stop_requested = False
+    _active_scan_loop = asyncio.get_running_loop()
+    _active_scan_task = _active_scan_loop.create_task(run_automatic_scan(*args, **kwargs))
+    return _active_scan_task
 
 def get_whatsapp_number(text: str) -> str:
     """Extrae el primer número de WhatsApp o teléfono que encuentre usando regex."""
@@ -677,11 +700,29 @@ def process_and_save_single_result(
 
 async def run_automatic_scan(*args, **kwargs):
     """Ejecuta el ciclo de escaneo automático para todas las marcas."""
-    global _stop_requested
-    _stop_requested = False
+    global _active_scan_task, _active_scan_loop, _stop_requested
+    current_task = asyncio.current_task()
+    scan_options = next((arg for arg in args if isinstance(arg, dict)), {})
+    scan_options.update(kwargs)
+    if current_task is not _active_scan_task:
+        _active_scan_task = current_task
+        _active_scan_loop = asyncio.get_running_loop()
+        _stop_requested = False
 
     cron_logger.log("====== INICIANDO ESCANEO AUTOMÁTICO ======")
     cron_logger.set_status("running")
+    run_status = "completed"
+    time_limit_reached = False
+    run_deadline = None
+    duration_minutes = scan_options.get("duration_minutes")
+    if isinstance(duration_minutes, (int, float)) and duration_minutes > 0:
+        run_deadline = asyncio.get_running_loop().time() + duration_minutes * 60
+
+    def scan_should_stop() -> bool:
+        nonlocal time_limit_reached
+        if run_deadline is not None and asyncio.get_running_loop().time() >= run_deadline:
+            time_limit_reached = True
+        return _stop_requested or time_limit_reached
     
     db = SessionLocal()
     from services.cron_service import set_running
@@ -699,38 +740,50 @@ async def run_automatic_scan(*args, **kwargs):
         import json
         cron_config = cron_service.get_cron_config(db)
         
-        try:
-            marcas_ids = json.loads(cron_config.marcas_seleccionadas) if cron_config.marcas_seleccionadas else []
-            if marcas_ids:
-                filtered = [b for b in brands if b.id in marcas_ids]
-                brands = filtered
-                if not brands:
-                    cron_logger.log("⚠️ Ninguna marca seleccionada está disponible para escanear.")
-                    return
-            else:
-                cron_logger.log(f"ℹ️ Marcas seleccionadas en blanco: escaneando {len(brands)} marca(s) registradas.")
-        except Exception as e:
-            cron_logger.log(f"Error parseando marcas_seleccionadas, usando marcas activas: {e}")
+        marcas_ids = scan_options.get("brand_ids")
+        if not marcas_ids:
+            try:
+                marcas_ids = json.loads(cron_config.marcas_seleccionadas) if cron_config.marcas_seleccionadas else []
+            except (TypeError, ValueError) as e:
+                cron_logger.log(f"Error parseando marcas_seleccionadas, usando marcas activas: {e}")
+                marcas_ids = []
+        if marcas_ids:
+            brands = [brand for brand in brands if brand.id in marcas_ids]
+            if not brands:
+                cron_logger.log("⚠️ Ninguna marca seleccionada está disponible para escanear.")
+                return
+        else:
+            cron_logger.log(f"ℹ️ Marcas seleccionadas en blanco: escaneando {len(brands)} marca(s) registradas.")
         
-        try:
-            provincias = json.loads(cron_config.provincias_seleccionadas)
-            from services.argentina_scope import normalize_argentina_locations
-            provincias = normalize_argentina_locations(provincias)
-        except:
-            provincias = ["Argentina"]
+        provincias = scan_options.get("provincias")
+        if not provincias:
+            try:
+                provincias = json.loads(cron_config.provincias_seleccionadas)
+            except (TypeError, ValueError) as e:
+                cron_logger.log(f"Error parseando provincias_seleccionadas, usando Argentina: {e}")
+                provincias = ["Argentina"]
+        from services.argentina_scope import normalize_argentina_locations
+        provincias = normalize_argentina_locations(provincias)
             
         limite = cron_config.limite_extraccion or 10
         settings.APIFY_MAX_ITEMS = limite
 
-        try:
-            plataformas_activas = json.loads(cron_config.plataformas_activas)
-        except:
-            plataformas_activas = ["facebook", "instagram", "tiktok", "mercadolibre"]
+        plataformas_activas = scan_options.get("plataformas")
+        if not plataformas_activas:
+            try:
+                plataformas_activas = json.loads(cron_config.plataformas_activas)
+            except (TypeError, ValueError) as e:
+                cron_logger.log(f"Error parseando plataformas_activas, usando todas las plataformas: {e}")
+                plataformas_activas = ["facebook", "instagram", "tiktok", "mercadolibre"]
 
         # Excluir 'web' de escaneos automáticos (las webs quedan reservadas exclusivamente para el escaneo manual)
         plataformas_activas = [p for p in plataformas_activas if p != "web"]
 
-        proveedor = getattr(cron_config, 'proveedor', 'google_meli_osint') or 'google_meli_osint'
+        proveedor = (
+            scan_options.get("proveedor")
+            or getattr(cron_config, 'proveedor', 'google_meli_osint')
+            or 'google_meli_osint'
+        )
 
         # Si el proveedor es Apify o RapidAPI, excluir automáticamente MercadoLibre para evitar conflictos
         if proveedor in ("apify", "rapidapi"):
@@ -739,15 +792,16 @@ async def run_automatic_scan(*args, **kwargs):
         engine = ScraperEngine()
         
         for brand in brands:
-            if _stop_requested:
-                cron_logger.log("🛑 [Detención de Emergencia] Escaneo cancelado.")
+            if scan_should_stop():
+                if _stop_requested:
+                    cron_logger.log("🛑 [Detención de Emergencia] Escaneo cancelado.")
                 break
 
             cron_logger.log(f"--- Procesando marca: {brand.nombre} ---")
             cron_logger.set_progress(marca=brand.nombre)
             
             for platform_name in plataformas_activas:
-                if _stop_requested:
+                if scan_should_stop():
                     break
 
                 platform_limits = {
@@ -768,19 +822,27 @@ async def run_automatic_scan(*args, **kwargs):
                     if row[0]
                 }
 
-                keywords = await generate_keywords(brand, platform_name)
+                requested_keywords = scan_options.get("keywords")
+                if requested_keywords:
+                    keywords = [
+                        term if brand.nombre.casefold() in term.casefold()
+                        else f"{brand.nombre} {term}"
+                        for term in requested_keywords
+                    ]
+                else:
+                    keywords = await generate_keywords(brand, platform_name)
                 cron_logger.log(f"Keywords a buscar en {platform_name}: {keywords}")
 
                 search_variants = ("", " réplica", " calidad premium", " importadas")
                 for pass_number, search_suffix in enumerate(search_variants, start=1):
-                    if _stop_requested or inserted_count >= platform_limit:
+                    if scan_should_stop() or inserted_count >= platform_limit:
                         break
 
                     if pass_number > 1:
                         cron_logger.log(f"🔎 [Búsqueda ampliada] Variante: {search_suffix.strip()}")
 
                     for keyword in keywords:
-                        if _stop_requested or inserted_count >= platform_limit:
+                        if scan_should_stop() or inserted_count >= platform_limit:
                             break
                         search_query = f"{keyword}{search_suffix}"
 
@@ -789,7 +851,7 @@ async def run_automatic_scan(*args, **kwargs):
                         locs_to_search = provincias if platform_name == "facebook" else ["Argentina"]
 
                         for provincia in locs_to_search:
-                            if _stop_requested or inserted_count >= platform_limit:
+                            if scan_should_stop() or inserted_count >= platform_limit:
                                 break
 
                             cron_logger.log(f"-> Escaneando {platform_name} para '{keyword}' en '{provincia}'")
@@ -818,7 +880,7 @@ async def run_automatic_scan(*args, **kwargs):
                                     continue
 
                                 async for item in item_stream:
-                                    if _stop_requested or inserted_count >= platform_limit:
+                                    if scan_should_stop() or inserted_count >= platform_limit:
                                         break
                                     url_key = engine._item_url_key(item)
                                     if url_key and url_key in seen_urls:
@@ -832,7 +894,7 @@ async def run_automatic_scan(*args, **kwargs):
                                             f"{inserted_count}/{platform_limit} reportes insertados."
                                         )
 
-                                if _stop_requested:
+                                if scan_should_stop():
                                     break
                                 await asyncio.sleep(0.25)
                             except Exception as e:
@@ -840,7 +902,11 @@ async def run_automatic_scan(*args, **kwargs):
                                     f"Error en {platform_name} para {search_query} en {provincia}: {e}"
                                 )
 
-                    if inserted_count < platform_limit and pass_number < len(search_variants):
+                    if (
+                        not scan_should_stop()
+                        and inserted_count < platform_limit
+                        and pass_number < len(search_variants)
+                    ):
                         await asyncio.sleep(0.75)
 
                 if inserted_count < platform_limit:
@@ -850,21 +916,37 @@ async def run_automatic_scan(*args, **kwargs):
                         "de búsqueda sin encontrar más resultados únicos que pasen los filtros."
                     )
 
-            if _stop_requested:
+            if scan_should_stop():
                 break
                         
         if _stop_requested:
             cron_logger.log("🛑 ====== ESCANEO DETENIDO POR EMERGENCIA ======")
+        elif time_limit_reached:
+            cron_logger.log("⏱️ ====== TIEMPO DE BÚSQUEDA CONFIGURADO ALCANZADO ======")
         else:
             cron_logger.log("====== ESCANEO AUTOMÁTICO FINALIZADO ======")
         
     except Exception as e:
+        run_status = "failed"
         cron_logger.log(f"Error fatal en escaneo: {e}")
         db.rollback()
+    except asyncio.CancelledError:
+        run_status = "stopped"
+        _stop_requested = True
+        cron_logger.log("🛑 ====== ESCANEO CANCELADO DURANTE UNA CONSULTA ======")
     finally:
-        set_running(db, False)
-        cron_logger.set_status("idle")
-        db.close()
+        if _stop_requested and run_status == "completed":
+            run_status = "stopped"
+        try:
+            set_running(db, False)
+            from services.cron_service import record_run
+            record_run(db, run_status)
+        finally:
+            if current_task is _active_scan_task:
+                _active_scan_task = None
+                _active_scan_loop = None
+            cron_logger.set_status(run_status)
+            db.close()
 
 def update_job_schedule(db: Session = None):
     """Actualiza la programación del trabajo en el scheduler usando la config de DB o config.py."""

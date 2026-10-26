@@ -22,7 +22,7 @@ class CronConfig(Base):
     limite_extraccion_ig = Column(Integer, nullable=False, default=5)
     limite_extraccion_tt = Column(Integer, nullable=False, default=5)
     limite_extraccion_ml = Column(Integer, nullable=False, default=5)
-    proveedor = Column(String(50), nullable=False, default="apify")
+    proveedor = Column(String(50), nullable=False, default="google_meli_osint")
     fecha_inicio = Column(DateTime(timezone=True), nullable=True)
     fecha_fin = Column(DateTime(timezone=True), nullable=True)
     is_running = Column(Boolean, nullable=False, default=False)

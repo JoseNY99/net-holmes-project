@@ -55,6 +55,7 @@ logs/
 
 # Scripts temporales de prueba, limpieza y desarrollo
 test_*.py
+!backend/tests/test_dashboard_search.py
 *_test.py
 check_*.py
 clean_*.py

@@ -14,7 +14,7 @@ class CronConfigBase(BaseModel):
     limite_extraccion_ig: int = Field(ge=1, le=100, default=10)
     limite_extraccion_tt: int = Field(ge=1, le=100, default=10)
     limite_extraccion_ml: int = Field(ge=1, le=100, default=10)
-    proveedor: str = Field(default="apify")
+    proveedor: str = Field(default="google_meli_osint")
     fecha_inicio: Optional[datetime] = None
     fecha_fin: Optional[datetime] = None
 

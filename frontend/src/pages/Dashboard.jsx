@@ -1,13 +1,14 @@
 // Página Dashboard — panel principal del usuario Net Holmes
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FaShieldAlt,
   FaSearch,
+  FaSpinner,
+  FaStop,
   FaFileAlt,
   FaUserSecret,
   FaCog,
-  FaTerminal,
   FaFacebookF,
   FaInstagram,
   FaTiktok,
@@ -25,26 +26,17 @@ import {
 } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { getBrands } from '../services/brandService';
-import { triggerManualRun } from '../services/cronService';
+import { getSearchLocations, startDashboardSearch, getDashboardSearchStatus, stopDashboardSearch } from '../services/dashboardSearchService';
 import api from '../services/api';
 import './Dashboard.css';
-
-const ARGENTINE_LOCATIONS = [
-  'Argentina', 'Buenos Aires', 'CABA', 'Catamarca', 'Chaco', 'Chubut', 'Córdoba',
-  'Corrientes', 'Entre Ríos', 'Formosa', 'Jujuy', 'La Pampa', 'La Rioja', 'Mendoza',
-  'Misiones', 'Neuquén', 'Río Negro', 'Salta', 'San Juan', 'San Luis', 'Santa Cruz',
-  'Santa Fe', 'Santiago del Estero', 'Tierra del Fuego', 'Tucumán'
-];
 
 // Componente premium ágil para efecto Count-Up
 function AnimatedCounter({ value, duration = 400 }) {
   const [count, setCount] = useState(value <= 5 ? value : 0);
 
   useEffect(() => {
-    if (!value || value <= 5) {
-      setCount(value || 0);
-      return;
-    }
+    if (!value || value <= 5) return;
+    let frameId;
     let startTimestamp = null;
     const actualDuration = Math.min(duration, 500);
     const step = (timestamp) => {
@@ -53,15 +45,16 @@ function AnimatedCounter({ value, duration = 400 }) {
       const easeProgress = 1 - Math.pow(1 - progress, 3);
       setCount(Math.floor(easeProgress * value));
       if (progress < 1) {
-        window.requestAnimationFrame(step);
+        frameId = window.requestAnimationFrame(step);
       } else {
         setCount(value);
       }
     };
-    window.requestAnimationFrame(step);
+    frameId = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(frameId);
   }, [value, duration]);
 
-  return <>{(count || 0).toLocaleString('es-AR')}</>;
+  return <>{(value <= 5 ? value || 0 : count || 0).toLocaleString('es-AR')}</>;
 }
 
 export default function Dashboard() {
@@ -70,12 +63,24 @@ export default function Dashboard() {
   const [activeBrands, setActiveBrands] = useState(0);
   const [brands, setBrands] = useState([]);
   const [selectedBrand, setSelectedBrand] = useState('');
-  const [selectedLocation, setSelectedLocation] = useState('Argentina');
+  const [selectedCountry, setSelectedCountry] = useState('Argentina');
+  const [locations, setLocations] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState('');
   const [durationMinutes, setDurationMinutes] = useState(30);
   const [searchTerms, setSearchTerms] = useState('');
   const [selectedPlatforms, setSelectedPlatforms] = useState(['facebook', 'instagram', 'tiktok', 'mercadolibre']);
   const [searching, setSearching] = useState(false);
   const [searchFeedback, setSearchFeedback] = useState(null);
+  const scanWasRunning = useRef(false);
+  const searchRequestPending = useRef(false);
+  const [scanStatus, setScanStatus] = useState(null);
+  const [statusLoaded, setStatusLoaded] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const countryScope = locations.find(location => location.pais === selectedCountry);
+  const remainingSeconds = scanStatus?.deadline_at
+    ? Math.max(0, Math.ceil((Date.parse(scanStatus.deadline_at) - now) / 1000))
+    : null;
   
   const [stats, setStats] = useState({
     analisis_pendientes: 0,
@@ -126,34 +131,119 @@ export default function Dashboard() {
     
     fetchBrands();
     fetchStats();
+    getSearchLocations()
+      .then(({ data }) => setLocations(data))
+      .catch(() => setSearchFeedback({ type: 'error', text: 'No se pudieron cargar las provincias y estados. Recarga el dashboard para reintentar.' }));
     
     // Polling cada 15 segundos para actualizar estados en vivo
     const intervalId = setInterval(fetchStats, 15000);
-    return () => clearInterval(intervalId);
+    window.addEventListener('dashboard-search-finished', fetchStats);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('dashboard-search-finished', fetchStats);
+    };
   }, []);
+
+  useEffect(() => {
+    let subscribed = true;
+    let timerId;
+
+    const pollSearchStatus = async () => {
+      if (!subscribed) return;
+      let nextInterval = scanWasRunning.current ? 2000 : 5000;
+      try {
+        const { data } = await getDashboardSearchStatus();
+        if (!subscribed) return;
+        setStatusLoaded(true);
+        if (!searchRequestPending.current) {
+          setScanStatus(data);
+          setSearching(Boolean(data.is_running));
+          if (data.is_running) {
+            scanWasRunning.current = true;
+            nextInterval = 2000;
+          } else if (scanWasRunning.current) {
+            const message = {
+              completed: data.finish_reason === 'deadline'
+                ? 'Se cumplió el tiempo máximo de búsqueda.'
+                : 'La búsqueda terminó correctamente.',
+              stopped: 'La búsqueda fue detenida.',
+              failed: 'La búsqueda terminó con errores. Los resultados guardados se conservaron.',
+            }[data.status] || 'La búsqueda finalizó.';
+            setSearchFeedback({
+              type: data.status === 'failed' ? 'error' : 'success',
+              text: `${message} Nuevos: ${data.saved || 0}. Duplicados omitidos o actualizados: ${data.duplicates || 0}.${data.warning ? ` ${data.warning}` : ''}`,
+            });
+            scanWasRunning.current = false;
+            window.dispatchEvent(new Event('dashboard-search-finished'));
+          }
+        }
+      } catch {
+        if (subscribed) setSearchFeedback({ type: 'error', text: 'No se pudo consultar el estado. Reintentando la conexión…' });
+      }
+      if (subscribed) timerId = setTimeout(pollSearchStatus, nextInterval);
+    };
+
+    pollSearchStatus();
+    return () => {
+      subscribed = false;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!searching) return;
+    const timerId = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timerId);
+  }, [searching]);
 
   const handleStartSearch = async (event) => {
     event.preventDefault();
-    if (!selectedBrand || searching) return;
+    if (!selectedBrand || searching || searchRequestPending.current) return;
+    searchRequestPending.current = true;
     setSearching(true);
     setSearchFeedback(null);
     try {
       const keywords = searchTerms.split(',').map(term => term.trim()).filter(Boolean);
-      await triggerManualRun({
+      const { data } = await startDashboardSearch({
         brand_ids: [Number(selectedBrand)],
-        provincias: [selectedLocation],
+        pais: selectedCountry,
+        provincias: selectedLocation ? [selectedLocation] : [],
         keywords,
         duration_minutes: durationMinutes,
-        plataformas: selectedPlatforms
+        plataformas: selectedPlatforms,
+        proveedor: 'google_meli_osint',
       });
-      setSearchFeedback({ type: 'success', text: 'Búsqueda iniciada. El progreso y los hallazgos aparecerán en el dashboard.' });
+      setScanStatus(data);
+      setNow(Date.now());
+      scanWasRunning.current = true;
     } catch (error) {
+      const detail = error.response?.data?.detail;
       setSearchFeedback({
         type: 'error',
-        text: error.response?.data?.detail || 'No se pudo iniciar la búsqueda.'
+        text: typeof detail === 'string' ? detail : 'No se pudo iniciar la búsqueda. Revisa los filtros seleccionados.',
       });
-    } finally {
       setSearching(false);
+    } finally {
+      searchRequestPending.current = false;
+    }
+  };
+
+  const handleStopSearch = async () => {
+    if (stopping || searchRequestPending.current) return;
+    searchRequestPending.current = true;
+    setStopping(true);
+    try {
+      const { data } = await stopDashboardSearch();
+      setScanStatus(data);
+      setSearching(false);
+      scanWasRunning.current = false;
+      setSearchFeedback({ type: 'success', text: `Búsqueda detenida. Nuevos: ${data.saved || 0}. Duplicados omitidos o actualizados: ${data.duplicates || 0}.` });
+      window.dispatchEvent(new Event('dashboard-search-finished'));
+    } catch {
+      setSearchFeedback({ type: 'error', text: 'No se pudo detener la búsqueda. Vuelve a intentarlo.' });
+    } finally {
+      searchRequestPending.current = false;
+      setStopping(false);
     }
   };
 
@@ -280,22 +370,33 @@ export default function Dashboard() {
         <div className="dashboard-search__heading">
           <div>
             <h2 id="dashboard-search-title">Nueva búsqueda</h2>
-            <p>Alcance limitado a Argentina.</p>
+            <p>Selecciona el país y, si lo necesitas, una provincia o estado.</p>
           </div>
           <FaSearch aria-hidden="true" />
         </div>
-        <form className="dashboard-search__form" onSubmit={handleStartSearch}>
+        <form className="dashboard-search__form" onSubmit={handleStartSearch} aria-busy={searching}>
           <label>
             Marca
-            <select className="input-field" value={selectedBrand} onChange={event => setSelectedBrand(event.target.value)} required>
+            <select className="input-field" value={selectedBrand} onChange={event => setSelectedBrand(event.target.value)} disabled={searching} required>
               <option value="" disabled>Seleccionar marca</option>
               {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.nombre}</option>)}
             </select>
           </label>
           <label>
-            Alcance geográfico
-            <select className="input-field" value={selectedLocation} onChange={event => setSelectedLocation(event.target.value)}>
-              {ARGENTINE_LOCATIONS.map(location => <option key={location} value={location}>{location}</option>)}
+            País
+            <select className="input-field" value={selectedCountry} disabled={searching || locations.length === 0} onChange={event => {
+              setSelectedCountry(event.target.value);
+              setSelectedLocation('');
+            }}>
+              {locations.length === 0 && <option value="Argentina">Argentina</option>}
+              {locations.map(location => <option key={location.pais} value={location.pais}>{location.pais}</option>)}
+            </select>
+          </label>
+          <label>
+            {selectedCountry === 'Argentina' ? 'Provincia' : 'Estado'}
+            <select className="input-field" value={selectedLocation} onChange={event => setSelectedLocation(event.target.value)} disabled={searching || !countryScope}>
+              <option value="">Todo el país</option>
+              {(countryScope?.provincias || []).map(location => <option key={location} value={location}>{location}</option>)}
             </select>
           </label>
           <label className="dashboard-search__terms">
@@ -303,13 +404,15 @@ export default function Dashboard() {
             <input
               className="input-field"
               value={searchTerms}
+              disabled={searching}
+              maxLength={2009}
               onChange={event => setSearchTerms(event.target.value)}
               placeholder="Ej.: zapatillas, remeras, buzos"
             />
           </label>
           <label>
             Tiempo máximo
-            <select className="input-field" value={durationMinutes} onChange={event => setDurationMinutes(Number(event.target.value))}>
+            <select className="input-field" value={durationMinutes} onChange={event => setDurationMinutes(Number(event.target.value))} disabled={searching}>
               <option value={5}>5 minutos</option>
               <option value={15}>15 minutos</option>
               <option value={30}>30 minutos</option>
@@ -325,6 +428,7 @@ export default function Dashboard() {
                 <label key={platform} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
+                    disabled={searching}
                     checked={selectedPlatforms.includes(platform)}
                     onChange={(e) => {
                       if (e.target.checked) {
@@ -342,10 +446,26 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
-          <button className="btn-primary" type="submit" disabled={searching || !selectedBrand || selectedPlatforms.length === 0}>
-            <FaSearch /> {searching ? 'Iniciando...' : 'Iniciar búsqueda'}
-          </button>
+          {searching ? (
+            <button className="btn-primary" type="button" onClick={handleStopSearch} disabled={stopping || !scanStatus?.is_running}>
+              <FaStop /> {stopping ? 'Deteniendo…' : 'Detener'}
+            </button>
+          ) : (
+            <button className="btn-primary" type="submit" disabled={!statusLoaded || !countryScope || !selectedBrand || selectedPlatforms.length === 0}>
+              <FaSearch /> Iniciar búsqueda
+            </button>
+          )}
         </form>
+        {searching && (
+          <div className="dashboard-search__loading" role="status" aria-live="polite">
+            <FaSpinner className="dashboard-search__spinner" aria-hidden="true" />
+            <span>
+              {scanStatus?.is_running ? `Buscando${scanStatus.current_platform ? ` en ${scanStatus.current_platform === 'mercadolibre' ? 'Mercado Libre' : scanStatus.current_platform}` : ''}…` : 'Iniciando búsqueda…'}
+              {scanStatus?.is_running && ` ${scanStatus.saved || 0} nuevos · ${scanStatus.duplicates || 0} duplicados omitidos o actualizados`}
+              {remainingSeconds !== null && searching && ` · Máximo restante: ${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`}
+            </span>
+          </div>
+        )}
         {searchFeedback && <p className={`dashboard-search__feedback ${searchFeedback.type}`} role="status">{searchFeedback.text}</p>}
       </section>
 
@@ -449,4 +569,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

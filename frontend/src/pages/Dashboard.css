@@ -244,6 +244,29 @@
 .dashboard-search__feedback.success { color: var(--success); }
 .dashboard-search__feedback.error { color: var(--danger); }
 
+.dashboard-search__loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+}
+
+.dashboard-search__spinner {
+  flex-shrink: 0;
+  color: var(--accent-primary);
+  animation: dashboard-search-spin 1s linear infinite;
+}
+
+@keyframes dashboard-search-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-search__spinner { animation: none; }
+}
+
 @media (max-width: 700px) {
   .dashboard-search__form {
     grid-template-columns: 1fr;

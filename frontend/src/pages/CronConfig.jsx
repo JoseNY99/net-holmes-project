@@ -9,7 +9,7 @@ import './CronConfig.css';
 const PLATFORM_OPTIONS = ['tiktok', 'facebook', 'instagram', 'mercadolibre'];
 const EXTRACTION_LIMITS = [2, 5, 10, 20, 25, 50, 75, 100];
 const PROVEEDOR_OPTIONS = [
-  { value: 'google_meli_osint', label: '  Google Serper + MeLi Developers + Certstream (OSINT Avanzado)' },
+  { value: 'google_meli_osint', label: '  Serper/Google + fallback gratuito (DDG/Playwright) + MeLi' },
   { value: 'playwright', label: '  Gratuito / Local (DuckDuckGo OSINT + API ML + Playwright)' },
   { value: 'rapidapi', label: '  RapidAPI — Alternativa (APIs de terceros vía RapidAPI Key)' },
   { value: 'apify', label: '  Apify Cloud (Escaneo de Pago - Alta Precisión)' }
@@ -43,7 +43,7 @@ export default function CronConfig() {
   const [message, setMessage] = useState(null);
   const [logs, setLogs] = useState(["[Sistema] Consola de monitoreo inicializada. Listo para escuchar eventos."]);
   const [cronRunning, setCronRunning] = useState(false);
-  const [proveedor, setProveedor] = useState("playwright");
+  const [proveedor, setProveedor] = useState("google_meli_osint");
   
   const [modalState, setModalState] = useState({ isOpen: false, type: null, title: null, body: null });
   const [modalCountdown, setModalCountdown] = useState(5);
@@ -121,7 +121,13 @@ export default function CronConfig() {
           isFirstMount.current = false;
         } else {
           if (wasRunning.current === true && !isCurrentlyRunning) {
-            setModalState({ isOpen: true, type: 'info', title: 'Escaneo Finalizado', body: 'El ciclo de escaneo automático ha concluido.' });
+            const runStatus = statusRes.last_run_status;
+            const completionMessage = {
+              completed: 'El ciclo de escaneo terminó correctamente.',
+              stopped: 'El ciclo de escaneo fue detenido.',
+              failed: 'El ciclo de escaneo terminó con errores. Revisa los logs.',
+            }[runStatus] || 'El ciclo de escaneo ha concluido.';
+            setModalState({ isOpen: true, type: runStatus === 'failed' ? 'error' : 'info', title: 'Escaneo Finalizado', body: completionMessage });
           }
         }
         wasRunning.current = isCurrentlyRunning;
@@ -179,7 +185,7 @@ export default function CronConfig() {
       setLimiteIG(data.limite_extraccion_ig || 5);
       setLimiteTT(data.limite_extraccion_tt || 5);
       setLimiteML(data.limite_extraccion_ml || 5);
-      setProveedor(data.proveedor || "apify");
+      setProveedor(data.proveedor || "google_meli_osint");
     } catch (error) {
       console.error("Error fetching cron config:", error);
     } finally {
@@ -280,8 +286,9 @@ export default function CronConfig() {
   const handleManualRun = async () => {
     try {
       setLogs(prev => ["[Sistema]   Disparando escaneo forzado inmediato...", ...prev]);
-      await triggerManualRun();
+      await triggerManualRun({ proveedor });
       setCronRunning(true);
+      wasRunning.current = true;
       showNoticeModal({
         title: 'Escaneo Forzado Iniciado',
         body: 'El escaneo inmediato ha sido disparado en segundo plano y los resultados se están transmitiendo a la consola.',

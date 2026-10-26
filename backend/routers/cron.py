@@ -49,26 +49,26 @@ def toggle_cron_state(req: Optional[ToggleRequest] = None, db: Session = Depends
     return updated
 
 class DashboardSearchRequest(BaseModel):
-    brand_ids: list[int] = Field(min_length=1, max_length=30)
-    provincias: list[str] = Field(min_length=1, max_length=24)
+    brand_ids: list[int] = Field(default_factory=list, max_length=30)
+    provincias: list[str] = Field(default_factory=list, max_length=24)
     keywords: list[str] = Field(default_factory=list, max_length=10)
     duration_minutes: int = Field(default=30, ge=5, le=60)
     plataformas: list[str] = Field(default_factory=lambda: ["facebook", "instagram", "tiktok", "mercadolibre"], max_length=4)
+    proveedor: str | None = None
 
 @router.post('/start')
 async def start_cron_force(
-    background_tasks: BackgroundTasks,
     req: DashboardSearchRequest | None = None,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     from services.cron_logger import cron_logger
-    from services.cron_manager import run_automatic_scan
+    from services.cron_manager import start_automatic_scan
     from services import cron_service
     from sqlalchemy import func
 
-    search_options = None
-    if req is not None:
+    search_options = {}
+    if req is not None and req.brand_ids:
         ids = set(req.brand_ids)
         selected_brands = db.query(Brand).filter(
             Brand.id.in_(ids), func.lower(Brand.estado) == 'activa'
@@ -91,6 +91,12 @@ async def start_cron_force(
     elif current_user.rol not in ("admin", "sup_admin"):
         raise HTTPException(status_code=422, detail="Selecciona marcas y provincias para iniciar la búsqueda.")
 
+    if req and req.proveedor:
+        allowed_providers = {"google_meli_osint", "playwright", "rapidapi", "apify"}
+        if req.proveedor not in allowed_providers:
+            raise HTTPException(status_code=400, detail="El proveedor seleccionado no es válido.")
+        search_options["proveedor"] = req.proveedor
+
     config = cron_service.get_cron_config(db)
     if config.is_running:
         raise HTTPException(status_code=409, detail="Ya hay una búsqueda en ejecución.")
@@ -98,15 +104,19 @@ async def start_cron_force(
     cron_service.set_running(db, True)
     cron_logger.reset()
     cron_logger.log("Búsqueda inmediata iniciada desde el dashboard.")
-    background_tasks.add_task(run_automatic_scan, search_options)
+    task = start_automatic_scan(search_options or None)
+    if task is None:
+        raise HTTPException(status_code=409, detail="Ya hay una búsqueda en ejecución.")
     return {"msg": "Escaneo forzado iniciado exitosamente en background"}
 
 @router.post('/stop')
 def stop_cron_force(db: Session = Depends(get_db), admin=Depends(require_admin)):
     from services.cron_manager import request_stop
-    request_stop()
+    cancellation_requested = request_stop()
+    if cancellation_requested:
+        return {"msg": "Cancelación enviada al escaneo activo."}
     cron_service.set_running(db, False)
-    return {"msg": "Detención de emergencia ejecutada exitosamente"}
+    return {"msg": "Se solicitó detener el escaneo; no se encontró una tarea activa en este proceso."}
 
 # --- Apify Fase 2 Endpoints ---
 

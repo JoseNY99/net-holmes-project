@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
             conn.rollback()
             
         try:
-            conn.execute(text("ALTER TABLE cron_config ADD COLUMN proveedor VARCHAR(50) DEFAULT 'apify';"))
+            conn.execute(text("ALTER TABLE cron_config ADD COLUMN proveedor VARCHAR(50) DEFAULT 'google_meli_osint';"))
             conn.commit()
         except Exception:
             conn.rollback()
@@ -136,6 +136,8 @@ async def lifespan(app: FastAPI):
         update_job_schedule(db)
     
     yield
+    from services.dashboard_search import dashboard_search
+    await dashboard_search.stop()
     scheduler.shutdown()
 
 app = FastAPI(
@@ -255,4 +257,3 @@ def privacy_policy():
     </body>
     </html>
     """
-
