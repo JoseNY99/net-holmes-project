@@ -739,6 +739,7 @@ async def run_automatic_scan(*args, **kwargs):
         from services import cron_service
         import json
         cron_config = cron_service.get_cron_config(db)
+        country = scan_options.get("pais") or getattr(cron_config, "pais_seleccionado", "Argentina")
         
         marcas_ids = scan_options.get("brand_ids")
         if not marcas_ids:
@@ -755,15 +756,14 @@ async def run_automatic_scan(*args, **kwargs):
         else:
             cron_logger.log(f"ℹ️ Marcas seleccionadas en blanco: escaneando {len(brands)} marca(s) registradas.")
         
-        provincias = scan_options.get("provincias")
-        if not provincias:
+        if "provincias" in scan_options:
+            provincias = scan_options["provincias"]
+        else:
             try:
                 provincias = json.loads(cron_config.provincias_seleccionadas)
             except (TypeError, ValueError) as e:
-                cron_logger.log(f"Error parseando provincias_seleccionadas, usando Argentina: {e}")
-                provincias = ["Argentina"]
-        from services.argentina_scope import normalize_argentina_locations
-        provincias = normalize_argentina_locations(provincias)
+                cron_logger.log(f"Error parseando provincias_seleccionadas, buscando en todo {country}: {e}")
+                provincias = []
             
         limite = cron_config.limite_extraccion or 10
         settings.APIFY_MAX_ITEMS = limite
@@ -788,6 +788,50 @@ async def run_automatic_scan(*args, **kwargs):
         # Si el proveedor es Apify o RapidAPI, excluir automáticamente MercadoLibre para evitar conflictos
         if proveedor in ("apify", "rapidapi"):
             plataformas_activas = [p for p in plataformas_activas if p != "mercadolibre"]
+
+        from services.dashboard_scope import normalize_scope
+        try:
+            country, provincias = normalize_scope(country, provincias)
+        except ValueError as exc:
+            run_status = "failed"
+            cron_logger.log(f"⚠️ Alcance geográfico inválido: {exc}")
+            return
+
+        if country != "Argentina":
+            if proveedor != "google_meli_osint":
+                run_status = "failed"
+                cron_logger.log(
+                    f"⚠️ El proveedor '{proveedor}' no admite el alcance de {country}. "
+                    "Selecciona Google/Serper + alternativa gratuita."
+                )
+                return
+
+            from services.dashboard_search import DashboardSearchManager, brand_snapshot
+
+            country_search = DashboardSearchManager()
+            country_options = {
+                "pais": country,
+                "provincias": provincias,
+                "keywords": scan_options.get("keywords", []),
+                "duration_minutes": scan_options.get("duration_minutes", 60),
+                "plataformas": plataformas_activas,
+            }
+            country_search.start(
+                0,
+                country_options,
+                [brand_snapshot(brand) for brand in brands],
+            )
+            await country_search.task
+            search_state = country_search.state
+            cron_logger.log(
+                f"[Búsqueda {country}] Guardados: {search_state['saved']}; "
+                f"duplicados: {search_state['duplicates']}; "
+                f"descartados: {search_state['discarded']}."
+            )
+            if search_state["status"] == "failed":
+                run_status = "failed"
+                cron_logger.log(search_state.get("warning") or "La búsqueda geográfica terminó con errores.")
+            return
 
         engine = ScraperEngine()
         

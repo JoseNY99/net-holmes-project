@@ -14,13 +14,13 @@ COUNTRIES = {
     "Argentina": {
         "gl": "ar", "hl": "es", "region": "ar-es", "currency": "ARS", "dial": "54",
         "aliases": ["Argentina"], "market": "mercadolibre.com.ar",
-        "phone_format": "+54 + área y número (10 dígitos); móvil: +54 9 + 10 dígitos",
+        "phone_format": "+54 9 + código de área y número local (10 dígitos)",
         "provincias": [p["name"] for p in PROVINCIAS_AR],
     },
     "Brasil": {
         "gl": "br", "hl": "pt", "region": "br-pt", "currency": "BRL", "dial": "55",
         "aliases": ["Brasil", "Brazil"], "market": "mercadolivre.com.br",
-        "phone_format": "+55 + DDD (2 dígitos) + fijo (8) o móvil (9, comienza con 9)",
+        "phone_format": "+55 + DDD (2 dígitos) + móvil (9 dígitos, comienza con 9)",
         "provincias": [
             "Acre", "Alagoas", "Amapá", "Amazonas", "Bahia", "Ceará", "Distrito Federal",
             "Espírito Santo", "Goiás", "Maranhão", "Mato Grosso", "Mato Grosso do Sul",
@@ -68,19 +68,30 @@ def observed_region(text: str, country: str) -> str | None:
     return next((p for p in sorted(COUNTRIES[country]["provincias"], key=len, reverse=True) if contains(text, p)), None)
 
 
-def matches_scope(text: str, url: str, country: str, province: str | None) -> bool:
-    """La consulta del usuario nunca se usa como evidencia de ubicación."""
+def matches_scope(
+    text: str,
+    url: str,
+    country: str,
+    province: str | None,
+    searched_country: str | None = None,
+    searched_region: str | None = None,
+) -> bool:
+    """Combina señales del contenido con la localización aplicada al proveedor."""
     cfg = COUNTRIES[country]
-    if province and not contains(text, province):
-        return False
     other_aliases = [a for name, data in COUNTRIES.items() if name != country for a in data["aliases"]]
     if any(contains(text, alias) for alias in other_aliases):
         return False
+    observed = observed_region(text, country)
+    if province and observed and folded(observed) != folded(province):
+        return False
+    if province and not contains(text, province) and folded(searched_region or "") != folded(province):
+        return False
     country_signal = any(contains(text, alias) for alias in cfg["aliases"])
-    country_signal |= bool(observed_region(text, country))
+    country_signal |= bool(observed)
     country_signal |= cfg["market"] in url
     country_signal |= bool(re.search(r"\+" + cfg["dial"] + r"[\s(\d]", text))
     country_signal |= contains(text, cfg["currency"])
     if country == "Brasil":
         country_signal |= "r$" in text.casefold()
+    country_signal |= folded(searched_country or "") == folded(country)
     return country_signal

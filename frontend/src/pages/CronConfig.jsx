@@ -14,13 +14,6 @@ const PROVEEDOR_OPTIONS = [
   { value: 'rapidapi', label: '  RapidAPI — Alternativa (APIs de terceros vía RapidAPI Key)' },
   { value: 'apify', label: '  Apify Cloud (Escaneo de Pago - Alta Precisión)' }
 ];
-const PROVINCIAS_AR = [
-  "CABA", "Buenos Aires", "Catamarca", "Chaco", "Chubut", "Córdoba", "Corrientes",
-  "Entre Ríos", "Formosa", "Jujuy", "La Pampa", "La Rioja", "Mendoza", "Misiones",
-  "Neuquén", "Río Negro", "Salta", "San Juan", "San Luis", "Santa Cruz", "Santa Fe",
-  "Santiago del Estero", "Tierra del Fuego", "Tucumán"
-];
-
 export default function CronConfig() {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -31,7 +24,8 @@ export default function CronConfig() {
   const [marcas, setMarcas] = useState([]);
   const [activeBrands, setActiveBrands] = useState([]);
   
-  const [scanProvinces, setScanProvinces] = useState(false);
+  const [locations, setLocations] = useState([]);
+  const [selectedCountry, setSelectedCountry] = useState('Argentina');
   const [provincias, setProvincias] = useState([]);
   
   const [limiteFB, setLimiteFB] = useState(5);
@@ -96,6 +90,12 @@ export default function CronConfig() {
   useEffect(() => {
     fetchConfig();
     fetchBrands();
+    api.get('/api/dashboard/search/locations')
+      .then(({ data }) => setLocations(data))
+      .catch((error) => {
+        console.error('Error fetching cron locations:', error);
+        setMessage({ type: 'error', text: 'No se pudieron cargar los países y provincias.' });
+      });
     
     let isSubscribed = true;
     let timerId = null;
@@ -178,8 +178,8 @@ export default function CronConfig() {
       setMarcas(JSON.parse(data.marcas_seleccionadas));
       
       const provs = JSON.parse(data.provincias_seleccionadas || '[]');
+      setSelectedCountry(data.pais_seleccionado || 'Argentina');
       setProvincias(provs);
-      setScanProvinces(provs.length > 0);
 
       setLimiteFB(data.limite_extraccion_fb || 5);
       setLimiteIG(data.limite_extraccion_ig || 5);
@@ -241,7 +241,15 @@ export default function CronConfig() {
       prev.includes(prov) ? prev.filter(p => p !== prov) : [...prev, prov]
     );
   };
-  const selectAllProvincias = () => setProvincias(PROVINCIAS_AR);
+  const selectedCountryScope = locations.find(location => location.pais === selectedCountry);
+  const handleCountryChange = (country) => {
+    setSelectedCountry(country);
+    setProvincias([]);
+    if (country !== 'Argentina' && proveedor !== 'google_meli_osint') {
+      setProveedor('google_meli_osint');
+    }
+  };
+  const selectAllProvincias = () => setProvincias(selectedCountryScope?.provincias || []);
   const deselectAllProvincias = () => setProvincias([]);
 
   const handleSave = async () => {
@@ -258,7 +266,8 @@ export default function CronConfig() {
         minuto: Number(minuto),
         plataformas_activas: JSON.stringify(plataformas),
         marcas_seleccionadas: JSON.stringify(cleanMarcas),
-        provincias_seleccionadas: JSON.stringify(scanProvinces ? provincias : []),
+        pais_seleccionado: selectedCountry,
+        provincias_seleccionadas: JSON.stringify(provincias),
         limite_extraccion_fb: Number(limiteFB),
         limite_extraccion_ig: Number(limiteIG),
         limite_extraccion_tt: Number(limiteTT),
@@ -456,9 +465,20 @@ export default function CronConfig() {
             <button className="btn-ghost" style={{fontSize: '0.8rem', padding: '4px 10px'}} onClick={deselectAllMarcas} disabled={isEditingDisabled}>Deseleccionar Todas</button>
           </div>
 
-          <h3><FaGlobeAmericas /> Provincias de Escaneo</h3>
+          <h3><FaGlobeAmericas /> País y provincia/estado de escaneo</h3>
+          <label className="input-group">
+            <span>País</span>
+            <select
+              className="input-field"
+              value={selectedCountry}
+              onChange={event => handleCountryChange(event.target.value)}
+              disabled={isEditingDisabled}
+            >
+              {locations.map(location => <option key={location.pais} value={location.pais}>{location.pais}</option>)}
+            </select>
+          </label>
           <div className="brands-selector" style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px', maxHeight: '150px', overflowY: 'auto', padding: '10px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', marginBottom: '15px'}}>
-            {PROVINCIAS_AR.map(prov => (
+            {(selectedCountryScope?.provincias || []).map(prov => (
               <label key={prov} className={`brand-toggle ${provincias.includes(prov) ? 'active' : ''}`} style={{ margin: 0, padding: '5px', fontSize: '0.85rem' }}>
                 <input type="checkbox" checked={provincias.includes(prov)} onChange={() => !isEditingDisabled && handleToggleProvincia(prov)} disabled={isEditingDisabled} hidden/>
                 <span className="brand-name">{prov}</span>
@@ -470,7 +490,9 @@ export default function CronConfig() {
             <button className="btn-ghost" style={{fontSize: '0.8rem', padding: '4px 10px'}} onClick={deselectAllProvincias} disabled={isEditingDisabled}>Deseleccionar Todas</button>
           </div>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(91, 141, 239, 0.08)', padding: '8px 12px', borderRadius: '6px', border: '1px solid rgba(91, 141, 239, 0.15)' }}>
-              Las provincias solo aplican a <strong>Facebook Marketplace</strong>. Instagram, TikTok y MercadoLibre buscan a nivel nacional (Argentina).
+              {selectedCountry === 'Argentina'
+                ? 'En Argentina, las provincias se aplican a Facebook; las demás plataformas buscan a nivel nacional.'
+                : 'El país y la provincia o estado seleccionados se aplican a todas las plataformas.'}
           </p>
 
           <h3><FaClock /> Horario de Ejecución (Hora ARG)</h3>
@@ -480,9 +502,14 @@ export default function CronConfig() {
             <div className="input-group"><label>Minuto (0-59)</label><input type="number" className="input-field" min="0" max="59" value={minuto} onChange={(e) => setMinuto(e.target.value)} disabled={isEditingDisabled}/></div>
           </div>
           <h3 className="mt-2"><FaBolt /> Proveedor</h3>
-          <select className="input-field w-100" value={proveedor} onChange={(e) => handleProveedorChange(e.target.value)} disabled={isEditingDisabled} style={{ padding: '10px' }}>
+          <select className="input-field w-100" value={proveedor} onChange={(e) => handleProveedorChange(e.target.value)} disabled={isEditingDisabled || selectedCountry !== 'Argentina'} style={{ padding: '10px' }}>
             {PROVEEDOR_OPTIONS.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
           </select>
+          {selectedCountry !== 'Argentina' && (
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+              Para Brasil y México se utiliza la búsqueda OSINT del dashboard (Google/Serper con alternativa gratuita).
+            </p>
+          )}
           {proveedor === 'rapidapi' && (
             <p style={{ fontSize: '0.8rem', color: 'var(--warning)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 Requiere <code>RAPIDAPI_KEY</code> configurada en el archivo <code>.env</code> del backend.

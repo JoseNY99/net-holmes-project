@@ -231,6 +231,19 @@
   grid-column: span 2;
 }
 
+.dashboard-search__phone-format {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.dashboard-search__time-fields {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(130px, 1.3fr);
+  gap: 8px;
+}
+
 .dashboard-search__form button {
   min-height: 44px;
   white-space: nowrap;

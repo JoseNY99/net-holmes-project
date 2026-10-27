@@ -27,6 +27,21 @@ CBN_TEXT      = colors.HexColor("#1B1C1D")
 CBN_TABLE_BG  = colors.HexColor("#F0F4F9")
 CBN_WHITE     = colors.white
 
+COMPLIANCE_DISCLAIMER = (
+    "The information contained in this report has been obtained through lawful and publicly available sources, "
+    "in compliance with applicable regulations of the Argentine Republic, including Article 43 of the National "
+    "Constitution, Law No. 25,326 on Personal Data Protection, Law No. 27,401 on Corporate Criminal Liability and "
+    "related compliance standards, as well as information-access agreements with public institutions and private "
+    "entities. This report is strictly limited to the information, images, records, and documents expressly included "
+    "herein. No representations, conclusions, or interpretations shall be inferred beyond the evidence presented. "
+    "Any matter not expressly documented falls outside the scope of this report. This report is provided solely for "
+    "internal compliance, intellectual property protection, risk assessment, and enforcement purposes and does not "
+    "constitute a legal opinion, certification of facts, or confirmation of circumstances beyond the documented "
+    "evidence presented. Underlying source materials, investigative records, working papers, internal databases, "
+    "field notes, metadata, and any information not expressly reproduced in this report remain confidential and are "
+    "not subject to disclosure."
+)
+
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 
 
@@ -322,6 +337,30 @@ def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
     pais = (reporte.pais or "ARGENTINA").upper()
     S.append(Paragraph(f"{pais} \u2013 INTELLIGENCE REPORT", title_s))
 
+    disclaimer_title = ParagraphStyle(
+        "DisclaimerTitle", parent=small, fontName="Helvetica-Bold", fontSize=7,
+        leading=8, alignment=TA_CENTER, textColor=colors.HexColor("#7A0000"),
+    )
+    disclaimer_body = ParagraphStyle(
+        "DisclaimerBody", parent=small, fontName="Helvetica-Oblique", fontSize=5.2,
+        leading=6.1, textColor=colors.HexColor("#470000"),
+    )
+    disclaimer = Table([
+        [Paragraph("COMPLIANCE DISCLAIMER", disclaimer_title)],
+        [Paragraph(COMPLIANCE_DISCLAIMER, disclaimer_body)],
+    ], colWidths=[16 * cm])
+    disclaimer.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FFF200")),
+        ("BOX", (0, 0), (-1, -1), 2, colors.HexColor("#C40000")),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.7, colors.HexColor("#C40000")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    S.append(disclaimer)
+    S.append(Spacer(1, 8))
+
     username = reporte.titular_cuenta or "Desconocido"
     username_clean = username.replace("@", "").strip()
 
@@ -342,6 +381,13 @@ def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
     url_link = Paragraph(
         f"<a href='{reporte.url_evidencia}' color='#00639B'>{reporte.url_evidencia}</a>", normal
     )
+    address = pf("direccion_exacta")
+    if address == "\u2014":
+        address = reporte.direccion_publica or "\u2014"
+    phones = []
+    for phone in (reporte.telefono_publico, pf("telefono_privado")):
+        if phone and phone != "\u2014" and phone not in phones:
+            phones.append(phone)
     sales_desc = Paragraph(
         f"According to the investigation, the subject offers retail and wholesale "
         f"of counterfeit products bearing the <b>{reporte.marca_afectada}</b> trademark.",
@@ -355,10 +401,11 @@ def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
         ["DNI (PERSONAL ID)", Paragraph(pf("dni_cedula"), normal)],
         ["CUIT/CUIL (TAX ID)", Paragraph(pf("cuit_cuil_ruc"), normal)],
         ["BANKING ACCOUNT", banco_parts],
-        ["ADDRESS", Paragraph(pf("direccion_exacta"), normal)],
-        ["TELEPHONE NUMBER", Paragraph(pf("telefono_privado"), normal)],
+        ["ADDRESS", Paragraph(address, normal)],
+        ["TELEPHONE NUMBER", Paragraph("<br/>".join(phones) if phones else "\u2014", normal)],
         ["EMAIL", Paragraph(pf("email"), normal)],
-        ["WEBSITE / CATALOGUE", url_link],
+        ["CATALOGUE", url_link],
+        ["TYPE OF SELLER", Paragraph("Online retailer / social-media seller", normal)],
         ["SALES", sales_desc],
         ["EST. QTY OF PRODUCTS", Paragraph("See evidence section", normal)],
     ]

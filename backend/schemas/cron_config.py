@@ -8,6 +8,7 @@ class CronConfigBase(BaseModel):
     minuto: int = Field(ge=0, le=59, default=0)
     plataformas_activas: str = '["mercadolibre", "facebook", "instagram", "tiktok"]'
     marcas_seleccionadas: str = '[]'
+    pais_seleccionado: str = "Argentina"
     provincias_seleccionadas: str = '["Buenos Aires"]'
     limite_extraccion: int = Field(ge=1, le=100, default=10) # Deprecated
     limite_extraccion_fb: int = Field(ge=1, le=100, default=10)

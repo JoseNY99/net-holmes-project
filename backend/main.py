@@ -82,6 +82,12 @@ async def lifespan(app: FastAPI):
             conn.commit()
         except Exception:
             conn.rollback()
+
+        try:
+            conn.execute(text("ALTER TABLE cron_config ADD COLUMN pais_seleccionado VARCHAR(100) NOT NULL DEFAULT 'Argentina';"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
             
         try:
             conn.execute(text("ALTER TABLE cron_config ADD COLUMN proveedor VARCHAR(50) DEFAULT 'google_meli_osint';"))

@@ -16,6 +16,7 @@ class CronConfig(Base):
     minuto = Column(Integer, nullable=False, default=0)
     plataformas_activas = Column(Text, nullable=False, default='["mercadolibre", "facebook", "instagram", "tiktok"]')
     marcas_seleccionadas = Column(Text, nullable=False, default='[]')
+    pais_seleccionado = Column(String(100), nullable=False, default="Argentina")
     provincias_seleccionadas = Column(Text, nullable=False, default='[]')
     limite_extraccion = Column(Integer, nullable=False, default=5) # Deprecated
     limite_extraccion_fb = Column(Integer, nullable=False, default=5)

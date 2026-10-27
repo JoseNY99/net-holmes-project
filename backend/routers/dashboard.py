@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import Literal
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta, timezone
@@ -15,13 +16,24 @@ router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
 class DashboardSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     brand_ids: list[int] = Field(min_length=1, max_length=30)
     pais: str = "Argentina"
     provincias: list[str] = Field(default_factory=list, max_length=32)
     keywords: list[str] = Field(default_factory=list, max_length=10)
-    duration_minutes: int = Field(default=30, ge=5, le=60)
+    duration_value: int = Field(default=30, ge=1)
+    duration_unit: Literal["minutes", "hours", "days", "weeks", "months"] = "minutes"
+    target_objectives: int = Field(default=10, ge=1, le=5000)
     plataformas: list[str] = Field(default_factory=lambda: ["facebook", "instagram", "tiktok", "mercadolibre"], min_length=1, max_length=4)
     proveedor: str = "google_meli_osint"
+
+    @model_validator(mode="after")
+    def valid_duration(self):
+        limits = {"minutes": 5256000, "hours": 87600, "days": 3650, "weeks": 520, "months": 120}
+        if self.duration_value > limits[self.duration_unit]:
+            raise ValueError(f"El máximo para {self.duration_unit} es {limits[self.duration_unit]}.")
+        return self
 
     @field_validator("plataformas")
     @classmethod

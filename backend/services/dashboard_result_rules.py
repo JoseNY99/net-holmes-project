@@ -6,6 +6,13 @@ from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from services.dashboard_scope import COUNTRIES, contains, folded
 
 UNKNOWN_SELLERS = {"", "desconocido", "vendedor no identificado", "usuario desconocido", "@vendedor_tiktok"}
+APPAREL_PRODUCT = re.compile(
+    r"\b(?:vestuario|vestuário|indumentaria|ropa|roupas?|zapatillas?|calzados?|calçados?|remeras?|camperas?|chaquetas?|"
+    r"buzos?|conjuntos?|joggings?|pantalones?|shorts?|musculosas?|camisetas?|"
+    r"playeras?|sudaderas?|bermudas?|gorras?|bonés?|mochilas?|riñoneras?|bolsos?|bolsas?|medias|meias|calzas?|tops?|"
+    r"vestidos?|camisas?|sweaters?|botines?|chuteiras?|sandalias?|t[eê]nis|sneakers?|pilusos?|peças?)\b",
+    re.IGNORECASE,
+)
 
 
 def canonical_url(url: str) -> str:
@@ -56,7 +63,11 @@ def direct_link(url: str, platform: str, country: str) -> bool:
     parsed = urlsplit(canonical_url(url))
     host, path = parsed.hostname or "", parsed.path
     if platform == "facebook":
-        return host == "facebook.com" and (bool(re.search(r"/(?:marketplace/item|posts|videos)/[^/]+", path)) or (path == "/story.php" and "story_fbid=" in parsed.query))
+        return host == "facebook.com" and (
+            bool(re.search(r"/(?:marketplace/item|posts|videos|reel|reels)/[^/]+", path))
+            or bool(re.search(r"/groups/[^/]+/(?:posts|permalink)/[^/]+", path))
+            or (path == "/story.php" and "story_fbid=" in parsed.query)
+        )
     if platform == "instagram":
         return host == "instagram.com" and bool(re.match(r"/(?:p|reel|reels)/[\w-]+$", path))
     if platform == "tiktok":
@@ -89,10 +100,23 @@ def account_key(platform: str, brand: str, seller: str) -> tuple | None:
     return platform.casefold(), folded(brand), seller.casefold()
 
 
-def counterfeit_terms(text: str) -> list[str]:
+def counterfeit_terms(text: str, country: str | None = None) -> list[str]:
     value = folded(text)
-    # Premium, barato o importado por sí solos no acreditan una réplica.
-    pattern = r"\b(?:replicas?|imitaciones?|imitacao|imitacoes|falsificad[oa]s?|fakes?|truch[oa]s?|clones?|clon|g5|aaa)\b|(?<!\d)1\s*:\s*1(?!\d)"
+    if country == "Brasil":
+        # Lista cerrada solicitada para Brasil. No aceptar "loja", ofertas,
+        # precios ni otros términos comerciales como prueba de falsificación.
+        pattern = (
+            r"\b(?:replicas?|falsificad[oa]s?|primeira\s+linha\s+premium|linha\s+premium|espelhad[oa]s?|"
+            r"qualidade\s+1\s*:\s*1|ua|importad[oa]s?)\b|"
+            r"\binspirad[oa]s?\b(?!\s+(?:em|no|na|nos|nas|por|pelo|pela|pelos|pelas)\b)"
+        )
+    else:
+        # Premium, barato o importado por sí solos no acreditan una réplica fuera de Brasil.
+        pattern = (
+            r"\b(?:replicas?|imitaciones?|imitacao|imitacoes|falsificad[oa]s?|fakes?|truch[oa]s?|pirata|clones?|clon|"
+            r"g5|aaa|triple\s+a|pk|top\s+quality|primeira\s+linha(?:\s+premium)?|linha\s+premium|espelhad[oa]|"
+            r"super\s+clon|calidad\s+espejo|simil\s+original)\b|(?<!\d)1\s*:\s*1(?!\d)"
+        )
     found = []
     for match in re.finditer(pattern, value):
         prefix = value[max(0, match.start() - 55):match.start()]
@@ -105,6 +129,68 @@ def counterfeit_terms(text: str) -> list[str]:
     if not direct_terms and re.search(r"\b(?:original(?:es)?|autentic[oa]s?)\b", value):
         return []
     return list(dict.fromkeys(found))
+
+
+def editorial_or_educational(text: str) -> bool:
+    """Detecta notas, comparativas y consejos aunque mencionen la palabra fake."""
+    value = folded(text)
+    patterns = (
+        r"\b(?:como|cómo)\s+(?:identificar|detectar|reconocer|saber|descubrir|distinguir)\b",
+        r"\b(?:tips?|consejos?|gu[ií]as?|tutorial(?:es)?|reseñas?|reviews?|noticias?|reportajes?|documentales?)\b",
+        r"\b(?:diferencias?|comparativa|comparaci[oó]n|señales?)\s+(?:entre|de|para)\b",
+        r"\b(?:fake|falso|r[eé]plica)\s+o\s+(?:no|original|aut[eé]ntic[oa])\b",
+        r"\b(?:son|es)\s+(?:fake|fals[oa])\s+o\s+no\b",
+        r"\b(?:evitar|denuncia|alerta|combate)\s+(?:de|a|la|las)?\s*(?:estafa|falsificaci[oó]n|falsifica[cç][aã]o)\b",
+        r"\b(?:reparar|reparaci[oó]n|restaurar|hospital)\b.{0,30}\b(?:tenis|zapatillas?|calzado)\b",
+        r"\binteligencia\s+artificial\b",
+        r"\b(?:nuevo\s+)?(?:lanzamiento|colecci[oó]n|modelo)\b.{0,45}\b(?:marca|puma|nike|adidas|tenis|calzado)\b",
+        r"\b(?:ya\s+lo\s+hizo\s+posible|presenta\s+(?:su|el)\s+nuevo|innovaci[oó]n\s+en)\b",
+        r"\b(?:continua\s+)?ganhando\s+espaco\s+(?:dentro\s+)?do\s+catalogo\b",
+        r"\binspirad[oa]s?\s+(?:em|no|na|nos|nas|por|pelo|pela|pelos|pelas)\b",
+        r"\bo\s+modelo\s+chega\s+(?:agora|em)\b",
+        r"\b(?:versoes?|novas?\s+cores?)\b.{0,60}\b(?:disponiveis?|site)\b",
+        r"\bdisponiveis?\s+no\s+site\s+d[ao]\s+\w+\b",
+    )
+    return any(re.search(pattern, value) for pattern in patterns)
+
+
+def asks_for_authentication(text: str) -> bool:
+    """Descarta consultas de compradores que piden validar un producto."""
+    value = folded(text)
+    patterns = (
+        r"\b(?:alguien|quien)\s+(?:ha|a|sabe|conoce|pidio|compr[oó])\b",
+        r"\b(?:sabr[aá]n|saben|me\s+pueden\s+ayudar|ayuda(?:r|me)?|qu[eé]\s+opinan)\b",
+        r"\b(?:son|sera|ser[aá]|es)\s+(?:clon|fake|fals[oa]|r[eé]plica)\s+(?:o|\?|que\s+onda)\b",
+        r"\b(?:cliente|vendedor)\s+me\s+(?:dice|dijo|asegura)\b",
+        r"\b(?:qr|c[oó]digo)\b.{0,35}\b(?:no|sin)\b.{0,25}\b(?:informaci[oó]n|datos?)\b",
+    )
+    return any(re.search(pattern, value) for pattern in patterns)
+
+
+def legitimate_brand_promotion(text: str) -> bool:
+    """Reconoce outlets y promociones comerciales que no ofrecen falsificaciones."""
+    value = folded(text)
+    patterns = (
+        r"\boutlet\b",
+        r"\boferta\s+exclusiva\b",
+        r"\bpromocion\s+valida\b",
+        r"\btiendas?\s+participantes?\b",
+        r"\b(?:lleva|estrena|compra)\s*\d+\b.{0,30}\b(?:paga(?:ndo)?|precio)\b",
+        r"\b\d+\s*(?:x|por)\s*\d+\b",
+    )
+    return any(re.search(pattern, value) for pattern in patterns)
+
+
+def claims_authenticity(text: str) -> bool:
+    value = folded(text)
+    # Primero se quitan expresiones inequívocas como "no original".
+    value = re.sub(r"\b(?:no|nao|não|sem|sin)\s+(?:es\s+|son\s+|ser\s+)?(?:original(?:es)?|originais|autentic[oa]s?)\b", " ", value)
+    # "símil original" es jerga de réplica, no una afirmación de autenticidad.
+    value = re.sub(r"\bsimil\s+original(?:es)?\b", " ", value)
+    return bool(re.search(
+        r"\b(?:100\s*%\s*)?(?:producto\s+|produtos?\s+|articulo\s+)?(?:original(?:es)?|originais|autentic[oa]s?)\b",
+        value,
+    ))
 
 
 def is_official(brand: dict, platform: str, seller: str, url: str, text: str) -> bool:
@@ -127,18 +213,37 @@ def is_official(brand: dict, platform: str, seller: str, url: str, text: str) ->
     return bool(re.search(r"\b(?:tienda|loja|store)\s+oficial\b", folded(text)))
 
 
-def qualifies(item: dict, brand: dict) -> list[str]:
+def evaluate_result(item: dict, brand: dict) -> tuple[list[str], str]:
     text = f"{item['title']} {item['description']}"
+    if editorial_or_educational(text):
+        return [], "contenido educativo, comparativo o informativo"
+    if asks_for_authentication(text):
+        return [], "consulta de un cliente para verificar autenticidad"
+    if legitimate_brand_promotion(text):
+        return [], "outlet o promoción comercial legítima"
+    if claims_authenticity(text):
+        return [], "afirma que el producto es original"
+    if not APPAREL_PRODUCT.search(text):
+        return [], "fuera de vestimenta y calzado"
     if not contains(text, brand["name"]):
-        return []
+        return [], "no menciona la marca seleccionada"
     if brand["products"] and not any(contains(text, product) for product in brand["products"]):
-        return []
+        return [], "no coincide con los productos configurados"
     if is_official(brand, item["plataforma"], item["seller"], item["url"], text):
-        return []
-    terms = counterfeit_terms(text)
+        return [], "cuenta o tienda oficial"
+    terms = counterfeit_terms(text, item.get("searched_country"))
     if not terms:
-        return []
-    sales = r"\b(?:venta|vendo|vendemos|venda|preco|precio|stock|estoque|envios?|entrega|frete|comprar|compra|catalogo|disponible|disponivel|pedidos?|whatsapp|tallas?|talles?|tamanhos?|zapatillas?|tenis|camisetas?|remeras?|calzados?)\b|[$]"
-    if item["plataforma"] not in ("facebook", "mercadolibre") and not re.search(sales, folded(text)):
-        return []
-    return terms
+        return [], "sin indicios explícitos de falsificación"
+    sales = (
+        r"\b(?:venta|vendo|vendemos|vende|venda|preco|precio|stock|estoque|envios?|entrega|frete|comprar|compra|"
+        r"catalogo|catálogo|disponible|disponivel|pedidos?|whatsapp|tallas?|talles?|tamanhos?|mayorista|minorista|"
+        r"atacado|varejo|oferta|ofertas|promo(?:cion|ción)?|inbox|consultas?|encargos?|encomendas?|chama(?:r)?|"
+        r"mandame|mándame|escribime|escr[ií]benos|dm)\b|(?:R\$|ARS|MXN|BRL|\$)\s*\d"
+    )
+    if not re.search(sales, folded(text)):
+        return [], "sin intención de venta"
+    return terms, "indicios explícitos de falsificación e intención de venta"
+
+
+def qualifies(item: dict, brand: dict) -> list[str]:
+    return evaluate_result(item, brand)[0]

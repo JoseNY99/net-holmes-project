@@ -8,6 +8,7 @@ from middleware.auth_middleware import get_current_user, require_admin
 from models.brand import Brand
 from config import PROVINCIAS_AR
 from services.cron_manager import update_job_schedule, trigger_manual_scan
+from services.dashboard_scope import normalize_scope
 import json
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
@@ -50,7 +51,8 @@ def toggle_cron_state(req: Optional[ToggleRequest] = None, db: Session = Depends
 
 class DashboardSearchRequest(BaseModel):
     brand_ids: list[int] = Field(default_factory=list, max_length=30)
-    provincias: list[str] = Field(default_factory=list, max_length=24)
+    pais: str = "Argentina"
+    provincias: list[str] = Field(default_factory=list, max_length=32)
     keywords: list[str] = Field(default_factory=list, max_length=10)
     duration_minutes: int = Field(default=30, ge=5, le=60)
     plataformas: list[str] = Field(default_factory=lambda: ["facebook", "instagram", "tiktok", "mercadolibre"], max_length=4)
@@ -76,13 +78,14 @@ async def start_cron_force(
         if len(selected_brands) != len(ids):
             raise HTTPException(status_code=400, detail="Selecciona únicamente marcas activas.")
 
-        allowed_locations = {"argentina", *(province["name"].casefold() for province in PROVINCIAS_AR)}
-        locations = [location.strip() for location in req.provincias]
-        if any(location.casefold() not in allowed_locations for location in locations):
-            raise HTTPException(status_code=400, detail="El alcance geográfico debe estar dentro de Argentina.")
+        try:
+            country, locations = normalize_scope(req.pais, req.provincias)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         search_options = {
             "brand_ids": list(ids),
+            "pais": country,
             "provincias": locations,
             "keywords": [keyword.strip() for keyword in req.keywords if keyword.strip()],
             "duration_minutes": req.duration_minutes,

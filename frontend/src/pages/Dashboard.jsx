@@ -57,6 +57,17 @@ function AnimatedCounter({ value, duration = 400 }) {
   return <>{(value <= 5 ? value || 0 : count || 0).toLocaleString('es-AR')}</>;
 }
 
+function formatRemainingTime(totalSeconds) {
+  const seconds = Math.max(0, totalSeconds || 0);
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${rest}s`;
+  return `${minutes}:${String(rest).padStart(2, '0')}`;
+}
+
 export default function Dashboard() {
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
@@ -66,7 +77,9 @@ export default function Dashboard() {
   const [selectedCountry, setSelectedCountry] = useState('Argentina');
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState('');
-  const [durationMinutes, setDurationMinutes] = useState(30);
+  const [durationValue, setDurationValue] = useState(30);
+  const [durationUnit, setDurationUnit] = useState('minutes');
+  const [targetObjectives, setTargetObjectives] = useState(10);
   const [searchTerms, setSearchTerms] = useState('');
   const [selectedPlatforms, setSelectedPlatforms] = useState(['facebook', 'instagram', 'tiktok', 'mercadolibre']);
   const [searching, setSearching] = useState(false);
@@ -163,9 +176,11 @@ export default function Dashboard() {
             nextInterval = 2000;
           } else if (scanWasRunning.current) {
             const message = {
-              completed: data.finish_reason === 'deadline'
-                ? 'Se cumplió el tiempo máximo de búsqueda.'
-                : 'La búsqueda terminó correctamente.',
+              completed: data.finish_reason === 'target'
+                ? 'Se alcanzó la cantidad solicitada de objetivos.'
+                : data.finish_reason === 'deadline'
+                  ? 'Se cumplió el tiempo máximo de búsqueda.'
+                  : 'La búsqueda terminó correctamente.',
               stopped: 'La búsqueda fue detenida.',
               failed: 'La búsqueda terminó con errores. Los resultados guardados se conservaron.',
             }[data.status] || 'La búsqueda finalizó.';
@@ -209,7 +224,9 @@ export default function Dashboard() {
         pais: selectedCountry,
         provincias: selectedLocation ? [selectedLocation] : [],
         keywords,
-        duration_minutes: durationMinutes,
+        duration_value: durationValue,
+        duration_unit: durationUnit,
+        target_objectives: targetObjectives,
         plataformas: selectedPlatforms,
         proveedor: 'google_meli_osint',
       });
@@ -412,12 +429,38 @@ export default function Dashboard() {
           </label>
           <label>
             Tiempo máximo
-            <select className="input-field" value={durationMinutes} onChange={event => setDurationMinutes(Number(event.target.value))} disabled={searching}>
-              <option value={5}>5 minutos</option>
-              <option value={15}>15 minutos</option>
-              <option value={30}>30 minutos</option>
-              <option value={60}>60 minutos</option>
-            </select>
+            <div className="dashboard-search__time-fields">
+              <input
+                className="input-field"
+                type="number"
+                min="1"
+                max={{ minutes: 5256000, hours: 87600, days: 3650, weeks: 520, months: 120 }[durationUnit]}
+                value={durationValue}
+                onChange={event => setDurationValue(Math.max(1, Number(event.target.value) || 1))}
+                disabled={searching}
+                required
+              />
+              <select className="input-field" value={durationUnit} onChange={event => setDurationUnit(event.target.value)} disabled={searching}>
+                <option value="minutes">Minutos</option>
+                <option value="hours">Horas</option>
+                <option value="days">Días</option>
+                <option value="weeks">Semanas</option>
+                <option value="months">Meses</option>
+              </select>
+            </div>
+          </label>
+          <label>
+            Cantidad de objetivos
+            <input
+              className="input-field"
+              type="number"
+              min="1"
+              max="5000"
+              value={targetObjectives}
+              onChange={event => setTargetObjectives(Math.max(1, Number(event.target.value) || 1))}
+              disabled={searching}
+              required
+            />
           </label>
           <div style={{ marginTop: '15px' }}>
             <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
@@ -462,7 +505,8 @@ export default function Dashboard() {
             <span>
               {scanStatus?.is_running ? `Buscando${scanStatus.current_platform ? ` en ${scanStatus.current_platform === 'mercadolibre' ? 'Mercado Libre' : scanStatus.current_platform}` : ''}…` : 'Iniciando búsqueda…'}
               {scanStatus?.is_running && ` ${scanStatus.saved || 0} nuevos · ${scanStatus.duplicates || 0} duplicados omitidos o actualizados`}
-              {remainingSeconds !== null && searching && ` · Máximo restante: ${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`}
+              {scanStatus?.target_objectives && ` · Meta: ${scanStatus.saved || 0}/${scanStatus.target_objectives}`}
+              {remainingSeconds !== null && searching && ` · Tiempo restante: ${formatRemainingTime(remainingSeconds)}`}
             </span>
           </div>
         )}
