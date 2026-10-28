@@ -154,7 +154,8 @@ class FacebookPostEnricher:
         )
         date_line = re.compile(
             r"^(?:(?:hace\s+)?\d+\s+(?:minutos?|horas?|d[ií]as?|semanas?|meses?|a[nñ]os?)|"
-            r"\d{1,2}\s+de\s+[a-záéíóúñ]+(?:\s+de\s+\d{4})?|ayer|hoy)$",
+            r"\d{1,2}\s+de\s+[a-záéíóúñ]+(?:\s+de\s+\d{4})?"
+            r"(?:\s+a\s+las?\s+\d{1,2}:\d{2}\s*(?:a\.?\s*m\.?|p\.?\s*m\.?)?)?|ayer|hoy)$",
             re.I,
         )
 

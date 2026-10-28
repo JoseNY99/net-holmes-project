@@ -230,6 +230,26 @@ def test_accepts_counterfeit_apparel_sale_even_when_described_as_not_original():
     assert terms and "intención de venta" in explanation
 
 
+def test_rejects_buyer_looking_for_counterfeit_wholesaler():
+    item = {
+        **sample_item(),
+        "title": "Alguien que venda zapatillas Nike por mayor calidad G5",
+        "description": "Necesito que la docena sea surtida, soy de CABA.",
+    }
+    terms, explanation = evaluate_result(item, BRAND)
+    assert terms == [] and "solicitud de comprador" in explanation
+
+
+def test_selected_brand_rejects_other_brand_even_with_counterfeit_sale_terms():
+    item = {
+        **sample_item(),
+        "title": "Zapatillas Nike G5",
+        "description": "Venta por mayor, precio $25000 y entrega inmediata.",
+    }
+    terms, explanation = evaluate_result(item, {**BRAND, "name": "Puma"})
+    assert terms == [] and "marca seleccionada" in explanation
+
+
 def test_rejects_customer_authentication_question_from_mexico():
     item = {
         **sample_item(),

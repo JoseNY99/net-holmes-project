@@ -98,24 +98,51 @@ class InstagramIdentityEnricher:
         try:
             await page.goto(item["url"], wait_until="domcontentloaded", timeout=12000)
             await page.wait_for_timeout(1800)
-            html = await page.content()
-            soup = BeautifulSoup(html, "html.parser")
-            metadata = [str(tag.get("content") or "") for tag in soup.select(
-                'meta[property="og:title"], meta[property="og:description"], meta[name="description"]'
-            )]
-            username = extract_instagram_author(*metadata)
-            display_name = None
-            if not username:
-                for anchor in soup.select('header a[href], article header a[href], main a[href]'):
-                    kind, candidate = instagram_url_identity(urljoin("https://instagram.com", str(anchor.get("href") or "")))
-                    if kind == "profile" and candidate:
-                        username = candidate
-                        visible = " ".join(anchor.get_text(" ", strip=True).split())
-                        display_name = visible if visible and visible.casefold() != candidate.lstrip("@").casefold() else None
-                        break
-            return InstagramIdentity(username, display_name, result_type, "instagram_playwright" if username else None)
+            username, display_name = InstagramIdentityEnricher._identity_from_html(await page.content())
+            if username:
+                return InstagramIdentity(username, display_name, result_type, "instagram_playwright")
+
+            # La vista embed pública suele conservar el encabezado del autor aun
+            # cuando la URL normal responde con el muro de inicio de sesión.
+            if result_type in {"post", "reel"}:
+                embed_url = item["url"].rstrip("/") + "/embed/captioned/"
+                await page.goto(embed_url, wait_until="domcontentloaded", timeout=12000)
+                await page.wait_for_timeout(1200)
+                username, display_name = InstagramIdentityEnricher._identity_from_html(await page.content())
+                if not username:
+                    username = InstagramIdentityEnricher._username_from_embed_text(
+                        await page.locator("body").inner_text()
+                    )
+                if username:
+                    return InstagramIdentity(username, display_name, result_type, "instagram_embed")
+            return InstagramIdentity(None, None, result_type, None)
         finally:
             await context.close()
+
+    @staticmethod
+    def _identity_from_html(html: str) -> tuple[str | None, str | None]:
+        soup = BeautifulSoup(html, "html.parser")
+        metadata = [str(tag.get("content") or "") for tag in soup.select(
+            'meta[property="og:title"], meta[property="og:description"], meta[name="description"]'
+        )]
+        username = extract_instagram_author(*metadata)
+        if username:
+            return username, None
+        for anchor in soup.select('header a[href], article header a[href], main a[href]'):
+            kind, candidate = instagram_url_identity(urljoin("https://instagram.com", str(anchor.get("href") or "")))
+            if kind == "profile" and candidate:
+                visible = " ".join(anchor.get_text(" ", strip=True).split())
+                display_name = visible if visible and visible.casefold() != candidate.lstrip("@").casefold() else None
+                return candidate, display_name
+        return None, None
+
+    @staticmethod
+    def _username_from_embed_text(body_text: str) -> str | None:
+        lines = [" ".join(line.split()) for line in str(body_text or "").splitlines() if line.strip()]
+        first = lines[0] if lines else ""
+        if 2 <= len(first) <= 30 and all(ch.isalnum() or ch in "._" for ch in first):
+            return "@" + first
+        return None
 
     def _finish(self, item, identity, started):
         self._cache[item.get("url")] = (monotonic(), identity)

@@ -180,6 +180,18 @@ def asks_for_authentication(text: str) -> bool:
     return any(re.search(pattern, value) for pattern in patterns)
 
 
+def buyer_request(text: str) -> bool:
+    """Distingue pedidos de compra/proveedor de ofertas publicadas por vendedores."""
+    value = folded(text)
+    patterns = (
+        r"\b(?:alguien|qui[eé]n)\s+que\s+vend[ae]\b",
+        r"\bbusco\s+(?:un\s+|una\s+)?(?:proveedor|vendedor|mayorista)\b",
+        r"\bnecesito\s+(?:un\s+|una\s+)?(?:proveedor|vendedor|mayorista)\b",
+        r"\b(?:d[oó]nde|donde)\s+(?:puedo\s+)?comprar\b",
+    )
+    return any(re.search(pattern, value) for pattern in patterns)
+
+
 def legitimate_brand_promotion(text: str) -> bool:
     """Reconoce outlets y promociones comerciales que no ofrecen falsificaciones."""
     value = folded(text)
@@ -232,6 +244,8 @@ def evaluate_result(item: dict, brand: dict) -> tuple[list[str], str]:
         return [], "contenido educativo, comparativo o informativo"
     if asks_for_authentication(text):
         return [], "consulta de un cliente para verificar autenticidad"
+    if buyer_request(text):
+        return [], "solicitud de comprador, no oferta de vendedor"
     if legitimate_brand_promotion(text):
         return [], "outlet o promoción comercial legítima"
     if claims_authenticity(text):

@@ -296,7 +296,7 @@ class DashboardSearchManager:
                                 state.update(provider=scraper.provider, warning=scraper.warning)
                                 candidates = []
                                 for item in items:
-                                    dashboard_log("[DASHBOARD][ENTRA] %s", result_context(item))
+                                    dashboard_log("[DASHBOARD][ENTRA] marca=%r %s", brand["name"], result_context(item))
                                     key = evidence_key(item["url"])
                                     seen_key = (brand["id"], province, key)
                                     if seen_key in seen:
@@ -307,7 +307,7 @@ class DashboardSearchManager:
                                     terms, reason = evaluate_result(item, brand)
                                     if not terms:
                                         state["discarded"] += 1
-                                        dashboard_log("[DASHBOARD][DESCARTADO] motivo=%s %s", reason, result_context(item))
+                                        dashboard_log("[DASHBOARD][DESCARTADO] marca=%r motivo=%s %s", brand["name"], reason, result_context(item))
                                         continue
                                     existing_id = urls.get(key)
                                     if existing_id:
@@ -367,14 +367,14 @@ class DashboardSearchManager:
                                         terms, reason = evaluate_result(item, brand)
                                         if not terms:
                                             state["discarded"] += 1
-                                            dashboard_log("[DASHBOARD][DESCARTADO] motivo=%s %s", reason, result_context(item))
+                                            dashboard_log("[DASHBOARD][DESCARTADO] marca=%r motivo=%s %s", brand["name"], reason, result_context(item))
                                             continue
                                         if not matches_scope(
                                             text, item["url"], options["pais"], province,
                                             item.get("searched_country"), item.get("searched_region"),
                                         ):
                                             state["discarded"] += 1
-                                            dashboard_log("[DASHBOARD][DESCARTADO] motivo=fuera del país o región seleccionada %s", result_context(item))
+                                            dashboard_log("[DASHBOARD][DESCARTADO] marca=%r motivo=fuera del país o región seleccionada %s", brand["name"], result_context(item))
                                             continue
                                         identity = account_key(item["plataforma"], brand["name"], item["seller"])
                                         existing_id = (
@@ -402,9 +402,9 @@ class DashboardSearchManager:
                                             accounts[identity] = report_id
                                         state["saved" if created else "duplicates"] += 1
                                         dashboard_log(
-                                            "[DASHBOARD][%s] reporte_id=%s %s",
+                                            "[DASHBOARD][%s] marca=%r reporte_id=%s %s",
                                             "GUARDADO" if created else ("MISMO-OBJETIVO" if identity else "DUPLICADO-BD"),
-                                            report_id, result_context(item),
+                                            brand["name"], report_id, result_context(item),
                                         )
                                         target = options.get("target_objectives")
                                         if created and target and state["saved"] >= target:
