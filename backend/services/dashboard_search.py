@@ -277,7 +277,7 @@ class DashboardSearchManager:
             accounts = existing_account_index(db)
         scraper = DashboardScraper(key, options["pais"])
         facebook_enricher = FacebookPostEnricher(key, options["pais"])
-        instagram_enricher = InstagramIdentityEnricher()
+        instagram_enricher = InstagramIdentityEnricher(key, options["pais"])
         seen = set()
         state["provider"] = scraper.provider
         async with httpx.AsyncClient(timeout=12, headers={"User-Agent": "Mozilla/5.0 (compatible; NetHolmes/1.0)"}, follow_redirects=False) as client:
@@ -333,7 +333,7 @@ class DashboardSearchManager:
                                             item["seller_failure_reason"] = resolution.reason
                                     instagram_items = [item for item in enriched if item.get("plataforma") == "instagram"]
                                     if instagram_items:
-                                        identities = await asyncio.gather(*(instagram_enricher.enrich(item) for item in instagram_items))
+                                        identities = await asyncio.gather(*(instagram_enricher.enrich(item, client) for item in instagram_items))
                                         for item, identity in zip(instagram_items, identities):
                                             item["result_type"] = identity.result_type
                                             if identity.username:

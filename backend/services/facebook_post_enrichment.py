@@ -157,6 +157,21 @@ class FacebookPostEnricher:
             r"\d{1,2}\s+de\s+[a-záéíóúñ]+(?:\s+de\s+\d{4})?|ayer|hoy)$",
             re.I,
         )
+
+        # Facebook puede mostrar el título indexado por Serper al final del post.
+        # En grupos, la secuencia estable de la cabecera es:
+        # nombre del grupo -> Unirte -> autor -> fecha -> contenido.
+        for index, candidate in enumerate(lines):
+            clean = " ".join(candidate.split()).strip(" ·")
+            if not clean or noise.match(clean) or date_line.match(clean):
+                continue
+            before = [part.strip(" ·") for part in lines[max(0, index - 4):index]]
+            after = [part.strip(" ·") for part in lines[index + 1:index + 5]]
+            follows_group_join = any(re.fullmatch(r"unirte(?: al grupo)?", part, re.I) for part in before if part)
+            precedes_date = any(date_line.match(part) for part in after if part)
+            if follows_group_join and precedes_date and cls._valid_name(clean, blocked):
+                return clean
+
         for index, line in enumerate(lines):
             folded_line = cls._fold_title(line)
             if not cls._same_title(title, folded_line):

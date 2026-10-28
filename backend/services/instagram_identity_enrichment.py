@@ -3,9 +3,10 @@
 import asyncio
 from dataclasses import dataclass
 from time import monotonic
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
+import httpx
 
 from services.dashboard_log import dashboard_log
 from services.facebook_post_enrichment import FacebookPostEnricher
@@ -24,7 +25,11 @@ class InstagramIdentityEnricher:
     _cache = {}
     _ttl = 6 * 60 * 60
 
-    async def enrich(self, item: dict) -> InstagramIdentity:
+    def __init__(self, serper_key: str | None = None, country: str = "Argentina"):
+        self.serper_key = serper_key
+        self.country = country
+
+    async def enrich(self, item: dict, client: httpx.AsyncClient | None = None) -> InstagramIdentity:
         started = monotonic()
         result_type, profile_username = instagram_url_identity(item.get("url", ""))
         current = str(item.get("account") or item.get("seller") or "")
@@ -38,7 +43,42 @@ class InstagramIdentityEnricher:
             return cached[1]
 
         identity = await self._playwright(item, result_type)
+        if not identity.username and self.serper_key and client is not None:
+            identity = await self._complementary_serper(client, item, result_type)
         return self._finish(item, identity, started)
+
+    async def _complementary_serper(
+        self, client: httpx.AsyncClient, item: dict, result_type: str | None,
+    ) -> InstagramIdentity:
+        """Una consulta exacta y limitada cuando Instagram oculta el encabezado público."""
+        path_parts = [part for part in urlsplit(item.get("url", "")).path.split("/") if part]
+        shortcode = path_parts[1] if len(path_parts) > 1 and path_parts[0] in {"p", "reel", "reels"} else ""
+        if not shortcode:
+            return InstagramIdentity(None, None, result_type, None)
+        locale = {
+            "Argentina": ("ar", "es-419"), "Brasil": ("br", "pt-br"), "México": ("mx", "es-419"),
+        }.get(self.country, ("ar", "es-419"))
+        try:
+            response = await asyncio.wait_for(client.post(
+                "https://google.serper.dev/search",
+                headers={"X-API-KEY": self.serper_key, "Content-Type": "application/json"},
+                json={"q": f'"{shortcode}" Instagram', "num": 5, "gl": locale[0], "hl": locale[1]},
+            ), timeout=7)
+            response.raise_for_status()
+            for row in response.json().get("organic", [])[:5]:
+                title = str(row.get("title") or "")
+                snippet = str(row.get("snippet") or "")
+                link = str(row.get("link") or "")
+                # La respuesta debe referir al mismo shortcode; así se evitan
+                # usuarios tomados de menciones o resultados relacionados.
+                if shortcode.casefold() not in " ".join((link, title, snippet)).casefold():
+                    continue
+                username = extract_instagram_author(title, snippet)
+                if username:
+                    return InstagramIdentity(username, None, result_type, "instagram_serper_complementario")
+        except (asyncio.TimeoutError, httpx.HTTPError, ValueError, AttributeError):
+            pass
+        return InstagramIdentity(None, None, result_type, None)
 
     async def _playwright(self, item: dict, result_type: str | None) -> InstagramIdentity:
         try:
