@@ -2,6 +2,7 @@
 
 import asyncio
 import copy
+from datetime import datetime, timezone
 import os
 from types import SimpleNamespace
 
@@ -18,6 +19,8 @@ import models  # noqa: F401
 from database import Base, get_db
 from middleware.auth_middleware import get_current_user
 from models.reporte import ReporteBrandDefense
+from models.facebook_data import ReporteFacebookData
+from models.instagram_data import ReporteInstagramData
 from routers.dashboard import DashboardSearchRequest, router
 from scrapers.dashboard_scraper import DashboardScraper
 from services import dashboard_search as search_module
@@ -25,6 +28,12 @@ from services.dashboard_result_rules import canonical_url, evidence_key, direct_
 from services.dashboard_scope import COUNTRIES, normalize_scope, matches_scope
 from services.public_contacts import extract_phone, normalize_phone
 from services.dashboard_log import dashboard_log
+from services.listing_fields import (
+    extract_facebook_author,
+    extract_instagram_author,
+    extract_price,
+    instagram_url_identity,
+)
 
 BRAND = {"id": 1, "name": "Nike", "products": [], "official": []}
 
@@ -85,6 +94,73 @@ def test_phone_requires_context_and_supports_whatsapp_links():
     assert extract_phone("Teléfono: +52 55 1234 5678", "México") == "+525512345678"
 
 
+@pytest.mark.parametrize("text,expected", [
+    ("Precio: 25.000.", 25000.0),
+    ("Precio $ 18.500", 18500.0),
+    ("R$ 180", 180.0),
+    ("MXN 1,299", 1299.0),
+    ("Precio: 35.000 0 comentarios", 35000.0),
+    ("Talles 34 al 39. WhatsApp 5493885297285", None),
+])
+def test_explicit_listing_price_extraction(text, expected):
+    assert extract_price(text) == expected
+
+
+def test_facebook_post_author_has_priority_over_group():
+    item = {
+        "groupName": "Compra y venta Puerto Tirol Chaco",
+        "author": {"name": "Gustavo Machaca"},
+    }
+    assert extract_facebook_author(item, description="Precio: 25.000") == "Gustavo Machaca"
+    assert extract_facebook_author(
+        {}, description="Gustavo Machaca · 18 de diciembre de 2024 · PUMA SUEDE"
+    ) == "Gustavo Machaca"
+    assert extract_facebook_author(
+        {},
+        title="Madryn Publica Compras y Ventas",
+        description="Marianela Pereyra · 17 de septiembre · Vendo calzado",
+    ) == "Marianela Pereyra"
+    assert extract_facebook_author(
+        {}, description="No sé por que la Puma es tan elegida por los clientes"
+    ) is None
+
+
+def test_dashboard_social_authors_are_saved_from_indexed_byline():
+    scraper = DashboardScraper(None, "Argentina")
+    facebook = scraper.parse({
+        "title": "Madryn Publica Compras y Ventas",
+        "snippet": "Marianela Pereyra · 17 de septiembre · Vendo calzado réplica",
+        "link": "https://facebook.com/groups/madryn/posts/123",
+    }, "facebook", "Google_Serper_OSINT")
+    assert facebook["seller"] == "Marianela Pereyra"
+    assert facebook["seller_author_verified"] is True
+
+    assert extract_instagram_author("Tienda Ejemplo (@tienda.replica) • Instagram") == "@tienda.replica"
+    instagram = scraper.parse({
+        "title": "Tienda Ejemplo (@tienda.replica) • Instagram",
+        "snippet": "Calzado réplica disponible",
+        "link": "https://instagram.com/p/ABC123",
+    }, "instagram", "Google_Serper_OSINT")
+    assert instagram["seller"] == "@tienda.replica"
+    assert instagram["seller_author_verified"] is True
+
+    profile = scraper.parse({
+        "title": "ZTS Shoes | Zapatillas importadas calidad G5",
+        "snippet": "Puma y Nike réplica. Envíos en Argentina.",
+        "link": "https://instagram.com/zts.shoes/",
+    }, "instagram", "Google_Serper_OSINT")
+    assert profile["seller"] == "@zts.shoes"
+    assert profile["account"] == "@zts.shoes"
+    assert profile["result_type"] == "profile"
+    assert profile["seller_source"] == "instagram_url"
+
+
+def test_authors_from_real_social_metadata_formats():
+    assert extract_instagram_author(
+        "3 hours ago · zts.shoes's profile picture · Zapatillas importadas"
+    ) == "@zts.shoes"
+
+
 def test_administrative_scopes_and_cross_country_rejection():
     assert [len(cfg["provincias"]) for cfg in COUNTRIES.values()] == [24, 27, 32]
     assert normalize_scope("Brazil", ["Sao Paulo"]) == ("Brasil", ["São Paulo"])
@@ -107,6 +183,9 @@ def test_url_identity_preserves_content_ids_and_ignores_tracking():
     assert "fbclid" not in canonical_url("https://facebook.com/story.php?story_fbid=123&id=321&fbclid=x")
     assert not direct_link("https://evil.example/instagram.com/p/a", "instagram", "Argentina")
     assert not direct_link("https://instagram.com/explore/", "instagram", "Argentina")
+    assert direct_link("https://instagram.com/zts.shoes/", "instagram", "Argentina")
+    assert instagram_url_identity("https://instagram.com/zts.shoes/") == ("profile", "@zts.shoes")
+    assert instagram_url_identity("https://instagram.com/reel/ABC123") == ("reel", None)
     assert direct_link("https://produto.mercadolivre.com.br/MLB-1234567-produto", "mercadolibre", "Brasil")
 
 
@@ -296,6 +375,88 @@ def test_existing_tracking_variants_are_indexed(sessions):
         report_id, _ = search_module.save_item(db, item, BRAND, "Argentina", "zapatillas", ["replica"])
         urls = search_module.existing_index(db)
         assert urls[evidence_key("https://instagram.com/p/testA")] == report_id
+
+
+def test_existing_result_is_enriched_with_verified_author_and_price(sessions):
+    with sessions() as db:
+        original = sample_item(seller="Vendedor No Identificado")
+        report_id, created = search_module.save_item(
+            db, original, BRAND, "Argentina", "zapatillas", ["replica"],
+        )
+        assert created is True
+
+        rediscovered = sample_item(seller="@tienda.real")
+        rediscovered.update({
+            "seller_author_verified": True,
+            "account": "@tienda.real",
+            "seller_source": "instagram_url",
+            "result_type": "profile",
+            "description": "Zapatillas Nike réplica. Precio: 25.000.",
+        })
+        same_id, created = search_module.save_item(
+            db, rediscovered, BRAND, "Argentina", "zapatillas", ["replica"], report_id,
+        )
+        db.expire_all()
+        report = db.get(ReporteBrandDefense, report_id)
+        assert same_id == report_id and created is False
+        assert report.titular_cuenta == "@tienda.real"
+        assert report.precio_publico == 25000.0
+        instagram_data = db.query(ReporteInstagramData).filter_by(reporte_id=report_id).one()
+        assert instagram_data.username == "@tienda.real"
+        assert instagram_data.tipo_resultado == "profile"
+        assert instagram_data.fuente_username == "instagram_url"
+
+
+def test_facebook_pending_seller_insert_and_duplicate_update(sessions):
+    pending = sample_item("fb-post")
+    pending.update({
+        "url": "https://facebook.com/groups/364439847229615/posts/2961944814145759",
+        "plataforma": "facebook",
+        "seller": "Vendedor No Identificado",
+        "account": None,
+        "seller_author_verified": False,
+        "seller_source": None,
+        "seller_status": "pendiente",
+        "seller_verified_at": None,
+        "seller_failure_reason": "autor no disponible en fuentes públicas",
+    })
+    with sessions() as db:
+        report_id, created = search_module.save_item(
+            db, pending, BRAND, "Argentina", "zapatillas", ["g5"],
+        )
+        assert created is True
+        report = db.get(ReporteBrandDefense, report_id)
+        facebook_data = db.query(ReporteFacebookData).filter_by(reporte_id=report_id).one()
+        assert facebook_data.seller_name is None
+        assert facebook_data.estado_vendedor == "pendiente"
+
+        verified = {**pending,
+            "seller": "Maxi Damian",
+            "seller_author_verified": True,
+            "seller_source": "facebook_playwright",
+            "seller_status": "identificado",
+            "seller_verified_at": datetime.now(timezone.utc),
+            "seller_failure_reason": None,
+        }
+        same_id, created = search_module.save_item(
+            db, verified, BRAND, "Argentina", "zapatillas", ["g5"], report_id,
+        )
+        db.expire_all()
+        report = db.get(ReporteBrandDefense, report_id)
+        assert same_id == report_id and created is False
+        assert report.titular_cuenta == "Maxi Damian"
+        facebook_data = db.query(ReporteFacebookData).filter_by(reporte_id=report_id).one()
+        assert facebook_data.seller_name == "Maxi Damian"
+        assert facebook_data.fuente_vendedor == "facebook_playwright"
+        assert facebook_data.estado_vendedor == "identificado"
+
+        search_module.save_item(db, pending, BRAND, "Argentina", "zapatillas", ["g5"], report_id)
+        db.expire_all()
+        report = db.get(ReporteBrandDefense, report_id)
+        facebook_data = db.query(ReporteFacebookData).filter_by(reporte_id=report_id).one()
+        assert report.titular_cuenta == "Maxi Damian"
+        assert facebook_data.seller_name == "Maxi Damian"
+        assert facebook_data.estado_vendedor == "identificado"
 
 
 def test_serper_failure_falls_back_once_per_run(monkeypatch):

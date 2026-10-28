@@ -9,6 +9,10 @@ class FacebookDataResponse(BaseModel):
     item_condition: Optional[str] = None
     delivery_method: Optional[str] = None
     seller_name: Optional[str] = None
+    fuente_vendedor: Optional[str] = None
+    estado_vendedor: Optional[str] = None
+    vendedor_verificado_at: Optional[datetime] = None
+    motivo_vendedor: Optional[str] = None
     seller_location_city: Optional[str] = None
     seller_location_province: Optional[str] = None
     comments_count: Optional[int] = None
@@ -19,6 +23,9 @@ class FacebookDataResponse(BaseModel):
 
 class InstagramDataResponse(BaseModel):
     username: Optional[str] = None
+    tipo_resultado: Optional[str] = None
+    fuente_username: Optional[str] = None
+    profile_display_name: Optional[str] = None
     user_id_ig: Optional[str] = None
     hashtags: Optional[str] = None
     likes_count: Optional[int] = None

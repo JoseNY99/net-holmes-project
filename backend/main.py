@@ -45,6 +45,31 @@ async def lifespan(app: FastAPI):
             except Exception:
                 conn.rollback()
 
+        facebook_seller_migrations = [
+            "ALTER TABLE reporte_facebook_data ADD COLUMN fuente_vendedor VARCHAR(50);",
+            "ALTER TABLE reporte_facebook_data ADD COLUMN estado_vendedor VARCHAR(30) NOT NULL DEFAULT 'pendiente';",
+            "ALTER TABLE reporte_facebook_data ADD COLUMN vendedor_verificado_at TIMESTAMP WITH TIME ZONE;",
+            "ALTER TABLE reporte_facebook_data ADD COLUMN motivo_vendedor TEXT;",
+        ]
+        for migration in facebook_seller_migrations:
+            try:
+                conn.execute(text(migration))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+        instagram_identity_migrations = [
+            "ALTER TABLE reporte_instagram_data ADD COLUMN tipo_resultado VARCHAR(20);",
+            "ALTER TABLE reporte_instagram_data ADD COLUMN fuente_username VARCHAR(50);",
+            "ALTER TABLE reporte_instagram_data ADD COLUMN profile_display_name VARCHAR(150);",
+        ]
+        for migration in instagram_identity_migrations:
+            try:
+                conn.execute(text(migration))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
         # Migración de sesión única (Single Active Device / Session)
         try:
             conn.execute(text("ALTER TABLE users ADD COLUMN session_token VARCHAR(100);"))
@@ -143,7 +168,9 @@ async def lifespan(app: FastAPI):
     
     yield
     from services.dashboard_search import dashboard_search
+    from services.facebook_post_enrichment import FacebookPostEnricher
     await dashboard_search.stop()
+    await FacebookPostEnricher.close()
     scheduler.shutdown()
 
 app = FastAPI(

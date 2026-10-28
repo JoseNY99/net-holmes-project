@@ -96,6 +96,9 @@ class FacebookApifyScraper:
                     # Titular y vendedor
                     seller_raw = item.get("seller") or item.get("sellerProfile") or {}
                     seller_name = (
+                        item.get("authorName") or
+                        item.get("userName") or
+                        ((item.get("author") or {}).get("name") if isinstance(item.get("author"), dict) else None) or
                         item.get("sellerName") or 
                         (seller_raw.get("name") if isinstance(seller_raw, dict) else str(seller_raw)) or 
                         "Desconocido"
@@ -126,7 +129,7 @@ class FacebookApifyScraper:
                         "url": item_url,
                         "image_urls": image_urls,
                         "extraction_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "raw_data": json.dumps(item)[:3000],
+                        "raw_data": item,
                         "platform_data": {
                             "seller_name": seller_name,
                             "seller_profile_url": seller_url,

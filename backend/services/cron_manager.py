@@ -435,6 +435,19 @@ def process_and_save_single_result(
             or platform_data.get("username")
             or "Vendedor No Identificado"
         )
+    if platform_name == "facebook":
+        from services.listing_fields import extract_facebook_author
+        raw_item = item.get("raw_data")
+        explicit_author = extract_facebook_author(
+            raw_item if isinstance(raw_item, dict) else {},
+            title_text,
+            description_text,
+        )
+        if explicit_author:
+            titular = explicit_author
+            seller_name = explicit_author.lower()
+            platform_data["seller_name"] = titular
+            item["seller_profile"] = {**seller_profile, "name": titular}
     if not seller_profile.get("name") or str(seller_profile.get("name")).casefold() in {
         "desconocido", "usuario desconocido", "vendedor no identificado",
     }:
@@ -582,15 +595,18 @@ def process_and_save_single_result(
         # Extraer imagen candidata directa
         candidate_img = _extract_single_clean_image_url(item)
 
-        parsed_price = None
-        raw_p = item.get("price")
-        if raw_p is not None:
-            try:
-                clean_p = re.sub(r'[^0-9.]', '', str(raw_p).replace(',', '.'))
-                if clean_p:
-                    parsed_price = float(clean_p)
-            except Exception:
-                parsed_price = None
+        from services.listing_fields import extract_price
+        # Algunos proveedores no completan `price`, aunque el vendedor publique
+        # claramente "Precio: 25.000" en el texto.
+        parsed_price = extract_price(item.get("price"))
+        if parsed_price is None:
+            parsed_price = extract_price(
+                title_text,
+                description_text,
+                platform_data.get("caption_full"),
+                platform_data.get("description_full"),
+                platform_data.get("comments_text"),
+            )
 
         parsed_followers = None
         raw_f = item.get("seguidores_infractor") or item.get("seller_profile", {}).get("followers") or item.get("platform_data", {}).get("followers")

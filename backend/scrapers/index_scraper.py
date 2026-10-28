@@ -155,15 +155,9 @@ async def _fetch_ddg_html(query: str, limit: int = 30) -> list:
 # ─── Heurísticas de Parsing ───────────────────────────────────────────────────
 
 def _extract_price(text: str) -> float | None:
-    """Extrae precio en pesos argentinos de un snippet."""
-    match = re.search(r'\$\s?([\d\.]+(?:,\d{2})?)', text)
-    if match:
-        raw = match.group(1).replace(".", "").replace(",", ".")
-        try:
-            return float(raw)
-        except ValueError:
-            pass
-    return None
+    """Extrae precios explícitos por etiqueta o moneda desde un snippet."""
+    from services.listing_fields import extract_price
+    return extract_price(text)
 
 
 def _extract_followers(text: str) -> int | None:
@@ -242,13 +236,8 @@ def _extract_username(platform: str, url: str, title: str = "") -> str:
 
 
 def _extract_facebook_seller(text: str) -> str | None:
-    match = re.search(
-        r"\b(?:vendido\s+por|publicado\s+por|vendedor|seller|by)\s*:?\s*"
-        r"([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúñÑ.'-]*(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚáéíóúñÑ.'-]*){0,3})",
-        text,
-        re.IGNORECASE,
-    )
-    return match.group(1).strip() if match else None
+    from services.listing_fields import extract_facebook_author
+    return extract_facebook_author({}, description=text)
 
 
 def _build_platform_data(platform: str, item: dict, keyword: str) -> dict:
@@ -441,8 +430,10 @@ async def ejecutar_motor_indexado(
             price = _extract_price(f"{title} {body}")
             followers = _extract_followers(f"{title} {body}")
             username = _extract_username(platform, href, title)
-            if platform == "facebook" and username == "Usuario Desconocido":
-                username = _extract_facebook_seller(description_text) or username
+            if platform == "facebook":
+                from services.listing_fields import extract_facebook_author
+                # Un autor explícito siempre gana al nombre inferido del grupo/URL.
+                username = extract_facebook_author(item, title, body) or username
 
             # Omitir resultados de tiendas oficiales explícitamente
             if "tienda oficial" in title.lower() or (brand_word.lower() in username.lower() and "oficial" in username.lower()):

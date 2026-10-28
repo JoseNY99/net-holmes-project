@@ -15,6 +15,11 @@ from services.dashboard_result_rules import canonical_url, direct_link, seller_h
 from services.dashboard_scope import COUNTRIES
 from services.public_contacts import extract_phone
 from services.dashboard_log import dashboard_log
+from services.listing_fields import (
+    extract_facebook_author,
+    extract_instagram_author,
+    instagram_url_identity,
+)
 
 class DashboardScraper(SerperGoogleScraper):
     """Reutiliza los parsers existentes sin alterar el scraper usado por el cron."""
@@ -101,15 +106,30 @@ class DashboardScraper(SerperGoogleScraper):
         url = canonical_url(str(row.get("link") or row.get("href") or ""))
         text = f"{title} {description}"
         handle = seller_handle(url, text)
-        name = self._extract_seller_name(platform, url, title, description)
+        explicit_author = None
+        if platform == "facebook":
+            explicit_author = extract_facebook_author(row, title, description)
+        elif platform == "instagram":
+            result_type, profile_username = instagram_url_identity(url)
+            explicit_author = profile_username or extract_instagram_author(title, description)
+        else:
+            result_type = None
+        name = explicit_author or self._extract_seller_name(platform, url, title, description)
         if name == "@vendedor_tiktok":
             name = "Vendedor No Identificado"
         thumbnail = row.get("imageUrl") or row.get("thumbnail")
         return {
             "url": url, "title": title, "description": description, "plataforma": platform,
-            "seller": handle or name, "account": handle, "phone": extract_phone(text, self.country),
+            "seller": explicit_author or handle or name,
+            "account": (explicit_author if explicit_author and explicit_author.startswith("@") else handle),
+            "phone": extract_phone(text, self.country),
             "followers": self._extract_followers(text), "image": thumbnail if isinstance(thumbnail, str) and thumbnail.startswith("https://") else None,
             "source": source, "address": None, "email": None, "contact_sources": [],
+            "seller_initial": explicit_author or handle or name,
+            "author_sources": [title, description],
+            "seller_author_verified": bool(explicit_author),
+            "result_type": result_type if platform == "instagram" else None,
+            "seller_source": "instagram_url" if platform == "instagram" and profile_username else ("serper" if explicit_author else None),
             "searched_country": self.country, "searched_region": searched_region,
         }
 
@@ -128,8 +148,19 @@ class DashboardScraper(SerperGoogleScraper):
                 html = await self._public_html(client, url)
                 if not html:
                     continue
+                if item["plataforma"] == "facebook" and url == item["url"]:
+                    # Se reutiliza en el enriquecedor de autor; nunca se persiste.
+                    item["_facebook_public_html"] = html
                 soup = BeautifulSoup(html, "html.parser")
-                metadata = " ".join(str(tag.get("content") or "") for tag in soup.select('meta[property="og:description"], meta[name="description"], meta[property="og:title"]'))
+                metadata_parts = [
+                    str(tag.get("content") or "").strip()
+                    for tag in soup.select('meta[property="og:description"], meta[name="description"], meta[property="og:title"]')
+                    if str(tag.get("content") or "").strip()
+                ]
+                metadata = "\n".join(metadata_parts)
+                item["author_sources"] = list(dict.fromkeys(
+                    [*(item.get("author_sources") or []), *metadata_parts]
+                ))
                 links = [str(a.get("href") or "") for a in soup.select("a[href]")]
                 structured = []
                 for script in soup.select('script[type="application/ld+json"]'):
@@ -150,6 +181,22 @@ class DashboardScraper(SerperGoogleScraper):
                 if metadata:
                     item["description"] += "\n" + metadata[:4000]
                 item["observed_text"] = item.get("observed_text", "") + " " + " ".join((metadata, " ".join(structured)))
+                if item["plataforma"] == "facebook":
+                    author = next(
+                        (extract_facebook_author({}, description=part) for part in metadata_parts
+                         if extract_facebook_author({}, description=part)),
+                        None,
+                    )
+                    if author:
+                        item["seller"] = author
+                        item["seller_author_verified"] = True
+                elif item["plataforma"] == "instagram":
+                    author = extract_instagram_author(*metadata_parts)
+                    if author:
+                        item["account"] = author
+                        item["seller"] = author
+                        item["seller_author_verified"] = True
+                        item["seller_source"] = "instagram_metadata"
                 if not item["account"]:
                     item["account"] = seller_handle(item["url"], metadata)
                     if item["account"]:

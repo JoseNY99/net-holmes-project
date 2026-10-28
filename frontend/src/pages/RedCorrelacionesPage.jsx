@@ -108,10 +108,13 @@ const RedCorrelacionesPage = () => {
     });
 
     const nodeIds = Array.from(nodeSet);
+
     if (nodeIds.length === 0) {
-      for (let i = 1; i <= Math.min(cluster.total_cuentas || 3, 6); i++) {
-        nodeIds.push(i);
-      }
+      return (
+        <div style={{ padding: '3rem 1.5rem', textAlign: 'center', color: 'var(--text-secondary)', background: 'rgba(7, 26, 46, 0.9)', borderRadius: '12px', border: '1px solid rgba(16, 197, 201, 0.25)' }}>
+          No hay vínculos verificados con certeza suficiente para representar este grafo.
+        </div>
+      );
     }
 
     const width = 540;
@@ -139,8 +142,7 @@ const RedCorrelacionesPage = () => {
         </div>
         <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
           {/* Aristas (Links) */}
-          {links.length > 0 ? (
-            links.map((link, idx) => {
+          {links.map((link, idx) => {
               const posA = nodePositions[link.reporte_a_id];
               const posB = nodePositions[link.reporte_b_id];
               if (!posA || !posB) return null;
@@ -167,27 +169,7 @@ const RedCorrelacionesPage = () => {
                   />
                 </g>
               );
-            })
-          ) : (
-            nodeIds.map((idA, i) => 
-              nodeIds.slice(i + 1).map((idB, j) => {
-                const posA = nodePositions[idA];
-                const posB = nodePositions[idB];
-                return (
-                  <line 
-                    key={`default-${i}-${j}`}
-                    x1={posA.x} 
-                    y1={posA.y} 
-                    x2={posB.x} 
-                    y2={posB.y} 
-                    stroke="#10C5C9" 
-                    strokeWidth="2"
-                    strokeOpacity="0.4"
-                  />
-                );
-              })
-            )
-          )}
+            })}
 
           {/* Nodos (Cuentas) */}
           {nodeIds.map(id => {

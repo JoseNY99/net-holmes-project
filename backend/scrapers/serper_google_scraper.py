@@ -204,6 +204,10 @@ class SerperGoogleScraper:
 
     def _extract_seller_name(self, platform: str, url: str, title: str, snippet: str) -> str:
         if platform == "instagram":
+            from services.listing_fields import extract_instagram_author
+            author = extract_instagram_author(title, snippet)
+            if author:
+                return author
             # 1. Buscar en formato @username
             m = re.search(r'(@[A-Za-z0-9_.]+)', f"{title} {snippet}")
             if m:
@@ -229,6 +233,10 @@ class SerperGoogleScraper:
                     return u_cand
             return "@vendedor_tiktok"
         elif platform == "facebook":
+            from services.listing_fields import extract_facebook_author
+            author = extract_facebook_author({}, title, snippet)
+            if author:
+                return author
             # Marketplace listings often expose the seller in the indexed snippet.
             m_fb = re.search(
                 r"(?:vendido por|publicado por|vendedor|seller|contacto)\s*:?\s*"

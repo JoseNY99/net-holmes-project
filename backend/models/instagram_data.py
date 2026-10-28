@@ -10,6 +10,9 @@ class ReporteInstagramData(Base):
     reporte_id = Column(Integer, ForeignKey("reportes_brand_defense.id", ondelete="CASCADE"), unique=True, nullable=False)
     
     username = Column(String(100), nullable=True)
+    tipo_resultado = Column(String(20), nullable=True)
+    fuente_username = Column(String(50), nullable=True)
+    profile_display_name = Column(String(150), nullable=True)
     user_id_ig = Column(String(100), nullable=True)
     hashtags = Column(Text, nullable=True) # JSON array
     likes_count = Column(Integer, nullable=True)

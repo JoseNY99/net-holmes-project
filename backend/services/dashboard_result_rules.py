@@ -69,7 +69,16 @@ def direct_link(url: str, platform: str, country: str) -> bool:
             or (path == "/story.php" and "story_fbid=" in parsed.query)
         )
     if platform == "instagram":
-        return host == "instagram.com" and bool(re.match(r"/(?:p|reel|reels)/[\w-]+$", path))
+        if host != "instagram.com":
+            return False
+        if re.match(r"/(?:p|reel|reels)/[\w-]+$", path):
+            return True
+        # Los perfiles pueden ser objetivos válidos si su contenido indexado
+        # supera luego los mismos filtros de marca, producto, falsificación y país.
+        match = re.fullmatch(r"/([A-Za-z0-9._]{2,30})", path)
+        return bool(match and match.group(1).casefold() not in {
+            "explore", "accounts", "tags", "stories", "direct", "about", "legal", "privacy",
+        })
     if platform == "tiktok":
         return host == "tiktok.com" and bool(re.match(r"/@[\w.-]+/(?:video|photo)/\d+$", path))
     market = COUNTRIES[country]["market"]
@@ -87,6 +96,10 @@ def seller_handle(url: str, text: str = "") -> str | None:
             return "@" + match[1].casefold()
     # @cuenta en los snippets de Instagram: no usar menciones de terceros.
     if parsed.hostname == "instagram.com":
+        from services.listing_fields import instagram_url_identity
+        result_type, profile_username = instagram_url_identity(url)
+        if result_type == "profile" and profile_username:
+            return profile_username.casefold()
         match = re.search(r"\((@[\w.]+)\)|^(@[\w.]+)\s|([\w.]+) on Instagram", text, re.I)
         if match:
             return ("@" + next(g for g in match.groups() if g).lstrip("@")).casefold()

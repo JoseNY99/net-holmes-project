@@ -22,6 +22,9 @@ from services.correlation_engine import CorrelationEngine
 from services.dashboard_result_rules import account_key, evidence_key, evaluate_result
 from services.dashboard_scope import COUNTRIES, matches_scope, observed_region
 from services.dashboard_log import dashboard_log
+from services.facebook_post_enrichment import FacebookPostEnricher
+from services.instagram_identity_enrichment import InstagramIdentityEnricher
+from services.listing_fields import extract_instagram_author, extract_price
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -81,25 +84,22 @@ def existing_account_index(db) -> dict:
 
 
 def parsed_price(text: str) -> float | None:
-    match = re.search(r"(?:R\$|\$|ARS|MXN|BRL)\s*(\d[\d.,]*)", text, re.I)
-    if not match:
-        return None
-    value = match[1].rstrip(".,")
-    if "," in value and "." in value:
-        decimal = "," if value.rfind(",") > value.rfind(".") else "."
-        value = value.replace("." if decimal == "," else ",", "").replace(decimal, ".")
-    elif "," in value or "." in value:
-        separator = "," if "," in value else "."
-        parts = value.split(separator)
-        value = "".join(parts) if len(parts[-1]) == 3 else "".join(parts[:-1]) + "." + parts[-1]
-    try:
-        return float(value)
-    except ValueError:
-        return None
+    return extract_price(text)
 
 
 def save_item(db, item: dict, brand: dict, country: str, keyword: str, terms: list[str], existing_id: int | None = None) -> tuple[int, bool]:
     """Mantiene los modelos y las relaciones que usan Reportes e Investigación."""
+    if item.get("plataforma") == "instagram":
+        instagram_author = extract_instagram_author(
+            item.get("title", ""),
+            item.get("description", ""),
+            *(item.get("author_sources") or []),
+        )
+        if instagram_author:
+            item["seller"] = instagram_author
+            item["account"] = instagram_author
+            item["seller_author_verified"] = True
+            item["seller_source"] = item.get("seller_source") or "instagram_metadata"
     existing = db.get(ReporteBrandDefense, existing_id) if existing_id else None
     if existing is None:
         # Revisión al guardar: contempla altas del cron mientras corre el dashboard.
@@ -118,9 +118,36 @@ def save_item(db, item: dict, brand: dict, country: str, keyword: str, terms: li
             ) == identity), None)
     if existing:
         # Completar vacíos, sin modificar decisiones ni notas del analista.
-        for field, value in (("telefono_publico", item["phone"]), ("direccion_publica", item["address"]), ("seguidores_infractor", item["followers"])):
+        for field, value in (
+            ("telefono_publico", item["phone"]),
+            ("direccion_publica", item["address"]),
+            ("seguidores_infractor", item["followers"]),
+            ("precio_publico", extract_price(item.get("title"), item.get("description"))),
+        ):
             if not getattr(existing, field) and value:
                 setattr(existing, field, value)
+        if item.get("seller_author_verified") and item.get("seller"):
+            existing.titular_cuenta = item["seller"][:255]
+            if item["plataforma"] == "facebook":
+                facebook_data = db.query(ReporteFacebookData).filter_by(reporte_id=existing.id).first()
+                if facebook_data:
+                    facebook_data.seller_name = item["seller"][:200]
+            elif item["plataforma"] == "instagram":
+                instagram_data = db.query(ReporteInstagramData).filter_by(reporte_id=existing.id).first()
+                if instagram_data:
+                    instagram_data.username = (item.get("account") or item["seller"])[:200]
+                    instagram_data.tipo_resultado = item.get("result_type")
+                    instagram_data.fuente_username = item.get("seller_source")
+                    instagram_data.profile_display_name = item.get("seller_display_name")
+        if item["plataforma"] == "facebook":
+            facebook_data = db.query(ReporteFacebookData).filter_by(reporte_id=existing.id).first()
+            if facebook_data:
+                # Una extracción pendiente nunca degrada un autor ya identificado.
+                if item.get("seller_author_verified") or facebook_data.estado_vendedor != "identificado":
+                    facebook_data.fuente_vendedor = item.get("seller_source")
+                    facebook_data.estado_vendedor = item.get("seller_status") or "pendiente"
+                    facebook_data.vendedor_verificado_at = item.get("seller_verified_at")
+                    facebook_data.motivo_vendedor = item.get("seller_failure_reason")
         if evidence_key(existing.url_evidencia) != evidence_key(item["url"]) and item["url"] not in (existing.descripcion_post or ""):
             extra = "\n".join((
                 "Evidencia adicional del mismo objetivo:",
@@ -139,7 +166,7 @@ def save_item(db, item: dict, brand: dict, country: str, keyword: str, terms: li
     report = ReporteBrandDefense(
         pais=country, producto_catalogo=keyword[:255], marca_afectada=brand["name"],
         plataforma=item["plataforma"], titular_cuenta=item["seller"][:255], url_evidencia=item["url"],
-        descripcion_post=description, precio_publico=parsed_price(item["description"]),
+        descripcion_post=description, precio_publico=extract_price(item.get("title"), item.get("description")),
         moneda=COUNTRIES[country]["currency"], direccion_publica=item["address"] or (f"{location}, {country}" if location else None),
         telefono_publico=item["phone"], seguidores_infractor=item["followers"], estado="Investigando",
     )
@@ -149,9 +176,27 @@ def save_item(db, item: dict, brand: dict, country: str, keyword: str, terms: li
     images = json.dumps([item["image"]]) if item["image"] else None
     platform = item["plataforma"]
     if platform == "facebook":
-        db.add(ReporteFacebookData(reporte_id=report.id, seller_name=item["seller"][:200], seller_location_province=location, image_urls=images))
+        db.add(ReporteFacebookData(
+            reporte_id=report.id,
+            seller_name=item["seller"][:200] if item.get("seller_author_verified") else None,
+            fuente_vendedor=item.get("seller_source"),
+            estado_vendedor=item.get("seller_status") or "pendiente",
+            vendedor_verificado_at=item.get("seller_verified_at"),
+            motivo_vendedor=item.get("seller_failure_reason"),
+            seller_location_province=location,
+            image_urls=images,
+        ))
     elif platform == "instagram":
-        db.add(ReporteInstagramData(reporte_id=report.id, username=item["account"], followers=item["followers"], caption_full=item["description"], image_urls=images))
+        db.add(ReporteInstagramData(
+            reporte_id=report.id,
+            username=item["account"],
+            tipo_resultado=item.get("result_type"),
+            fuente_username=item.get("seller_source"),
+            profile_display_name=item.get("seller_display_name"),
+            followers=item["followers"],
+            caption_full=item["description"],
+            image_urls=images,
+        ))
     elif platform == "tiktok":
         db.add(ReporteTiktokData(reporte_id=report.id, username=item["account"], followers=item["followers"], description_full=item["description"], image_urls=images))
     elif platform == "mercadolibre":
@@ -231,6 +276,8 @@ class DashboardSearchManager:
             urls = existing_index(db)
             accounts = existing_account_index(db)
         scraper = DashboardScraper(key, options["pais"])
+        facebook_enricher = FacebookPostEnricher(key, options["pais"])
+        instagram_enricher = InstagramIdentityEnricher()
         seen = set()
         state["provider"] = scraper.provider
         async with httpx.AsyncClient(timeout=12, headers={"User-Agent": "Mozilla/5.0 (compatible; NetHolmes/1.0)"}, follow_redirects=False) as client:
@@ -264,22 +311,58 @@ class DashboardSearchManager:
                                         continue
                                     existing_id = urls.get(key)
                                     if existing_id:
-                                        # Sin llamadas extra de red para volver a guardar un objetivo conocido.
-                                        text = f"{item['title']} {item['description']}"
-                                        if matches_scope(
-                                            text, item["url"], options["pais"], province,
-                                            item.get("searched_country"), item.get("searched_region"),
-                                        ):
-                                            with SessionLocal() as db:
-                                                save_item(db, item, brand, options["pais"], keyword, terms, existing_id)
-                                        state["duplicates"] += 1
-                                        dashboard_log("[DASHBOARD][DUPLICADO-BD] reporte_id=%s %s", existing_id, result_context(item))
-                                        continue
+                                        # También se enriquecen los existentes: puede faltar autor,
+                                        # teléfono o precio aunque la URL ya esté guardada.
+                                        item["existing_report_id"] = existing_id
                                     candidates.append(item)
                                 # Red en paralelo y acotada. La cancelación interrumpe las tres tareas.
                                 for offset in range(0, len(candidates), 3):
                                     enriched = await asyncio.gather(*(scraper.enrich(client, candidate) for candidate in candidates[offset:offset + 3]))
+                                    facebook_items = [item for item in enriched if item.get("plataforma") == "facebook"]
+                                    if facebook_items:
+                                        resolutions = await asyncio.gather(*(
+                                            facebook_enricher.enrich(client, item, scraper._public_html)
+                                            for item in facebook_items
+                                        ))
+                                        for item, resolution in zip(facebook_items, resolutions):
+                                            item["seller"] = resolution.name or "Vendedor No Identificado"
+                                            item["seller_author_verified"] = bool(resolution.name)
+                                            item["seller_source"] = resolution.source
+                                            item["seller_status"] = resolution.status
+                                            item["seller_verified_at"] = resolution.verified_at
+                                            item["seller_failure_reason"] = resolution.reason
+                                    instagram_items = [item for item in enriched if item.get("plataforma") == "instagram"]
+                                    if instagram_items:
+                                        identities = await asyncio.gather(*(instagram_enricher.enrich(item) for item in instagram_items))
+                                        for item, identity in zip(instagram_items, identities):
+                                            item["result_type"] = identity.result_type
+                                            if identity.username:
+                                                item["seller"] = identity.username
+                                                item["account"] = identity.username
+                                                item["seller_author_verified"] = True
+                                                item["seller_source"] = identity.source
+                                                item["seller_display_name"] = identity.display_name
                                     for item in enriched:
+                                        dashboard_log(
+                                            "[DASHBOARD][RESULTADO-COMPLETO] %s",
+                                            json.dumps({
+                                                "plataforma": item.get("plataforma"),
+                                                "proveedor": item.get("source"),
+                                                "url": item.get("url"),
+                                                "titulo": item.get("title"),
+                                                "descripcion": item.get("description"),
+                                                "vendedor_inicial": item.get("seller_initial"),
+                                                "vendedor_final": item.get("seller"),
+                                                "fuentes_autor": item.get("author_sources", []),
+                                                "texto_observado": item.get("observed_text"),
+                                            }, ensure_ascii=False, default=str),
+                                        )
+                                        dashboard_log(
+                                            "[DASHBOARD][DATOS] autor=%r verificado=%s telefono=%r precio=%r %s",
+                                            item.get("seller"), item.get("seller_author_verified", False),
+                                            item.get("phone"), extract_price(item.get("title"), item.get("description")),
+                                            result_context(item),
+                                        )
                                         text = f"{item['title']} {item['description']} {item.get('observed_text', '')}"
                                         terms, reason = evaluate_result(item, brand)
                                         if not terms:
@@ -294,7 +377,11 @@ class DashboardSearchManager:
                                             dashboard_log("[DASHBOARD][DESCARTADO] motivo=fuera del país o región seleccionada %s", result_context(item))
                                             continue
                                         identity = account_key(item["plataforma"], brand["name"], item["seller"])
-                                        existing_id = urls.get(evidence_key(item["url"])) or (accounts.get(identity) if identity else None)
+                                        existing_id = (
+                                            item.get("existing_report_id")
+                                            or urls.get(evidence_key(item["url"]))
+                                            or (accounts.get(identity) if identity else None)
+                                        )
                                         with SessionLocal() as db:
                                             report_id, created = save_item(db, item, brand, options["pais"], keyword, terms, existing_id)
                                             if created:
