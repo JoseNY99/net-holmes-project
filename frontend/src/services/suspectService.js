@@ -4,6 +4,7 @@ export const getSuspects = (params = {}) => {
   const query = new URLSearchParams();
   if (params.estado && params.estado !== 'todos') query.append('estado', params.estado);
   if (params.plataforma) query.append('plataforma', params.plataforma);
+  if (params.brand_id) query.append('brand_id', params.brand_id);
   if (params.skip !== undefined) query.append('skip', params.skip);
   if (params.limit !== undefined) query.append('limit', params.limit);
   
