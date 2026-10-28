@@ -11,7 +11,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from scrapers.serper_google_scraper import SerperGoogleScraper
-from services.dashboard_result_rules import canonical_url, direct_link, seller_handle
+from services.dashboard_result_rules import canonical_url, direct_link, seller_handle, valid_seller_identity
 from services.dashboard_scope import COUNTRIES
 from services.public_contacts import extract_phone
 from services.dashboard_log import dashboard_log
@@ -117,15 +117,21 @@ class DashboardScraper(SerperGoogleScraper):
         name = explicit_author or self._extract_seller_name(platform, url, title, description)
         if name == "@vendedor_tiktok":
             name = "Vendedor No Identificado"
+        seller = explicit_author or handle or name
+        if not valid_seller_identity(seller):
+            seller = "Vendedor No Identificado"
+            explicit_author = None
+            if handle and not valid_seller_identity(handle):
+                handle = None
         thumbnail = row.get("imageUrl") or row.get("thumbnail")
         return {
             "url": url, "title": title, "description": description, "plataforma": platform,
-            "seller": explicit_author or handle or name,
+            "seller": seller,
             "account": (explicit_author if explicit_author and explicit_author.startswith("@") else handle),
             "phone": extract_phone(text, self.country),
             "followers": self._extract_followers(text), "image": thumbnail if isinstance(thumbnail, str) and thumbnail.startswith("https://") else None,
             "source": source, "address": None, "email": None, "contact_sources": [],
-            "seller_initial": explicit_author or handle or name,
+            "seller_initial": seller,
             "author_sources": [title, description],
             "seller_author_verified": bool(explicit_author),
             "result_type": result_type if platform == "instagram" else None,

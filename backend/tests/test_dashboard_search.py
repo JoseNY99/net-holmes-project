@@ -24,7 +24,7 @@ from models.instagram_data import ReporteInstagramData
 from routers.dashboard import DashboardSearchRequest, router
 from scrapers.dashboard_scraper import DashboardScraper
 from services import dashboard_search as search_module
-from services.dashboard_result_rules import canonical_url, evidence_key, direct_link, counterfeit_terms, evaluate_result, qualifies
+from services.dashboard_result_rules import canonical_url, evidence_key, direct_link, counterfeit_terms, evaluate_result, qualifies, valid_seller_identity
 from services.dashboard_scope import COUNTRIES, normalize_scope, matches_scope
 from services.public_contacts import extract_phone, normalize_phone
 from services.dashboard_log import dashboard_log
@@ -248,6 +248,22 @@ def test_selected_brand_rejects_other_brand_even_with_counterfeit_sale_terms():
     }
     terms, explanation = evaluate_result(item, {**BRAND, "name": "Puma"})
     assert terms == [] and "marca seleccionada" in explanation
+
+
+def test_marketplace_numeric_id_is_never_a_seller():
+    assert valid_seller_identity("@1343977277554143") is False
+    assert valid_seller_identity("1343977277554143") is False
+    assert valid_seller_identity("Vendedor No Identificado") is False
+    assert valid_seller_identity("María López") is True
+
+    parsed = DashboardScraper(None, "Argentina").parse({
+        "link": "https://www.facebook.com/marketplace/item/1343977277554143/",
+        "title": "Alo réplica",
+        "snippet": "Zapatillas calidad G5 en venta",
+        "authorName": "1343977277554143",
+    }, "facebook", "Google_Serper_OSINT")
+    assert parsed["seller"] == "Vendedor No Identificado"
+    assert parsed["seller_author_verified"] is False
 
 
 def test_rejects_customer_authentication_question_from_mexico():

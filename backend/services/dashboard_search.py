@@ -19,7 +19,7 @@ from models.mercadolibre_data import ReporteMercadoLibreData
 from scrapers.dashboard_scraper import DashboardScraper
 from services.api_key_service import get_active_api_key
 from services.correlation_engine import CorrelationEngine
-from services.dashboard_result_rules import account_key, evidence_key, evaluate_result
+from services.dashboard_result_rules import account_key, evidence_key, evaluate_result, valid_seller_identity
 from services.dashboard_scope import COUNTRIES, matches_scope, observed_region
 from services.dashboard_log import dashboard_log
 from services.facebook_post_enrichment import FacebookPostEnricher
@@ -88,6 +88,11 @@ def parsed_price(text: str) -> float | None:
 
 
 def save_item(db, item: dict, brand: dict, country: str, keyword: str, terms: list[str], existing_id: int | None = None) -> tuple[int, bool]:
+    # Defensa final: un ID de Marketplace nunca debe persistirse como vendedor.
+    if not valid_seller_identity(item.get("seller")):
+        item["seller"] = "Vendedor No Identificado"
+        item["account"] = None
+        item["seller_author_verified"] = False
     """Mantiene los modelos y las relaciones que usan Reportes e Investigación."""
     if item.get("plataforma") == "instagram":
         instagram_author = extract_instagram_author(
@@ -117,6 +122,8 @@ def save_item(db, item: dict, brand: dict, country: str, keyword: str, terms: li
                 row.plataforma, row.marca_afectada, row.titular_cuenta,
             ) == identity), None)
     if existing:
+        if not valid_seller_identity(existing.titular_cuenta):
+            existing.titular_cuenta = "Vendedor No Identificado"
         # Completar vacíos, sin modificar decisiones ni notas del analista.
         for field, value in (
             ("telefono_publico", item["phone"]),

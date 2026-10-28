@@ -106,6 +106,14 @@ def seller_handle(url: str, text: str = "") -> str | None:
     return None
 
 
+def valid_seller_identity(value: str | None) -> bool:
+    """Impide utilizar IDs de publicaciones o cuentas numéricas como vendedor."""
+    clean = " ".join(str(value or "").split()).strip()
+    if not clean or folded(clean) in UNKNOWN_SELLERS:
+        return False
+    return re.fullmatch(r"@?[\d\s._-]+", clean) is None
+
+
 def account_key(platform: str, brand: str, seller: str) -> tuple | None:
     # Solo usuarios inequívocos; nunca agrupar por un nombre de persona común.
     if not seller.startswith("@") or folded(seller) in UNKNOWN_SELLERS:
