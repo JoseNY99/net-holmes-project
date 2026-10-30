@@ -12,6 +12,7 @@ import CronConfig from './pages/CronConfig';
 import ManualScan from './pages/ManualScan';
 import ScanResults from './pages/ScanResults';
 import Investigation from './pages/Investigation';
+import SeizureReports from './pages/SeizureReports';
 import SuspectDetail from './pages/SuspectDetail';
 import Reports from './pages/Reports';
 import UserManagement from './pages/UserManagement';
@@ -83,6 +84,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Investigation />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/seizure-reports"
+        element={
+          <ProtectedRoute>
+            <SeizureReports />
           </ProtectedRoute>
         }
       />

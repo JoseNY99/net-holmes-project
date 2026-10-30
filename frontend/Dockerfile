@@ -18,6 +18,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Nginx config for SPA routing
 RUN echo 'server { \
     listen 80; \
+    client_max_body_size 100m; \
     root /usr/share/nginx/html; \
     index index.html; \
     location / { \
@@ -25,6 +26,8 @@ RUN echo 'server { \
     } \
     location /api { \
         proxy_pass http://backend:8000; \
+        proxy_read_timeout 300s; \
+        proxy_send_timeout 300s; \
         proxy_set_header Host $host; \
         proxy_set_header X-Real-IP $remote_addr; \
     } \

@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 
 from config import settings
 from database import Base, engine, SessionLocal
-from routers import auth, users, brands, cron, reports_defense, dashboard, admin_logs, correlations, chat, whatsapp_webhook, settings as admin_settings, api_keys, fase1_auto_completor
+from routers import auth, users, brands, cron, reports_defense, dashboard, admin_logs, correlations, chat, whatsapp_webhook, settings as admin_settings, api_keys, fase1_auto_completor, seizure_reports
 
 # Configurar Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -41,6 +41,42 @@ async def lifespan(app: FastAPI):
         for fix_sql in pg_type_fixes:
             try:
                 conn.execute(text(fix_sql))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+        # Los campos extraídos de actas pueden contener listas extensas de
+        # investigados y denominaciones oficiales completas. create_all no
+        # modifica columnas existentes, por eso esta migración también debe
+        # ejecutarse al iniciar una instalación ya desplegada.
+        seizure_report_text_migrations = [
+            "ALTER TABLE seizure_targets ALTER COLUMN investigated_party TYPE text;",
+            "ALTER TABLE seizure_reports ALTER COLUMN police_agency TYPE text;",
+            "ALTER TABLE seizure_reports ALTER COLUMN police_unit TYPE text;",
+            "ALTER TABLE seizure_reports ALTER COLUMN court TYPE text;",
+            "ALTER TABLE seizure_reports ALTER COLUMN judge TYPE text;",
+            "ALTER TABLE seizure_reports ALTER COLUMN prosecution TYPE text;",
+            "ALTER TABLE seizure_reports ALTER COLUMN prosecutor TYPE text;",
+        ]
+        for migration in seizure_report_text_migrations:
+            try:
+                conn.execute(text(migration))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+        procedure_reference_migrations = [
+            "ALTER TABLE reportes_brand_defense ADD COLUMN codigo_interno VARCHAR(100);",
+            "ALTER TABLE reportes_brand_defense ADD COLUMN tipo_informe VARCHAR(30) NOT NULL DEFAULT 'INTELIGENCIA';",
+            "ALTER TABLE reportes_brand_defense ADD COLUMN numero_caso_cliente VARCHAR(100);",
+            "ALTER TABLE reportes_brand_defense ADD COLUMN codigo_marca VARCHAR(10);",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_reportes_brand_defense_codigo_interno ON reportes_brand_defense(codigo_interno) WHERE codigo_interno IS NOT NULL;",
+            "ALTER TABLE seizure_reports ADD COLUMN report_type VARCHAR(30) NOT NULL DEFAULT 'ALLANAMIENTO';",
+            "CREATE INDEX IF NOT EXISTS ix_seizure_reports_report_type ON seizure_reports(report_type);",
+        ]
+        for migration in procedure_reference_migrations:
+            try:
+                conn.execute(text(migration))
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -235,6 +271,7 @@ app.include_router(brands.router)
 app.include_router(cron.router)
 app.include_router(reports_defense.router)
 app.include_router(dashboard.router)
+app.include_router(seizure_reports.router)
 app.include_router(admin_logs.router)
 app.include_router(correlations.router)
 app.include_router(chat.router)

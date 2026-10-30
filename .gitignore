@@ -49,6 +49,7 @@ yarn-error.log*
 *.sqlite3
 *.db
 *.sql
+!backend/migrations/20261028_seizure_reports.sql
 *.dump
 *.log
 logs/
@@ -56,6 +57,7 @@ logs/
 # Scripts temporales de prueba, limpieza y desarrollo
 test_*.py
 !backend/tests/test_dashboard_search.py
+!backend/tests/test_seizure_reports.py
 *_test.py
 check_*.py
 clean_*.py
@@ -84,6 +86,7 @@ screenshots/
 evidencias/
 backend/static/screenshots/
 backend/static/evidencias/
+backend/assets/seizure_reports/
 
 # IDE
 .vscode/

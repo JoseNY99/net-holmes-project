@@ -67,7 +67,7 @@ def get_reporte(reporte_id: int, db: Session = Depends(get_db), _user: User = De
 
 @router.patch("/{reporte_id}", response_model=ReporteResponse)
 def update_reporte_status(reporte_id: int, data: ReporteUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    result = reports_defense_service.update_reporte_status(db, reporte_id, data.estado)
+    result = reports_defense_service.update_reporte_status(db, reporte_id, data.estado, _user.id)
     
     # Cuando pasa a Sospechoso → Fase 2: disparar correlación profunda multicuenta
     if data.estado == "Sospechoso":
@@ -193,9 +193,15 @@ def _require_final_report_data(db: Session, reporte):
         )
     return perfil
 
+def _ensure_official_reference(db: Session, reporte, user: User):
+    if str(reporte.estado).lower() == "confirmado" and not reporte.codigo_interno:
+        return reports_defense_service.update_reporte_status(db, reporte.id, reporte.estado, user.id)
+    return reporte
+
 @router.get("/{reporte_id}/export/pdf")
 def export_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
+    reporte = _ensure_official_reference(db, reporte, _user)
     perfil = _require_final_report_data(db, reporte)
     
     pdf_buffer = generate_investigation_pdf(db, reporte, perfil)
@@ -213,6 +219,7 @@ def export_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Dep
 @router.get("/{reporte_id}/export/cbn-pdf")
 def export_cbn_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
+    reporte = _ensure_official_reference(db, reporte, _user)
     perfil = _require_final_report_data(db, reporte)
     
     pdf_buffer = generate_cbn_investigation_pdf(db, reporte, perfil)
@@ -230,6 +237,7 @@ def export_cbn_pdf(reporte_id: int, db: Session = Depends(get_db), _user: User =
 @router.get("/{reporte_id}/export/word")
 def export_word(reporte_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     reporte = reports_defense_service.get_reporte_detail(db, reporte_id)
+    reporte = _ensure_official_reference(db, reporte, _user)
     perfil = _require_final_report_data(db, reporte)
         
     docx_buffer = generate_investigation_docx(db, reporte, perfil)

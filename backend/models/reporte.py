@@ -15,6 +15,10 @@ class ReporteBrandDefense(Base):
     
     pais = Column(String(100), nullable=False)
     referencia_interna = Column(String(100), nullable=False, unique=True, default=lambda: str(uuid.uuid4()))
+    codigo_interno = Column(String(100), nullable=True, unique=True, index=True)
+    tipo_informe = Column(String(30), nullable=False, default="INTELIGENCIA")
+    numero_caso_cliente = Column(String(100), nullable=True)
+    codigo_marca = Column(String(10), nullable=True)
     producto_catalogo = Column(String(255), nullable=False)
     marca_afectada = Column(String(255), nullable=False)
     plataforma = Column(String(50), nullable=False)  # Instagram, Facebook, TikTok, MercadoLibre

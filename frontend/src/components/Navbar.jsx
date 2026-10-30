@@ -117,6 +117,15 @@ export default function Navbar() {
                 >
                   Investigaciones
                 </NavLink>
+                <NavLink
+                  to="/seizure-reports"
+                  className={({ isActive }) =>
+                    `navbar__link ${isActive ? 'navbar__link--active' : ''}`
+                  }
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Informes de Allanamiento
+                </NavLink>
                   {isAdmin && (
                     <NavLink
                       to="/manual-scan"
@@ -248,6 +257,14 @@ export default function Navbar() {
               >
                 Investigaciones
               </NavLink>
+              <NavLink
+                to="/seizure-reports"
+                className={({ isActive }) =>
+                  `navbar__link ${isActive ? 'navbar__link--active' : ''}`
+                }
+              >
+                Allanamientos
+              </NavLink>
               {isAdmin && (
                 <NavLink
                   to="/manual-scan"
@@ -340,12 +357,12 @@ export default function Navbar() {
                 >
                   {getInitials()}
                 </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: user?.rol === 'sup_admin' ? 700 : 500 }}>
+                <span className="navbar__user-name" style={{ alignItems: 'center', gap: '4px', fontWeight: user?.rol === 'sup_admin' ? 700 : 500 }}>
                   {user?.nombre}
                 </span>
               </div>
               <button className="navbar__logout-btn" onClick={handleLogout} title="Cerrar Sesión">
-                <FaSignOutAlt style={{ marginRight: '6px' }} /> Cerrar Sesión
+                <FaSignOutAlt /> <span className="navbar__logout-label">Cerrar Sesión</span>
               </button>
             </>
           ) : (

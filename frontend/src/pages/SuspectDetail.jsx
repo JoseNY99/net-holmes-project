@@ -23,7 +23,9 @@ export default function SuspectDetail() {
     moneda: 'ARS',
     telefono_publico: '',
     direccion_publica: '',
-    titular_cuenta: ''
+    titular_cuenta: '',
+    tipo_informe: 'INTELIGENCIA',
+    numero_caso_cliente: ''
   });
   const [savingFase1, setSavingFase1] = useState(false);
   
@@ -131,7 +133,9 @@ export default function SuspectDetail() {
       moneda: reporte.moneda || 'ARS',
       telefono_publico: reporte.telefono_publico || '',
       direccion_publica: reporte.direccion_publica || '',
-      titular_cuenta: reporte.titular_cuenta || ''
+      titular_cuenta: reporte.titular_cuenta || '',
+      tipo_informe: reporte.tipo_informe || 'INTELIGENCIA',
+      numero_caso_cliente: reporte.numero_caso_cliente || ''
     });
     setIsEditingFase1(true);
   };
@@ -145,7 +149,9 @@ export default function SuspectDetail() {
         moneda: fase1Form.moneda || 'ARS',
         telefono_publico: fase1Form.telefono_publico.trim() || null,
         direccion_publica: fase1Form.direccion_publica.trim() || null,
-        titular_cuenta: fase1Form.titular_cuenta.trim() || undefined
+        titular_cuenta: fase1Form.titular_cuenta.trim() || undefined,
+        tipo_informe: fase1Form.tipo_informe,
+        numero_caso_cliente: fase1Form.numero_caso_cliente.trim() || null
       };
       const res = await quickEditSuspect(id, payload);
       setReporte(prev => ({ ...prev, ...res.data }));
@@ -237,7 +243,8 @@ export default function SuspectDetail() {
     setEstado(pendingEstado);
     setShowStatusModal(false);
     try {
-      await updateSuspect(id, { estado: pendingEstado });
+      const statusResponse = await updateSuspect(id, { estado: pendingEstado });
+      setReporte(prev => ({ ...prev, ...statusResponse.data }));
       setMessage({ type: 'success', text: `Estado actualizado a ${pendingEstado}.` });
       setTimeout(() => setMessage(null), 3000);
       
@@ -367,7 +374,7 @@ export default function SuspectDetail() {
           <div className="title-left">
             <div className="avatar-large"><FaBoxOpen /></div>
             <div>
-              <h2>Ticket #{reporte.referencia_interna.substring(0,8).toUpperCase()}</h2>
+              <h2>{reporte.codigo_interno ? `Código interno ${reporte.codigo_interno}` : `Ticket #${reporte.referencia_interna.substring(0,8).toUpperCase()}`}</h2>
               <p className="text-secondary">{reporte.marca_afectada} - {reporte.plataforma}</p>
             </div>
           </div>
@@ -413,6 +420,19 @@ export default function SuspectDetail() {
 
           {isEditingFase1 ? (
             <form onSubmit={handleSaveFase1} className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '15px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Tipo de informe</label>
+                  <select className="input-field" value={fase1Form.tipo_informe} disabled={Boolean(reporte.codigo_interno)} onChange={(e)=>setFase1Form(prev=>({...prev,tipo_informe:e.target.value}))} style={{width:'100%'}}>
+                    <option value="INTELIGENCIA">Inteligencia</option>
+                    <option value="ESTUDIO_MERCADO">Estudio de Mercado</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>N.º caso del cliente</label>
+                  <input className="input-field" value={fase1Form.numero_caso_cliente} onChange={(e)=>setFase1Form(prev=>({...prev,numero_caso_cliente:e.target.value}))} style={{width:'100%'}}/>
+                </div>
+              </div>
               <div>
                 <label style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Titular / Vendedor</label>
                 <input 
@@ -500,6 +520,9 @@ export default function SuspectDetail() {
           ) : (
             <ul className="info-list read-only-list">
               <li><strong>País Origen:</strong> {reporte.pais}</li>
+              <li><strong>Tipo de informe:</strong> {(reporte.tipo_informe||'INTELIGENCIA').replaceAll('_',' ')}</li>
+              <li><strong>Código interno:</strong> {reporte.codigo_interno||'Se asigna al confirmar el informe'}</li>
+              <li><strong>N.º caso del cliente:</strong> {reporte.numero_caso_cliente||'No informado'}</li>
               <li><strong>Catálogo Afectado:</strong> {reporte.producto_catalogo}</li>
               <li><strong>Titular de Cuenta:</strong> {reporte.titular_cuenta}</li>
               <li><strong>Seguidores (Aprox):</strong> {reporte.seguidores_infractor !== null && reporte.seguidores_infractor !== undefined ? reporte.seguidores_infractor.toLocaleString() : 'No detectado'}</li>

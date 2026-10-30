@@ -423,7 +423,7 @@ def generate_cbn_investigation_pdf(db: Session, reporte, perfil):
     int_data = [
         [Paragraph("<b>INTERNAL INFORMATION</b>", hw), ""],
         ["PROPOSED FEES", Paragraph(str(precio_cotizado), normal)],
-        ["INTERNAL REFERENCE", Paragraph(reporte.referencia_interna, normal)],
+        ["INTERNAL REFERENCE", Paragraph((reporte.codigo_interno or reporte.referencia_interna), normal)],
     ]
     ti = Table(int_data, colWidths=[5 * cm, 11 * cm])
     si = _overview_table_style()
@@ -758,7 +758,7 @@ def generate_fase1_preview_pdf(db: Session, reporte) -> io.BytesIO:
 
     # Título Principal
     S.append(Paragraph(f"VISTA PREVIA DE EVIDENCIA \u2014 {reporte.marca_afectada.upper()} ({reporte.plataforma.upper()})", title_style))
-    S.append(Paragraph(f"Referencia Técnica: #{reporte.referencia_interna} | Fecha de Captura: {reporte.fecha_captura.strftime('%d/%m/%Y %H:%M') if reporte.fecha_captura else 'N/D'}", subtitle_style))
+    S.append(Paragraph(f"Referencia Técnica: #{(reporte.codigo_interno or reporte.referencia_interna)} | Fecha de Captura: {reporte.fecha_captura.strftime('%d/%m/%Y %H:%M') if reporte.fecha_captura else 'N/D'}", subtitle_style))
     S.append(Spacer(1, 6))
 
     # Tabla de Datos de Detección (Fase 1)

@@ -114,7 +114,7 @@ def generate_investigation_pdf(db: Session, reporte, perfil):
     
     Story.append(Paragraph(f"INTELLIGENCE REPORT — {reporte.pais.upper()}", title_style))
     Story.append(Spacer(1, 12))
-    Story.append(Paragraph(f"<b>Ref:</b> {reporte.referencia_interna} | <b>ID producto:</b> {reporte.id}", normal_style))
+    Story.append(Paragraph(f"<b>Ref:</b> {(reporte.codigo_interno or reporte.referencia_interna)} | <b>ID producto:</b> {reporte.id}", normal_style))
     Story.append(Spacer(1, 12))
     
     Story.append(Paragraph("<b>COMPANY OVERVIEW</b>", styles['Heading2']))
@@ -128,7 +128,7 @@ def generate_investigation_pdf(db: Session, reporte, perfil):
     data_fase1 = [
         ["Campo (Fase 1: Recolección Automática)", "Valor detectado"],
         ["País", reporte.pais.upper()],
-        ["Referencia interna", reporte.referencia_interna],
+        ["Referencia interna", (reporte.codigo_interno or reporte.referencia_interna)],
         ["Owner (Titular)", owner_display],
         ["Social Networks / Plataforma", reporte.plataforma],
         ["Website / URL evidencia", Paragraph(f"<a href='{reporte.url_evidencia}' color='blue'>{reporte.url_evidencia}</a>", normal_style)],
@@ -207,7 +207,7 @@ def generate_investigation_docx(db: Session, reporte, perfil):
     doc = Document()
     
     doc.add_heading(f"INTELLIGENCE REPORT — {reporte.pais.upper()}", 0)
-    doc.add_paragraph(f"Ref: {reporte.referencia_interna} | ID producto: {reporte.id}")
+    doc.add_paragraph(f"Ref: {(reporte.codigo_interno or reporte.referencia_interna)} | ID producto: {reporte.id}")
     
     doc.add_heading('COMPANY OVERVIEW', level=1)
     
@@ -226,7 +226,7 @@ def generate_investigation_docx(db: Session, reporte, perfil):
     
     fields_fase1 = [
         ("País", reporte.pais.upper()),
-        ("Referencia interna", reporte.referencia_interna),
+        ("Referencia interna", (reporte.codigo_interno or reporte.referencia_interna)),
         ("Owner (Titular)", owner_display),
         ("Social Networks / Plataforma", reporte.plataforma),
         ("Website / URL evidencia", reporte.url_evidencia),

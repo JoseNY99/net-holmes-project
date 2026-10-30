@@ -74,6 +74,21 @@
   flex-wrap: nowrap;
 }
 
+.navbar__desktop-only.navbar__links {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16, 197, 201, 0.55) transparent;
+  overscroll-behavior-inline: contain;
+  padding: 4px 2px;
+}
+
+.navbar__desktop-only.navbar__links::-webkit-scrollbar { height: 4px; }
+.navbar__desktop-only.navbar__links::-webkit-scrollbar-track { background: transparent; }
+.navbar__desktop-only.navbar__links::-webkit-scrollbar-thumb { background: rgba(16, 197, 201, 0.55); border-radius: 20px; }
+
 .navbar__link {
   padding: 6px 10px;
   color: var(--text-secondary);
@@ -121,6 +136,8 @@
   color: var(--text-primary);
   white-space: nowrap;
 }
+
+.navbar__user-name { display: flex; }
 
 .navbar__user-avatar {
   width: 26px;
@@ -208,6 +225,22 @@
   font-size: 1.4rem;
   cursor: pointer;
   transition: var(--transition);
+}
+
+@media (max-width: 1550px) and (min-width: 1181px) {
+  .navbar__inner { padding-inline: 14px; gap: 8px; }
+  .navbar__link { padding-inline: 7px; font-size: 0.78rem; }
+  .navbar__logo { gap: 7px; }
+  .navbar__logo-text { font-size: 1.05rem; }
+  .navbar__actions { gap: 6px; }
+  .navbar__user-badge { padding-inline: 6px; }
+  .navbar__logout-btn { width: 34px; height: 34px; padding: 0; justify-content: center; }
+  .navbar__logout-label { display: none; }
+}
+
+@media (max-width: 1320px) and (min-width: 1181px) {
+  .navbar__logo-text, .navbar__user-name { display: none; }
+  .navbar__logo-img { height: 32px; }
 }
 
 /* === Diseño Responsive (Smartphones, Tablets y Laptops Cortas) === */

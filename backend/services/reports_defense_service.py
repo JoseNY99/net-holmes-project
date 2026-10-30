@@ -12,6 +12,8 @@ from models.facebook_data import ReporteFacebookData
 from models.instagram_data import ReporteInstagramData
 from models.tiktok_data import ReporteTiktokData
 from models.mercadolibre_data import ReporteMercadoLibreData
+from models.audit_log import AuditLog
+from services.procedure_reference_service import assign_reference, normalize_report_type
 
 def get_reportes(db: Session, estado: str = None, plataforma: str = None, skip: int = 0, limit: int = 20, marca_id: str = None):
     try:
@@ -74,10 +76,18 @@ def get_reporte_detail(db: Session, reporte_id: int):
 
     return reporte
 
-def update_reporte_status(db: Session, reporte_id: int, estado: str):
+def update_reporte_status(db: Session, reporte_id: int, estado: str, user_id: int | None = None):
     reporte = get_reporte_detail(db, reporte_id)
     if estado:
         reporte.estado = estado
+        if estado == "Confirmado" and not reporte.codigo_interno:
+            reporte.tipo_informe = normalize_report_type(reporte.tipo_informe or "INTELIGENCIA")
+            reporte.codigo_interno, reporte.codigo_marca = assign_reference(
+                db, reporte.tipo_informe, reporte.marca_afectada, brand_code_value=reporte.codigo_marca,
+            )
+            if user_id:
+                db.add(AuditLog(reporte_id=reporte.id, user_id=user_id, campo="codigo_interno",
+                                valor_anterior=None, valor_nuevo=reporte.codigo_interno))
         
         # Trigger de Transición a Fase 2 (ABM)
         if estado in ["Sospechoso", "Investigando"]:
@@ -101,6 +111,13 @@ def quick_update_reporte(db: Session, reporte_id: int, data: dict):
         reporte.descripcion_post = data["descripcion_post"]
     if "titular_cuenta" in data and data["titular_cuenta"] is not None:
         reporte.titular_cuenta = data["titular_cuenta"]
+    if "tipo_informe" in data and data["tipo_informe"] is not None:
+        requested_type = normalize_report_type(data["tipo_informe"])
+        if reporte.codigo_interno and requested_type != reporte.tipo_informe:
+            raise HTTPException(status_code=409, detail="El tipo no puede cambiar después de asignar el código interno")
+        reporte.tipo_informe = requested_type
+    if "numero_caso_cliente" in data:
+        reporte.numero_caso_cliente = data["numero_caso_cliente"]
     if "estado" in data and data["estado"] is not None:
         reporte.estado = data["estado"]
         if reporte.estado in ["Sospechoso", "Investigando"]:

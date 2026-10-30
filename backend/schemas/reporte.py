@@ -9,6 +9,10 @@ from schemas.platform_data import PlatformDataPayload
 class ReporteBase(BaseModel):
     pais: Optional[str] = "Argentina"
     referencia_interna: Optional[str] = None
+    codigo_interno: Optional[str] = None
+    tipo_informe: Optional[str] = "INTELIGENCIA"
+    numero_caso_cliente: Optional[str] = None
+    codigo_marca: Optional[str] = None
     producto_catalogo: Optional[str] = None
     marca_afectada: Optional[str] = None
     plataforma: Optional[str] = None
@@ -36,6 +40,8 @@ class ReporteQuickEdit(BaseModel):
     descripcion_post: Optional[str] = None
     titular_cuenta: Optional[str] = None
     estado: Optional[str] = None
+    tipo_informe: Optional[str] = None
+    numero_caso_cliente: Optional[str] = None
 
 class ReporteResponse(ReporteBase):
     id: int
