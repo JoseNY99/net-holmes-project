@@ -34,7 +34,7 @@ export default function SeizureReports() {
   useEffect(()=>{ const timer=setTimeout(()=>load().catch(()=>setMessage('No se pudo cargar el listado.')),200); return()=>clearTimeout(timer); },[search,status,brandFilter]);
   const set=(key,value)=>setForm(current=>({...current,[key]:value}));
   const mergeFiles=(current,incoming)=>{ const merged=[...current]; for(const file of Array.from(incoming)){ if(!merged.some(item=>item.name===file.name&&item.size===file.size&&item.lastModified===file.lastModified))merged.push(file); } return merged; };
-  const addPhotos=(files)=>setPhotos(current=>{ const merged=[...current]; for(const file of Array.from(files)){ if(!file.type.startsWith('image/'))continue; if(!merged.some(item=>item.file.name===file.name&&item.file.size===file.size&&item.file.lastModified===file.lastModified))merged.push({file,caption:'',brand_name:brands.find(b=>String(b.id)===String(form.brand_id))?.nombre||'',establishment:''}); } return merged; });
+  const addPhotos=(files)=>{ const selected=Array.from(files||[]); setPhotos(current=>{ const merged=[...current]; for(const file of selected){ if(!file.type.startsWith('image/'))continue; if(!merged.some(item=>item.file.name===file.name&&item.file.size===file.size&&item.file.lastModified===file.lastModified))merged.push({file,caption:'',brand_name:brands.find(b=>String(b.id)===String(form.brand_id))?.nombre||'',establishment:''}); } return merged; }); };
   const removePhoto=(index)=>setPhotos(current=>current.filter((_,i)=>i!==index));
   const setPhotoMeta=(index,key,value)=>setPhotos(current=>current.map((item,i)=>i===index?{...item,[key]:value}:item));
   const removeDocument=(index)=>setDocuments(current=>current.filter((_,i)=>i!==index));
