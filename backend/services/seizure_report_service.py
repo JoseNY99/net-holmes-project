@@ -29,7 +29,7 @@ from docx.shared import Cm, Pt, RGBColor
 
 from models.brand import Brand
 from models.seizure_report import (
-    SeizureAuditEvent, SeizureDocumentVersion, SeizureFile, SeizureHistory, SeizureProduct,
+    SeizureAuditEvent, SeizureDocumentVersion, SeizureFile, SeizureHistory, SeizureProduct, SeizureReportBrand,
     SeizureReport, SeizureSequence, SeizureTarget,
 )
 from services.procedure_reference_service import assign_reference, brand_code as official_brand_code, normalize_report_type
@@ -89,7 +89,9 @@ def list_reports(db, *, search=None, status=None, brand_id=None, country=None, s
     if status:
         query = query.filter(SeizureReport.status == status)
     if brand_id:
-        query = query.filter(SeizureReport.brand_id == brand_id)
+        query = query.outerjoin(SeizureReportBrand).filter(or_(
+            SeizureReport.brand_id == brand_id, SeizureReportBrand.brand_id == brand_id,
+        )).distinct()
     if country:
         query = query.filter(SeizureReport.country == country)
     total = query.count()
@@ -111,16 +113,26 @@ def audit_event(db: Session, report_id: int, user_id: int, action: str, *,
 def apply_payload(db: Session, report: SeizureReport, data, user_id: int):
     is_new = report.id is None
     data.report_type = normalize_report_type(data.report_type)
-    scalar = data.model_dump(exclude={"targets", "products"})
+    scalar = data.model_dump(exclude={"targets", "products", "brand_names"})
+    requested_names = list(dict.fromkeys(name.strip() for name in data.brand_names if name.strip()))
+    selected_catalogue = None
     if data.brand_id:
-        brand = db.get(Brand, data.brand_id)
-        if not brand:
+        selected_catalogue = db.get(Brand, data.brand_id)
+        if not selected_catalogue:
             raise HTTPException(422, "La marca seleccionada no existe")
-        scalar["brand_name"] = brand.nombre
-        scalar["brand_code"] = (data.brand_code or brand_code(brand.nombre)).upper()
+        if selected_catalogue.nombre not in requested_names:
+            requested_names.insert(0, selected_catalogue.nombre)
+    catalogue = db.query(Brand).all() if requested_names else []
+    catalogue_by_name = {item.nombre.casefold(): item for item in catalogue}
+    resolved = [(name, catalogue_by_name.get(name.casefold())) for name in requested_names]
+    primary_name, primary_brand = resolved[0] if resolved else (None, None)
+    scalar["brand_id"] = primary_brand.id if primary_brand else None
+    scalar["brand_name"] = primary_name
+    scalar["brand_code"] = ((data.brand_code or brand_code(primary_name)).upper() if primary_name else None)
     for key, value in scalar.items():
         setattr(report, key, value)
     report.targets[:] = [SeizureTarget(**target.model_dump()) for target in data.targets]
+    report.report_brands[:] = [SeizureReportBrand(brand_id=item.id if item else None, brand_name=name) for name, item in resolved]
     report.products[:] = [SeizureProduct(**product.model_dump()) for product in data.products]
     report.seized_goods_total = sum(product.quantity for product in data.products)
     if is_new:
@@ -128,7 +140,7 @@ def apply_payload(db: Session, report: SeizureReport, data, user_id: int):
         db.flush()
         db.add(SeizureHistory(report_id=report.id, to_status="BORRADOR", comment="Borrador creado", user_id=user_id))
     audit_event(db, report.id, user_id, "REPORT_CREATED" if is_new else "REPORT_UPDATED", details={
-        "targets": len(data.targets), "products": len(data.products),
+        "targets": len(data.targets), "products": len(data.products), "brands": requested_names,
         "seized_goods_total": report.seized_goods_total,
     })
     db.commit(); db.refresh(report)
@@ -211,60 +223,130 @@ async def store_upload(db, report, upload: UploadFile, kind: str, user_id: int, 
 
 def extract_police_pdf(path_or_bytes) -> dict:
     reader = PdfReader(path_or_bytes)
-    text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    clean_text = text.replace("\r", "\n")
+    extracted = "\n".join(page.extract_text() or "" for page in reader.pages)
+    clean_text = extracted.replace("\r", "\n")
+    clean_text = re.sub(r"[ \t]+", " ", clean_text)
+
+    labels = (
+        r"ASUNTO|MAGISTRADO(?:\s+INTERVENTOR)?|CAUSA|CAR[ÁA]TULA|FECHA(?:\s+DE\s+LA\s+OPERACI[ÓO]N)?|"
+        r"DETENIDOS?|IMPUTADOS?|INVESTIGADOS?|DOMICILIO|LUGARES?|PERSONAL(?:\s+AFECTADO)?|"
+        r"ORGANISMOS|RECURSOS|ELEMENTOS\s+SECUESTRADOS|SECUESTRO|RESE[ÑN]A|OBSERVACIONES|ESTADO|FIRMA"
+    )
+
     def one(pattern, flags=re.I):
         match = re.search(pattern, clean_text, flags)
-        return " ".join(match.group(1).split()) if match else None
-    def section(label, following):
-        boundary = "|".join(following)
-        return one(rf"(?:^|\n)\s*{label}\s*:\s*(.*?)(?=\n\s*(?:{boundary})\s*:|$)", re.I | re.S)
+        return " ".join(match.group(1).split()).strip(" .-") if match else None
 
-    date_text = one(r"(?:^|\n)\s*FECHA(?:\s+DE\s+LA\s+OPERACI[ÓO]N)?\s*:\s*([^\n]+)")
+    def section(label):
+        match = re.search(rf"(?:^|\n)\s*(?:{label})\s*:\s*(.*?)(?=\n\s*(?:{labels})\s*:|$)", clean_text, re.I | re.S)
+        if not match:
+            return None
+        lines = [" ".join(line.split()).strip() for line in match.group(1).splitlines()]
+        return "\n".join(line for line in lines if line).strip(" .-")
+
+    def compact(value):
+        return " ".join((value or "").split()).strip(" .-") or None
+
+    date_text = compact(section(r"FECHA(?:\s+DE\s+LA\s+OPERACI[ÓO]N)?"))
     iso_date = None
     numeric_date = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", date_text or "")
     if numeric_date:
         iso_date = f"{numeric_date.group(3)}-{int(numeric_date.group(2)):02d}-{int(numeric_date.group(1)):02d}"
 
-    places_text = section(r"LUGAR(?:ES)?", [r"IMPUTADOS?", r"PERSONAL(?:\s+AFECTADO)?", r"MAGISTRADO(?:\s+INTERVENTOR)?", r"ORGANISMOS", r"RECURSOS", r"SECUESTRO"])
+    places_text = section(r"(?:LUGARES?|DOMICILIO)")
     places = []
     if places_text:
         numbered = re.findall(r"(?:^|\n)\s*\d+[).]\s*(.+?)(?=\n\s*\d+[).]|$)", places_text, re.S)
         places = [" ".join(value.split()) for value in numbered] if numbered else [" ".join(places_text.split())]
 
-    infringers = section(r"IMPUTADOS?", [r"MAGISTRADO(?:\s+INTERVENTOR)?", r"RECURSOS", r"SECUESTRO", r"RESE[ÑN]A"])
-    court = section(r"MAGISTRADO(?:\s+INTERVENTOR)?", [r"CAUSA", r"RECURSOS", r"SECUESTRO", r"RESE[ÑN]A"])
-    seizure = section(r"SECUESTRO", [r"RESE[ÑN]A", r"OBSERVACIONES", r"ESTADO"])
-    summary = section(r"RESE[ÑN]A", [r"ESTADO", r"FIRMA"])
-    amount = None
-    if seizure:
+    infringers = compact(section(r"(?:IMPUTADOS?|DETENIDOS?|INVESTIGADOS?)"))
+    court = compact(section(r"MAGISTRADO(?:\s+INTERVENTOR)?")) or one(r"JUZGADO\s*:\s*([^\n]+)")
+    seizure = section(r"(?:ELEMENTOS\s+SECUESTRADOS|SECUESTRO)")
+    summary = compact(section(r"RESE[ÑN]A"))
+    subject = compact(section(r"ASUNTO"))
+
+    merchandise_terms = r"zapatillas?|calzados?|buzos?|remeras?|camperones?|shorts?|camisetas?|prendas?|pantalones?|gorras?|medias?|camisas?|vestidos?|chaquetas?|bolsos?|carteras?"
+    product_rows = []
+    other_items = []
+    for line in (seizure or "").splitlines():
+        normalized_line = " ".join(line.split()).strip(" .-")
+        quantity_match = re.search(r"\(\s*([\d.]+)\s*\)\s+(.+)$", normalized_line)
+        if not quantity_match:
+            continue
+        quantity = int(quantity_match.group(1).replace(".", ""))
+        item = quantity_match.group(2).strip(" .-")
+        if re.search(merchandise_terms, item, re.I):
+            product_rows.append((quantity, item))
+        else:
+            other_items.append(f"{quantity} {item}")
+
+    known_brands = sorted({name.title() for name in BRAND_CODES} | {"Nike", "Jordan", "Adidas", "Levis", "Converse", "Gucci", "Dior", "Versace", "Diesel", "Boss"}, key=len, reverse=True)
+    brand_source = " ".join(filter(None, [seizure, summary, subject]))
+    identified_brands = [name for name in known_brands if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", brand_source, re.I)]
+    amount = sum(quantity for quantity, _ in product_rows) or None
+    detected_brand_label = ", ".join(identified_brands) or "Pendiente de clasificación por cliente"
+    products = [{
+        "brand_name": detected_brand_label,
+        "category": item,
+        "description": f"Mercadería informada en el acta. Marcas mencionadas: {', '.join(identified_brands) or 'sin detalle'}",
+        "quantity": quantity, "unit": "unidades",
+        "notes": "Distribución por cliente o marca pendiente de validación humana",
+    } for quantity, item in product_rows]
+    if not products and seizure:
         amount_match = re.search(r"\(\s*([\d.]+)\s*\)", seizure)
         if amount_match:
             amount = int(amount_match.group(1).replace(".", ""))
-    known_brands = sorted({name.title() for name in BRAND_CODES} | {"Nike", "Jordan", "Adidas", "Levis", "Converse", "Gucci", "Dior", "Versace", "Diesel", "Boss"}, key=len, reverse=True)
-    identified_brands = [name for name in known_brands if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", seizure or "", re.I)]
-    products = []
-    if amount:
-        products.append({
-            "brand_name": "Pendiente de clasificación por cliente",
-            "category": "Vestimenta y calzado",
-            "description": f"Total informado por el acta. Marcas mencionadas: {', '.join(identified_brands) or 'sin detalle'}",
-            "quantity": amount, "unit": "unidades",
-            "notes": "Cantidad total confirmada; distribución por cliente pendiente de validación humana",
-        })
+            products = [{
+                "brand_name": detected_brand_label, "category": "Mercadería incautada",
+                "description": f"Total informado por el acta. Marcas mencionadas: {', '.join(identified_brands) or 'sin detalle'}",
+                "quantity": amount, "unit": "unidades",
+                "notes": "Cantidad total confirmada; distribución por cliente pendiente de validación humana",
+            }]
 
-    heading_lines = [" ".join(line.split()) for line in clean_text.splitlines()[:8] if line.strip()]
-    agency = " / ".join(line for line in heading_lines if re.fullmatch(r"(?:DCC|DIC|DIVISI[ÓO]N|DIRECCI[ÓO]N).{0,80}", line, re.I)) or None
+    heading_lines = [" ".join(line.split()) for line in clean_text.splitlines()[:12] if line.strip()]
+    institution_lines = [line for line in heading_lines if re.fullmatch(r"(?:SUPERINTENDENCIA|DIRECCI[ÓO]N|DEPARTAMENTO|DIVISI[ÓO]N|DCC|DIC).{0,120}", line, re.I)]
+    police_agency = institution_lines[0] if institution_lines else None
+    police_unit = " / ".join(institution_lines[1:]) if len(institution_lines) > 1 else section(r"RECURSOS")
+
+    city = province = None
+    location_match = re.search(r"localidad\s+de\s+([^,]+),\s*(?:Provincia(?:\s+de)?\s+)?([^,.]+)", places_text or subject or "", re.I)
+    if location_match:
+        city, province = " ".join(location_match.group(1).split()), " ".join(location_match.group(2).split())
+    elif re.search(r"\bCABA\b", places_text or "", re.I):
+        city = province = "CABA"
+
+    judge = prosecution = prosecutor = None
+    if court:
+        judge_matches = re.findall(r"a\s+cargo\s+del?\s+(?:Dr[a]?\.?\s+)?([^,.-]+)", court, re.I)
+        judge = " ".join(judge_matches[0].split()) if judge_matches else None
+        prosecutor = " ".join(judge_matches[1].split()) if len(judge_matches) > 1 else None
+        prosecution_match = re.search(r"(Secretar[íi]a\s+(?:N[°ºo.]*)?\s*\d+)", court, re.I)
+        prosecution = " ".join(prosecution_match.group(1).split()) if prosecution_match else None
+
+    case_number = compact(section(r"CAUSA")) or one(r"\b(OS\s*\d+/\d{4})\b")
+    action_type = "Allanamiento" if re.search(r"allanamiento", " ".join(filter(None, [subject, summary])), re.I) else None
+    origin = None
+    if re.search(r"\bdenuncia\b", clean_text, re.I):
+        origin = "Denuncia"
+    elif re.search(r"\boficio\b", clean_text, re.I):
+        origin = "Oficio"
+    target_details = [{
+        "establishment_name": None, "address": address, "city": city, "province": province,
+        "country": "Argentina", "investigated_party": infringers, "description": subject,
+    } for address in places]
+
     return {
         "operation_date_text": date_text, "operation_date": iso_date,
-        "case_origin": section(r"ASUNTO", [r"FECHA", r"HORA(?:\s+DE\s+INICIO)?", r"LUGARES?"]),
-        "police_agency": agency or one(r"POLICE REPORT.*?\n([^\n]+)", re.I | re.S),
-        "police_unit": section(r"RECURSOS", [r"SECUESTRO", r"RESE[ÑN]A"]),
-        "court": court or one(r"JUZGADO\s*:\s*([^\n]+)"),
-        "court_case_number": one(r"CAUSA\s*:\s*([^\n]+)") or one(r"\b(OS\s*\d+/\d{4})\b"),
-        "targets": places, "infringers": infringers, "seized_goods_total": amount,
-        "identified_brands": identified_brands, "products": products,
-        "operation_summary": summary, "media_impact": "N/A" if re.search(r"negativo\s+medios", clean_text, re.I) else None,
+        "case_origin": origin, "case_subject": subject, "action_type": action_type,
+        "police_agency": police_agency, "police_unit": police_unit,
+        "court": court, "judge": judge, "prosecution": prosecution, "prosecutor": prosecutor,
+        "court_case_number": case_number, "targets": places, "target_details": target_details,
+        "city": city, "province": province, "infringers": infringers,
+        "seized_goods_total": amount, "identified_brands": identified_brands, "products": products,
+        "other_seized_items": other_items,
+        "authorities_notes": "; ".join(other_items) if other_items else None,
+        "operation_summary": summary, "background": summary,
+        "media_impact": "N/A" if re.search(r"negativo\s+medios", clean_text, re.I) else None,
         "raw_text": clean_text[:20000],
     }
 
@@ -283,7 +365,7 @@ def _report_values(report):
         breakdown[key] = breakdown.get(key, 0) + (product.quantity or 0)
     breakdown_text = "; ".join(f"{name}: {quantity}" for name, quantity in breakdown.items()) or "N/A"
     return [
-        ("TARGET", report.brand_name or report.client_name or "N/A"), ("DATE", report.operation_date.strftime("%d/%m/%Y") if report.operation_date else "N/A"),
+        ("TARGET", ", ".join(report.brand_names) or report.client_name or "N/A"), ("DATE", report.operation_date.strftime("%d/%m/%Y") if report.operation_date else "N/A"),
         ("ORIGIN OF THE CASE", report.case_origin or "N/A"), ("SEARCH AND WARRANT TARGETS", targets),
         ("AMOUNT OF SEIZED GOODS", str(report.seized_goods_total)), ("SEIZED GOODS BY CLIENT / BRAND", breakdown_text),
         ("INFRINGERS", "; ".join(t.investigated_party for t in report.targets if t.investigated_party) or "N/A"),

@@ -89,6 +89,34 @@ def test_extract_real_police_structure_fields():
     assert {"Nike", "Puma", "Lacoste"}.issubset(set(data["identified_brands"]))
 
 
+def test_extract_federal_police_complaint_structure():
+    from reportlab.pdfgen import canvas
+    from io import BytesIO
+    stream=BytesIO(); pdf=canvas.Canvas(stream)
+    lines=["SUPERINTENDENCIA DE INVESTIGACIONES FEDERALES", "DIRECCIÓN GENERAL DEL CIBERCRIMEN",
+           "DEPARTAMENTO CIBERDELITOS", "DIVISIÓN DELITOS TECNOLÓGICOS",
+           "ASUNTO: Comunicar finalización de Orden de Allanamiento en Isidro Casanova, PBA.",
+           "MAGISTRADO: Juzgado Federal N° 3 de Morón a cargo del Dr. Juan CULOTTA, Secretaría N° 10 a cargo del Dr. Pablo ACOSTA.",
+           "CAUSA: FSM N° 23.138/2026.-", "FECHA: 22/10/2026.-",
+           "DETENIDO: Leonardo Favio RIZZELLI (DNI N° 35.979.154).",
+           "DOMICILIO: Otto Krausse N° 649, localidad de Isidro Casanova, Provincia Buenos Aires.-",
+           "ELEMENTOS SECUESTRADOS:", "Trescientos sesenta (360) pares de zapatillas",
+           "Ciento cincuenta (150) buzos", "Doscientos treinta (230) remeras",
+           "Todas de las marcas Nike, Converse, Puma, Under Armour, Adidas y Jordan",
+           "Una (1) Plancha de estampado.", "RESEÑA: Se finalizó el allanamiento."]
+    for index,line in enumerate(lines):
+        if index == 13: pdf.showPage()
+        pdf.drawString(25,810-(index % 13)*28,line)
+    pdf.save(); stream.seek(0)
+    data=service.extract_police_pdf(stream)
+    assert data["operation_date"] == "2026-10-22"
+    assert data["city"] == "Isidro Casanova" and data["province"] == "Buenos Aires"
+    assert data["judge"] == "Juan CULOTTA" and data["prosecutor"] == "Pablo ACOSTA"
+    assert data["seized_goods_total"] == 740 and len(data["products"]) == 3
+    assert all("Nike" in product["brand_name"] and "Puma" in product["brand_name"] for product in data["products"])
+    assert data["other_seized_items"] == ["1 Plancha de estampado"]
+
+
 def test_crud_totals_workflow_history_and_reference(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}")
     Base.metadata.create_all(engine)
@@ -98,12 +126,15 @@ def test_crud_totals_workflow_history_and_reference(tmp_path):
     brand = Brand(nombre="Puma", created_by=user.id)
     db.add(brand); db.commit()
     payload = SeizureReportIn(
-        brand_id=brand.id, operation_date="2026-10-28",
+        brand_id=brand.id, brand_names=["Puma", "Nike", "Converse"], operation_date="2026-10-28",
         targets=[TargetIn(address="Castelli 264, Ciudad Autónoma de Buenos Aires")],
         products=[ProductIn(brand_name="Puma", quantity=12), ProductIn(brand_name="New Era", quantity=8)],
     )
     report = service.apply_payload(db, SeizureReport(created_by=user.id), payload, user.id)
     assert report.seized_goods_total == 20
+    assert report.brand_names == ["Puma", "Nike", "Converse"]
+    assert report.report_brands[0].brand_id == brand.id
+    assert report.report_brands[1].brand_id is None
     assert report.audit_events[0].action == "REPORT_CREATED"
     assert report.audit_events[0].user_id == user.id
     db.add_all([

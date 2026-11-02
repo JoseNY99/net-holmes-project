@@ -49,6 +49,7 @@ class SeizureReport(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     brand = relationship("Brand", lazy="joined")
+    report_brands = relationship("SeizureReportBrand", cascade="all, delete-orphan", lazy="selectin", order_by="SeizureReportBrand.id")
     creator = relationship("User", lazy="joined")
     targets = relationship("SeizureTarget", cascade="all, delete-orphan", lazy="selectin", order_by="SeizureTarget.id")
     products = relationship("SeizureProduct", cascade="all, delete-orphan", lazy="selectin", order_by="SeizureProduct.id")
@@ -56,6 +57,21 @@ class SeizureReport(Base):
     history = relationship("SeizureHistory", cascade="all, delete-orphan", lazy="selectin", order_by="SeizureHistory.created_at")
     versions = relationship("SeizureDocumentVersion", cascade="all, delete-orphan", lazy="selectin", order_by="SeizureDocumentVersion.version")
     audit_events = relationship("SeizureAuditEvent", cascade="all, delete-orphan", lazy="selectin", order_by="SeizureAuditEvent.created_at")
+
+    @property
+    def brand_names(self):
+        names = [row.brand_name for row in self.report_brands]
+        return names or ([self.brand_name] if self.brand_name else [])
+
+
+class SeizureReportBrand(Base):
+    __tablename__ = "seizure_report_brands"
+    id = Column(Integer, primary_key=True)
+    report_id = Column(Integer, ForeignKey("seizure_reports.id", ondelete="CASCADE"), nullable=False, index=True)
+    brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True, index=True)
+    brand_name = Column(String(200), nullable=False)
+    brand = relationship("Brand", lazy="joined")
+    __table_args__ = (UniqueConstraint("report_id", "brand_name", name="uq_seizure_report_brand_name"),)
 
 
 class SeizureTarget(Base):

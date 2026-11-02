@@ -36,6 +36,7 @@ class SeizureReportIn(BaseModel):
     action_type: str | None = None
     client_name: str | None = None
     brand_id: int | None = None
+    brand_names: list[str] = Field(default_factory=list)
     brand_code: str | None = Field(None, max_length=10)
     client_case_number: str | None = None
     investigator: str | None = None
@@ -107,6 +108,7 @@ class SeizureReportOut(BaseModel):
     client_name: str | None
     brand_id: int | None
     brand_name: str | None
+    brand_names: list[str] = Field(default_factory=list)
     brand_code: str | None
     investigator: str | None
     general_notes: str | None

@@ -16,7 +16,7 @@ from .correlation_cluster import CorrelationCluster
 from .correlation_link import CorrelationLink
 from .marca_cuenta_oficial import MarcaCuentaOficial
 from .api_key_setting import ApiKeySetting
-from .seizure_report import SeizureReport, SeizureTarget, SeizureProduct, SeizureFile, SeizureHistory, SeizureSequence, SeizureDocumentVersion, SeizureAuditEvent
+from .seizure_report import SeizureReport, SeizureReportBrand, SeizureTarget, SeizureProduct, SeizureFile, SeizureHistory, SeizureSequence, SeizureDocumentVersion, SeizureAuditEvent
 
 __all__ = [
     "User", "Brand", "Product", "CronConfig", "Comportamiento", 
@@ -24,6 +24,6 @@ __all__ = [
     "AuditLog", "ReporteBrandDefense", "ReporteFacebookData", 
     "ReporteInstagramData", "ReporteTiktokData", "ReporteMercadoLibreData",
     "CorrelationCluster", "CorrelationLink", "MarcaCuentaOficial", "ApiKeySetting",
-    "SeizureReport", "SeizureTarget", "SeizureProduct", "SeizureFile",
+    "SeizureReport", "SeizureReportBrand", "SeizureTarget", "SeizureProduct", "SeizureFile",
     "SeizureHistory", "SeizureSequence", "SeizureDocumentVersion", "SeizureAuditEvent",
 ]

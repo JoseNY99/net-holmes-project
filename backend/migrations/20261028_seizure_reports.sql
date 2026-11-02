@@ -35,6 +35,20 @@ CREATE INDEX IF NOT EXISTS ix_seizure_reports_status ON seizure_reports(status);
 CREATE INDEX IF NOT EXISTS ix_seizure_reports_brand_id ON seizure_reports(brand_id);
 CREATE INDEX IF NOT EXISTS ix_seizure_reports_report_type ON seizure_reports(report_type);
 
+CREATE TABLE IF NOT EXISTS seizure_report_brands (
+  id SERIAL PRIMARY KEY,
+  report_id INTEGER NOT NULL REFERENCES seizure_reports(id) ON DELETE CASCADE,
+  brand_id INTEGER REFERENCES brands(id),
+  brand_name VARCHAR(200) NOT NULL,
+  CONSTRAINT uq_seizure_report_brand_name UNIQUE (report_id, brand_name)
+);
+CREATE INDEX IF NOT EXISTS ix_seizure_report_brands_report_id ON seizure_report_brands(report_id);
+CREATE INDEX IF NOT EXISTS ix_seizure_report_brands_brand_id ON seizure_report_brands(brand_id);
+INSERT INTO seizure_report_brands (report_id, brand_id, brand_name)
+SELECT id, brand_id, brand_name FROM seizure_reports
+WHERE brand_name IS NOT NULL
+ON CONFLICT (report_id, brand_name) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS seizure_targets (
   id SERIAL PRIMARY KEY, report_id INTEGER NOT NULL REFERENCES seizure_reports(id) ON DELETE CASCADE,
   establishment_name VARCHAR(250), address VARCHAR(350) NOT NULL, city VARCHAR(120), province VARCHAR(120),
