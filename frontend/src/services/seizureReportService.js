@@ -9,6 +9,14 @@ export const extractPolicePdf = (file) => {
   const body = new FormData(); body.append('file', file);
   return api.post('/api/seizure-reports/extract/police-pdf', body, { headers: { 'Content-Type': 'multipart/form-data' } });
 };
+export const analyzeSeizurePhotos = (files) => {
+  const body = new FormData(); Array.from(files).forEach(file => body.append('files', file));
+  return api.post('/api/seizure-reports/extract/evidence-photos', body, { headers: { 'Content-Type': 'multipart/form-data' } });
+};
+export const extractSeizureProductList = (file) => {
+  const body = new FormData(); body.append('file', file);
+  return api.post('/api/seizure-reports/extract/product-list', body, { headers: { 'Content-Type': 'multipart/form-data' } });
+};
 const upload = async (id, kind, files) => {
   const responses = [];
   for (const file of Array.from(files)) {

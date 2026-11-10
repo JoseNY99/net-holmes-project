@@ -39,6 +39,7 @@ class SeizureReportIn(BaseModel):
     brand_names: list[str] = Field(default_factory=list)
     brand_code: str | None = Field(None, max_length=10)
     client_case_number: str | None = None
+    internal_reference: str | None = Field(None, max_length=30)
     investigator: str | None = None
     general_notes: str | None = None
     police_agency: str | None = None

@@ -4,7 +4,7 @@ WORKDIR /app
 
 # System dependencies for Playwright and Pillow
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libpq-dev curl \
+    gcc libpq-dev curl tesseract-ocr tesseract-ocr-spa tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies

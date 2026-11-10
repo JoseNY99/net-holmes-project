@@ -65,6 +65,20 @@ async def lifespan(app: FastAPI):
             except Exception:
                 conn.rollback()
 
+        # El flujo operativo de allanamientos usa únicamente tres estados.
+        # La actualización es idempotente y conserva los informes existentes.
+        seizure_status_migrations = [
+            "UPDATE seizure_reports SET status = 'REVISION' WHERE status IN ('PENDIENTE_REVISION');",
+            "UPDATE seizure_reports SET status = 'BORRADOR' WHERE status IN ('OBSERVADO', 'RECHAZADO_CLIENTE', 'GENERADO');",
+            "UPDATE seizure_reports SET status = 'APROBACION' WHERE status IN ('APROBADO_INTERNAMENTE', 'REGISTRADO', 'PENDIENTE_APROBACION_CLIENTE', 'APROBADO_CLIENTE', 'ENVIADO_FACTURACION', 'ARCHIVADO');",
+        ]
+        for migration in seizure_status_migrations:
+            try:
+                conn.execute(text(migration))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
         procedure_reference_migrations = [
             "ALTER TABLE reportes_brand_defense ADD COLUMN codigo_interno VARCHAR(100);",
             "ALTER TABLE reportes_brand_defense ADD COLUMN tipo_informe VARCHAR(30) NOT NULL DEFAULT 'INTELIGENCIA';",

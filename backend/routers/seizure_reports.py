@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/seizure-reports", tags=["Informes de Allanamient
 
 
 def _require_edit_access(report: SeizureReport, user: User) -> None:
-    if report.status not in {"BORRADOR", "OBSERVADO"}:
+    if report.status != "BORRADOR":
         raise HTTPException(409, "Este informe ya no admite edición")
     if report.created_by != user.id and user.rol not in {"admin", "sup_admin"}:
         raise HTTPException(403, "No puede editar este informe")
@@ -54,7 +54,9 @@ def update(report_id: int, data: SeizureReportIn, db: Session = Depends(get_db),
 @router.post("/{report_id}/transition", response_model=SeizureReportOut)
 def change_status(report_id: int, data: TransitionIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     report = service.get_report(db, report_id)
-    if report.created_by != user.id and user.rol not in {"admin", "sup_admin"}:
+    # El flujo operativo de tres estados está disponible para los usuarios
+    # autenticados que gestionan los informes visibles en el módulo.
+    if data.status.upper() not in {"REVISION", "APROBACION"} and report.created_by != user.id and user.rol not in {"admin", "sup_admin"}:
         raise HTTPException(403, "No puede modificar el estado de este informe")
     return service.transition(db, report, data.status, data.comment, user)
 
@@ -82,6 +84,41 @@ async def extract_pdf(file: UploadFile = File(...), _user: User = Depends(get_cu
     if len(content)>20*1024*1024: raise HTTPException(413,"El PDF supera 20 MB")
     try: return service.extract_police_pdf(BytesIO(content))
     except Exception as exc: raise HTTPException(422,"No se pudo leer el documento policial") from exc
+
+
+@router.post("/extract/evidence-photos")
+async def extract_evidence_photos(files: list[UploadFile] = File(...), _user: User = Depends(get_current_user)):
+    contents = []
+    for upload in files[:20]:
+        if upload.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+            continue
+        content = await upload.read()
+        if content and len(content) <= 20 * 1024 * 1024:
+            contents.append(content)
+    if not contents:
+        raise HTTPException(415, "Se requieren fotografías JPG, PNG o WEBP")
+    return service.identify_police_agency_from_images(contents)
+
+
+@router.post("/extract/product-list")
+async def extract_product_list(file: UploadFile = File(...), _user: User = Depends(get_current_user)):
+    content = await file.read()
+    if not content or len(content) > 20 * 1024 * 1024:
+        raise HTTPException(413, "El listado debe pesar entre 1 byte y 20 MB")
+    try:
+        if file.content_type == "application/pdf":
+            text = "\n".join(page.extract_text() or "" for page in service.PdfReader(BytesIO(content)).pages)
+        elif file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            document = service.Document(BytesIO(content))
+            text = "\n".join(p.text for p in document.paragraphs)
+        elif file.content_type in {"image/jpeg", "image/png", "image/webp"}:
+            text = service.extract_image_text(content)
+        else:
+            text = content.decode("utf-8")
+        rows = service.parse_product_list_text(text)
+        return {"products": rows, "text_detected": text[:8000]}
+    except Exception as exc:
+        raise HTTPException(422, "No se pudo leer el listado de cantidades y precios") from exc
 
 
 @router.delete("/{report_id}/files/{file_id}", status_code=204)
@@ -133,7 +170,7 @@ def download(report_id: int, fmt: str, db: Session = Depends(get_db), user: User
     path=service.generate_pdf(report,user.id) if fmt=="pdf" else service.generate_docx(report,user.id)
     service.register_version(db,report,path,fmt,user.id)
     media="application/pdf" if fmt=="pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    return FileResponse(path,media_type=media,filename=f"{report.internal_reference or 'BORRADOR'}_SEIZURE_REPORT.{fmt}")
+    return FileResponse(path,media_type=media,filename=f"{report.internal_reference or f'INFORME-{report.id}'}_SEIZURE_REPORT.{fmt}")
 
 
 @router.post("/{report_id}/generate")

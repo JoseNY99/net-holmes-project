@@ -23,10 +23,12 @@ from services.procedure_reference_service import assign_reference
 def fake_report():
     return SimpleNamespace(
         id=99, country="Argentina", province="CABA", city="CABA", operation_date=date(2026, 9, 7),
-        case_origin="Inspección", client_name="Nike", brand_name="Nike", brand_code="NI",
+        case_origin="Inspección", client_name="Nike", brand_name="Nike", brand_names=["Nike"], brand_code="NI",
         police_agency="Policía de la Ciudad", police_unit="División Conductas Ilícitas",
         court="Juzgado PCyF 35", judge="Dra. Celsa Ramírez", media_impact="N/A", political_impact="N/A",
         proposed_fees="450", currency="USD", internal_reference="001-26-NI", seized_goods_total=1250,
+        operation_summary="Resultado positivo del procedimiento.",
+        products=[SimpleNamespace(brand_name="Nike", client_name="Nike", category="Calzado", description="Zapatillas incautadas", quantity=1250, unit="unidades")],
         targets=[SimpleNamespace(establishment_name=None,address="Castelli 264, CABA",investigated_party=None)],
         files=[],
     )
@@ -52,12 +54,19 @@ def test_official_reference_formats_and_emission_year(tmp_path):
 
 def test_word_and_pdf_without_photos(monkeypatch, tmp_path):
     monkeypatch.setattr(service, "STORAGE", tmp_path)
+    monkeypatch.setattr(service, "TEMPLATE_DIR", Path(__file__).resolve().parents[1] / "assets" / "seizure_templates")
     report = fake_report()
     pdf = service.generate_pdf(report, 1)
     word = service.generate_docx(report, 1)
     assert len(PdfReader(str(pdf)).pages) == 2
     opened = Document(str(word))
-    assert any("SEIZURE REPORT" in paragraph.text for paragraph in opened.paragraphs)
+    assert any("ARGENTINA – SEIZURE REPORT" in paragraph.text for paragraph in opened.paragraphs)
+    assert opened.tables[1].cell(1, 1).text == "07/09/2026"
+    assert opened.tables[1].cell(3, 1).text == "Castelli 264, CABA"
+    products = next(table for table in opened.tables if table.cell(0, 0).text == "SEIZED PRODUCTS")
+    assert [cell.text for cell in products.rows[2].cells] == ["Nike", "Calzado · Zapatillas incautadas", "1250 unidades", "USD 450"]
+    police = next(table for table in opened.tables if table.cell(0, 0).text == "POLICE REPORT: CONFIDENTIAL")
+    assert police.cell(1, 0).text == "Resultado positivo del procedimiento."
     assert pdf.stat().st_size > 1000 and word.stat().st_size > 1000
 
 
@@ -87,6 +96,50 @@ def test_extract_real_police_structure_fields():
     assert data["targets"] == ["Pueyrredón 241, CABA"]
     assert data["seized_goods_total"] == 6309
     assert {"Nike", "Puma", "Lacoste"}.issubset(set(data["identified_brands"]))
+
+
+def test_organismos_actuantes_does_not_become_an_infringer():
+    from reportlab.pdfgen import canvas
+    from io import BytesIO
+    stream=BytesIO(); pdf=canvas.Canvas(stream)
+    lines=["IMPUTADOS: Teresa Rojas", "ORGANISMOS ACTUANTES: Policía de la Ciudad", "BREVE RESEÑA: Resultado positivo."]
+    for index,line in enumerate(lines): pdf.drawString(30,800-index*22,line)
+    pdf.save(); stream.seek(0)
+    data=service.extract_police_pdf(stream)
+    assert data["infringers"] == "Teresa Rojas"
+    assert data["operation_summary"] == "Resultado positivo"
+
+
+def test_parse_separate_product_and_fee_list():
+    rows = service.parse_product_list_text(
+        "NIKE,1466\nLACOSTE, 775 USD 750\nPUMA, 1025- USD 850\n"
+        "ALO, 767 - USD ?? - FOTOS FALTAN\nUNDER ARMOUR 1234 - USD ??"
+    )
+    indexed = {row["brand_name"]: row for row in rows}
+    assert indexed["Nike"] == {"brand_name": "Nike", "quantity": 1466, "proposed_fees": None}
+    assert indexed["Lacoste"]["proposed_fees"] == "750"
+    assert indexed["Puma"] == {"brand_name": "Puma", "quantity": 1025, "proposed_fees": "850"}
+    assert indexed["Under Armour"]["quantity"] == 1234
+
+
+def test_parse_brand_code_list_without_quantities_or_fees():
+    rows = service.parse_product_list_text(
+        "LE  Lego\nVP  Victoria's Secret\nRB  Ray Ban\nCH  Chanel\nAL  Alo"
+    )
+    assert rows == [
+        {"brand_name": "Lego", "quantity": 0, "proposed_fees": None},
+        {"brand_name": "Victoria's Secret", "quantity": 0, "proposed_fees": None},
+        {"brand_name": "Ray Ban", "quantity": 0, "proposed_fees": None},
+        {"brand_name": "Chanel", "quantity": 0, "proposed_fees": None},
+        {"brand_name": "Alo", "quantity": 0, "proposed_fees": None},
+    ]
+
+
+def test_identify_police_from_photo_ocr(monkeypatch):
+    monkeypatch.setattr(service, "extract_image_text", lambda _content: "POLICIA DE LA CIUDAD")
+    result = service.identify_police_agency_from_images([b"photo"])
+    assert result["police_agency"] == "Policía de la Ciudad de Buenos Aires"
+    assert result["evidence"] == "photo_ocr"
 
 
 def test_extract_federal_police_complaint_structure():
@@ -137,14 +190,20 @@ def test_crud_totals_workflow_history_and_reference(tmp_path):
     assert report.report_brands[1].brand_id is None
     assert report.audit_events[0].action == "REPORT_CREATED"
     assert report.audit_events[0].user_id == user.id
+
+    # Guardar nuevamente las mismas marcas no debe violar
+    # uq_seizure_report_brand_name en PostgreSQL.
+    report = service.apply_payload(db, report, payload, user.id)
+    assert report.brand_names == ["Puma", "Nike", "Converse"]
+    assert len(report.report_brands) == 3
     db.add_all([
         SeizureFile(report_id=report.id,kind="photo",original_name="evidence.jpg",stored_name="test-evidence.jpg",mime_type="image/jpeg",size_bytes=10,position=0,uploaded_by=user.id,brand_name="Puma"),
         SeizureFile(report_id=report.id,kind="document",document_type="ACTA_POLICIAL",original_name="acta.pdf",stored_name="test-acta.pdf",mime_type="application/pdf",size_bytes=10,position=1,uploaded_by=user.id),
     ]); db.commit(); db.refresh(report)
-    service.transition(db, report, "PENDIENTE_REVISION", "Listo", user)
-    service.transition(db, report, "APROBADO_INTERNAMENTE", "Aprobado", user)
+    service.transition(db, report, "REVISION", "Listo", user)
+    service.transition(db, report, "APROBACION", "Aprobado", user)
     assert report.internal_reference == "001-26-PU"
-    assert [row.to_status for row in report.history] == ["BORRADOR", "PENDIENTE_REVISION", "APROBADO_INTERNAMENTE"]
+    assert [row.to_status for row in report.history] == ["BORRADOR", "REVISION", "APROBACION"]
 
 
 def test_save_long_investigated_parties_from_police_report(tmp_path):
