@@ -74,6 +74,12 @@ def brand_code(name: str | None) -> str:
     return official_brand_code(name)
 
 
+def _seizure_template_asset(filename: str) -> Path:
+    """Devuelve un recurso empaquetado, incluso cuando /app/assets es un volumen."""
+    packaged = PACKAGED_TEMPLATE_DIR / filename
+    return packaged if packaged.exists() else TEMPLATE_DIR / filename
+
+
 def get_report(db: Session, report_id: int) -> SeizureReport:
     report = db.query(SeizureReport).filter_by(id=report_id).first()
     if not report:
@@ -603,12 +609,12 @@ def generate_pdf(report, user_id):
                   Paragraph("The original police documentation is attached in full on the following pages.", styles["BodyText"])]
     def page_decoration(canvas, document):
         canvas.saveState()
-        cover = TEMPLATE_DIR / "cover.png"
+        cover = _seizure_template_asset("cover.png")
         if document.page == 1 and cover.exists():
             canvas.drawImage(str(cover), 0, 0, width=A4[0], height=A4[1], preserveAspectRatio=True, mask="auto")
             canvas.restoreState()
             return
-        logo = TEMPLATE_DIR / "cba-logo.png"
+        logo = _seizure_template_asset("cba-logo.png")
         if logo.exists():
             canvas.drawImage(str(logo), 1.7*cm, A4[1]-1.2*cm, width=3.6*cm, height=.8*cm, preserveAspectRatio=True, mask="auto")
         canvas.setFillColor(NAVY); canvas.setFont("Helvetica", 7)
