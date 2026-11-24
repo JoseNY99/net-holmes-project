@@ -98,6 +98,31 @@ def test_extract_real_police_structure_fields():
     assert {"Nike", "Puma", "Lacoste"}.issubset(set(data["identified_brands"]))
 
 
+def test_police_hierarchy_is_not_mistaken_for_the_force():
+    from reportlab.pdfgen import canvas
+    from io import BytesIO
+    stream=BytesIO(); pdf=canvas.Canvas(stream)
+    lines=["DIRECCIÓN LUCHA CONTRA EL CIBERCRIMEN", "DEPARTAMENTO DELITOS TECNOLÓGICOS", "FECHA: 23/09/2026"]
+    for index,line in enumerate(lines): pdf.drawString(30,800-index*22,line)
+    pdf.save(); stream.seek(0)
+    data=service.extract_police_pdf(stream)
+    assert data["police_agency"] is None
+    assert "DIRECCIÓN LUCHA CONTRA EL CIBERCRIMEN" in data["police_unit"]
+    assert "DEPARTAMENTO DELITOS TECNOLÓGICOS" in data["police_unit"]
+
+
+def test_explicit_police_force_is_separated_from_unit():
+    from reportlab.pdfgen import canvas
+    from io import BytesIO
+    stream=BytesIO(); pdf=canvas.Canvas(stream)
+    lines=["POLICÍA DE LA CIUDAD", "DIRECCIÓN LUCHA CONTRA EL CIBERCRIMEN", "DIVISIÓN CONDUCTAS TECNOLÓGICAS"]
+    for index,line in enumerate(lines): pdf.drawString(30,800-index*22,line)
+    pdf.save(); stream.seek(0)
+    data=service.extract_police_pdf(stream)
+    assert data["police_agency"] == "Policía de la Ciudad de Buenos Aires"
+    assert "DIRECCIÓN LUCHA CONTRA EL CIBERCRIMEN" in data["police_unit"]
+
+
 def test_organismos_actuantes_does_not_become_an_infringer():
     from reportlab.pdfgen import canvas
     from io import BytesIO

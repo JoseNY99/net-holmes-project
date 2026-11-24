@@ -21,30 +21,8 @@ class CerebrasEngine:
         """
         Analiza el texto crudo usando para extraer inteligencia.
         Retorna un diccionario estructurado.
-        Si se provee la sesión db, verifica en rag_memory si coincide con falsos positivos conocidos.
         """
-        result = self._local_fallback_analysis(raw_text)
-        
-        # Filtro RAG (Falsos Positivos)
-        if db:
-            from models.rag_memory import RagMemory
-            # Extraer posibles valores a bloquear (ej. usernames, URLs, telefonos)
-            valores_clave = [
-                result.get("vendedor_nombre", "").lower(),
-                result.get("vendedor_telefono", "").lower()
-            ]
-            valores_clave = [v for v in valores_clave if v and v != "desconocido" and v != "n/a"]
-            
-            if valores_clave:
-                # Buscar si alguno de estos valores está en la memoria RAG
-                rag_matches = db.query(RagMemory).filter(RagMemory.valor.in_(valores_clave)).all()
-                if rag_matches:
-                    result["score_sospecha"] = 0
-                    result["notas"] = f"[AUTO-DISCARD: RAG MATCH] Bloqueado por memoria inteligente (FP verificado). {result.get('notas', '')}"
-                    result["estado"] = "falso_positivo"
-                    return result
-        
-        return result
+        return self._local_fallback_analysis(raw_text)
 
 
     def _local_fallback_analysis(self, raw_text: str) -> dict:

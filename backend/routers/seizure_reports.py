@@ -2,6 +2,7 @@
 
 from io import BytesIO
 from pathlib import Path
+import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
@@ -18,6 +19,7 @@ from schemas.seizure_report import (
 from services import seizure_report_service as service
 
 router = APIRouter(prefix="/api/seizure-reports", tags=["Informes de Allanamiento"])
+logger = logging.getLogger(__name__)
 
 
 def _require_edit_access(report: SeizureReport, user: User) -> None:
@@ -167,7 +169,15 @@ def reorder_files(report_id: int, data: SeizureFileOrder,
 def download(report_id: int, fmt: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     report=service.get_report(db,report_id)
     if fmt not in {"pdf","docx"}: raise HTTPException(422,"Formato inválido")
-    path=service.generate_pdf(report,user.id) if fmt=="pdf" else service.generate_docx(report,user.id)
+    try:
+        path=service.generate_pdf(report,user.id) if fmt=="pdf" else service.generate_docx(report,user.id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("No se pudo generar %s para el informe de allanamiento %s", fmt, report_id)
+        raise HTTPException(500, f"No se pudo generar el archivo {fmt.upper()}; verificá la plantilla y los adjuntos") from exc
+    if not path.is_file() or path.stat().st_size == 0:
+        raise HTTPException(500, f"El archivo {fmt.upper()} no fue generado correctamente")
     service.register_version(db,report,path,fmt,user.id)
     media="application/pdf" if fmt=="pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     return FileResponse(path,media_type=media,filename=f"{report.internal_reference or f'INFORME-{report.id}'}_SEIZURE_REPORT.{fmt}")

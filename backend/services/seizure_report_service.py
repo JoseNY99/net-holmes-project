@@ -39,6 +39,7 @@ from services.procedure_reference_service import assign_reference, brand_code as
 STORAGE = Path(__file__).resolve().parent.parent / "assets" / "seizure_reports"
 STORAGE.mkdir(parents=True, exist_ok=True)
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "assets" / "seizure_templates"
+PACKAGED_TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates" / "seizure_reports"
 NAVY, CYAN = colors.HexColor("#172f53"), colors.HexColor("#10c5c9")
 DISCLAIMER = (
     "The information contained in this report has been obtained through lawful and publicly available sources, "
@@ -54,6 +55,13 @@ BRAND_CODES = {
     "ralph lauren":"PRL", "among us":"AU", "universal studios":"US", "lego":"LE",
     "victoria's secret":"VP", "ray ban":"RB", "chanel":"CH", "alo":"AL", "nike":"NI",
 }
+POLICE_AGENCIES = (
+    (r"POLIC[IÍ]A\s+DE\s+LA\s+CIUDAD(?:\s+DE\s+BUENOS\s+AIRES)?", "Policía de la Ciudad de Buenos Aires"),
+    (r"POLIC[IÍ]A\s+FEDERAL(?:\s+ARGENTINA)?|\bPFA\b", "Policía Federal Argentina"),
+    (r"GENDARMER[IÍ]A(?:\s+NACIONAL(?:\s+ARGENTINA)?)?|\bGNA\b", "Gendarmería Nacional Argentina"),
+    (r"PREFECTURA(?:\s+NAVAL(?:\s+ARGENTINA)?)?|\bPNA\b", "Prefectura Naval Argentina"),
+    (r"POLIC[IÍ]A\s+DE\s+LA\s+PROVINCIA\s+DE\s+BUENOS\s+AIRES|POLIC[IÍ]A\s+BONAERENSE", "Policía de la Provincia de Buenos Aires"),
+)
 STATUSES = {"BORRADOR", "REVISION", "APROBACION"}
 TRANSITIONS = {
     "BORRADOR": {"REVISION"},
@@ -307,10 +315,12 @@ def extract_police_pdf(path_or_bytes) -> dict:
                 "notes": "Cantidad total confirmada; distribución por cliente pendiente de validación humana",
             }]
 
-    heading_lines = [" ".join(line.split()) for line in clean_text.splitlines()[:12] if line.strip()]
+    heading_lines = [" ".join(line.split()) for line in clean_text.splitlines()[:30] if line.strip()]
     institution_lines = [line for line in heading_lines if re.fullmatch(r"(?:SUPERINTENDENCIA|DIRECCI[ÓO]N|DEPARTAMENTO|DIVISI[ÓO]N|DCC|DIC).{0,120}", line, re.I)]
-    police_agency = institution_lines[0] if institution_lines else None
-    police_unit = " / ".join(institution_lines[1:]) if len(institution_lines) > 1 else section(r"RECURSOS")
+    # Dirección, Departamento y División describen la unidad orgánica, no la
+    # fuerza. El organismo sólo se completa cuando está nombrado expresamente.
+    police_agency = next((name for pattern, name in POLICE_AGENCIES if re.search(pattern, clean_text, re.I)), None)
+    police_unit = " / ".join(dict.fromkeys(institution_lines)) or None
 
     city = province = None
     location_match = re.search(r"localidad\s+de\s+([^,]+),\s*(?:Provincia(?:\s+de)?\s+)?([^,.]+)", places_text or subject or "", re.I)
@@ -370,14 +380,7 @@ def identify_police_agency_from_images(contents: list[bytes]) -> dict:
         except Exception:
             continue
     observed = "\n".join(texts)
-    agencies = (
-        (r"POLIC[IÍ]A\s+DE\s+LA\s+CIUDAD", "Policía de la Ciudad de Buenos Aires"),
-        (r"POLIC[IÍ]A\s+FEDERAL(?:\s+ARGENTINA)?|\bPFA\b", "Policía Federal Argentina"),
-        (r"GENDARMER[IÍ]A(?:\s+NACIONAL)?|\bGNA\b", "Gendarmería Nacional Argentina"),
-        (r"PREFECTURA(?:\s+NAVAL(?:\s+ARGENTINA)?)?|\bPNA\b", "Prefectura Naval Argentina"),
-        (r"POLIC[IÍ]A\s+DE\s+LA\s+PROVINCIA\s+DE\s+BUENOS\s+AIRES|POLIC[IÍ]A\s+BONAERENSE", "Policía de la Provincia de Buenos Aires"),
-    )
-    for pattern, name in agencies:
+    for pattern, name in POLICE_AGENCIES:
         if re.search(pattern, observed, re.I):
             return {"police_agency": name, "evidence": "photo_ocr", "text_detected": observed[:4000]}
     return {"police_agency": None, "evidence": None, "text_detected": observed[:4000]}
@@ -627,7 +630,12 @@ def generate_pdf(report, user_id):
 
 
 def generate_docx(report, user_id):
-    template = TEMPLATE_DIR / "corporate-seizure-report.docx"
+    # `assets` se monta como volumen en producción y puede ocultar los archivos
+    # incluidos en la imagen. La plantilla canónica vive fuera de ese volumen;
+    # la ruta anterior se conserva para instalaciones existentes.
+    template = PACKAGED_TEMPLATE_DIR / "corporate-seizure-report.docx"
+    if not template.exists():
+        template = TEMPLATE_DIR / "corporate-seizure-report.docx"
     if not template.exists():
         raise HTTPException(500, "No se encontró la plantilla corporativa del Seizure Report")
 

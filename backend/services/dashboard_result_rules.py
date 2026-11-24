@@ -247,7 +247,9 @@ def is_official(brand: dict, platform: str, seller: str, url: str, text: str) ->
 
 
 def evaluate_result(item: dict, brand: dict) -> tuple[list[str], str]:
-    text = f"{item['title']} {item['description']}"
+    # observed_text contiene metadatos y OCR usados como evidencia interna;
+    # no se copia a la descripción visible del reporte.
+    text = f"{item['title']} {item['description']} {item.get('observed_text', '')}"
     if editorial_or_educational(text):
         return [], "contenido educativo, comparativo o informativo"
     if asks_for_authentication(text):

@@ -524,16 +524,17 @@ export default function SuspectDetail() {
               <li><strong>Código interno:</strong> {reporte.codigo_interno||'Se asigna al confirmar el informe'}</li>
               <li><strong>N.º caso del cliente:</strong> {reporte.numero_caso_cliente||'No informado'}</li>
               <li><strong>Catálogo Afectado:</strong> {reporte.producto_catalogo}</li>
-              <li><strong>Titular de Cuenta:</strong> {reporte.titular_cuenta}</li>
-              <li><strong>Seguidores (Aprox):</strong> {reporte.seguidores_infractor !== null && reporte.seguidores_infractor !== undefined ? reporte.seguidores_infractor.toLocaleString() : 'No detectado'}</li>
-              <li>
-                <strong>Precio Público:</strong>{' '}
-                {reporte.precio_publico !== null && reporte.precio_publico !== undefined
-                  ? `${reporte.moneda || 'ARS'} $${Number(reporte.precio_publico).toLocaleString()}`
-                  : 'No detectado'}
-              </li>
-              <li><strong>Teléfono Público:</strong> {reporte.telefono_publico || 'No detectado'}</li>
-              <li><strong>Dirección Pública:</strong> {reporte.direccion_publica || 'No detectada'}</li>
+              {reporte.titular_cuenta && !['Vendedor No Identificado', 'Usuario desconocido', 'Desconocido'].includes(reporte.titular_cuenta) && (
+                <li><strong>Titular de Cuenta:</strong> {reporte.titular_cuenta}</li>
+              )}
+              {reporte.seguidores_infractor !== null && reporte.seguidores_infractor !== undefined && (
+                <li><strong>Seguidores (Aprox):</strong> {reporte.seguidores_infractor.toLocaleString()}</li>
+              )}
+              {reporte.precio_publico !== null && reporte.precio_publico !== undefined && (
+                <li><strong>Precio Público:</strong> {`${reporte.moneda || 'ARS'} $${Number(reporte.precio_publico).toLocaleString()}`}</li>
+              )}
+              {reporte.telefono_publico && <li><strong>Teléfono Público:</strong> {reporte.telefono_publico}</li>}
+              {reporte.direccion_publica && <li><strong>Dirección Pública:</strong> {reporte.direccion_publica}</li>}
               <li><strong>Fecha Captura:</strong> {new Date(reporte.fecha_captura).toLocaleString('es-AR')}</li>
             </ul>
           )}

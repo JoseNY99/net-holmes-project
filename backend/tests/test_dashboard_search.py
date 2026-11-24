@@ -26,7 +26,7 @@ from scrapers.dashboard_scraper import DashboardScraper
 from services import dashboard_search as search_module
 from services.dashboard_result_rules import canonical_url, evidence_key, direct_link, counterfeit_terms, evaluate_result, qualifies, valid_seller_identity
 from services.dashboard_scope import COUNTRIES, normalize_scope, matches_scope
-from services.public_contacts import extract_phone, normalize_phone
+from services.public_contacts import extract_labelled_phone, extract_phone, normalize_phone
 from services.dashboard_log import dashboard_log
 from services.listing_fields import (
     extract_facebook_author,
@@ -34,8 +34,65 @@ from services.listing_fields import (
     extract_price,
     instagram_url_identity,
 )
+from services.publication_ai_enrichment import _evidence_only, _json_object, _merge_extraction, image_sources
 
 BRAND = {"id": 1, "name": "Nike", "products": [], "official": []}
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("wasap 999114958, Delivery 2mil", "999114958"),
+    ("consultas al wsp: 11 2222-3333", "1122223333"),
+    ("valor $ 13mil, entrega 2mil", None),
+])
+def test_extracts_only_explicitly_labelled_flexible_phone(text, expected):
+    assert extract_labelled_phone(text) == expected
+
+
+def test_publication_ai_parses_and_merges_only_missing_public_data():
+    extracted = _json_object(
+        '```json\n{"account":"@tienda","phone":"+5491122223333",'
+        '"email":"ventas@example.com","location_city":"Córdoba",'
+        '"location_province":"Córdoba","price":25000,"product":"Zapatillas"}\n```'
+    )
+    item = {
+        "seller": "Vendedor No Identificado", "seller_profile": {"name": "Desconocido"},
+        "phone": None, "email": None, "address": None, "price": None,
+    }
+    result = _merge_extraction(item, extracted)
+    assert result["seller"] == "@tienda"
+    assert result["seller_profile"]["name"] == "@tienda"
+    assert result["phone"] == "+5491122223333"
+    assert result["email"] == "ventas@example.com"
+    assert result["address"] == "Córdoba, Córdoba"
+    assert result["extracted_price"] == 25000
+    assert result["product"] == "Zapatillas"
+
+
+def test_publication_ai_preserves_provider_values_and_deduplicates_images():
+    item = {
+        "seller": "@autor_verificado", "seller_profile": {"name": "@autor_verificado"},
+        "phone": "+5491111111111", "email": None, "address": "Dirección verificada",
+    }
+    result = _merge_extraction(item, {
+        "seller_name": "Otro vendedor", "phone": "N/A", "address": "Otra dirección",
+    })
+    assert result["seller"] == "@autor_verificado"
+    assert result["phone"] == "+5491111111111"
+    assert result["address"] == "Dirección verificada"
+    assert image_sources({
+        "image": "https://cdn.example/a.jpg",
+        "image_urls": '["https://cdn.example/a.jpg", "https://cdn.example/b.jpg"]',
+    }) == ["https://cdn.example/a.jpg", "https://cdn.example/b.jpg"]
+
+
+def test_publication_ai_rejects_values_without_source_evidence():
+    result = _evidence_only(
+        {"seller_name": "Nombre inventado", "product": "Zapatillas", "price": 25000},
+        "Publicación de Zapatillas. Precio $25.000.",
+    )
+    assert "seller_name" not in result
+    assert result["product"] == "Zapatillas"
+    assert result["price"] == 25000
 
 
 def test_dashboard_log_reaches_visual_cron_console(monkeypatch):

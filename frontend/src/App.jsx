@@ -16,7 +16,6 @@ import SeizureReports from './pages/SeizureReports';
 import SuspectDetail from './pages/SuspectDetail';
 import Reports from './pages/Reports';
 import UserManagement from './pages/UserManagement';
-import AdminLogs from './pages/AdminLogs';
 import RedCorrelacionesPage from './pages/RedCorrelacionesPage';
 import ChatCenter from './pages/ChatCenter';
 import WhatsAppSettings from './pages/WhatsAppSettings';
@@ -116,14 +115,6 @@ function AppRoutes() {
         element={
           <ProtectedRoute adminOnly>
             <UserManagement />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin/logs"
-        element={
-          <ProtectedRoute adminOnly>
-            <AdminLogs />
           </ProtectedRoute>
         }
       />

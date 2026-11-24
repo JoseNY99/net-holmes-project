@@ -95,6 +95,34 @@ const RedCorrelacionesPage = () => {
     }
   };
 
+  const reportName = (report, id) => {
+    const holder = report?.titular_cuenta?.trim();
+    if (holder && !['Vendedor No Identificado', 'Usuario desconocido', 'Desconocido'].includes(holder)) return holder;
+    const context = [report?.marca_afectada, report?.plataforma].filter(Boolean).join(' · ');
+    return context || `Reporte #${id}`;
+  };
+
+  const clusterReport = (cluster, id) => {
+    for (const link of cluster?.links || []) {
+      if (link.reporte_a_id === id) return link.reporte_a;
+      if (link.reporte_b_id === id) return link.reporte_b;
+    }
+    return null;
+  };
+
+  const nodeName = (cluster, id) => reportName(clusterReport(cluster, id), id);
+
+  const clusterName = (cluster) => {
+    const names = [];
+    for (const link of cluster?.links || []) {
+      for (const [report, id] of [[link.reporte_a, link.reporte_a_id], [link.reporte_b, link.reporte_b_id]]) {
+        const name = reportName(report, id);
+        if (!name.startsWith('Reporte #') && !names.includes(name)) names.push(name);
+      }
+    }
+    return names.slice(0, 3).join(' ↔ ') || `Red correlacionada #${cluster.id}`;
+  };
+
   // Helper para construir grafo SVG del cluster
   const renderClusterGraph = (cluster) => {
     const rawLinks = cluster.links || [];
@@ -117,7 +145,7 @@ const RedCorrelacionesPage = () => {
       );
     }
 
-    const width = 540;
+    const width = 680;
     const height = 320;
     const centerX = width / 2;
     const centerY = height / 2;
@@ -175,6 +203,8 @@ const RedCorrelacionesPage = () => {
           {nodeIds.map(id => {
             const pos = nodePositions[id];
             const isSelected = selectedNode === id;
+            const label = nodeName(cluster, id);
+            const shortLabel = label.length > 20 ? `${label.slice(0, 18)}…` : label;
 
             return (
               <g 
@@ -182,11 +212,12 @@ const RedCorrelacionesPage = () => {
                 style={{ cursor: 'pointer' }}
                 onClick={() => setSelectedNode(id)}
               >
+                <title>{label}</title>
                 {isSelected && (
                   <circle 
                     cx={pos.x} 
                     cy={pos.y} 
-                    r="28" 
+                    r="42" 
                     fill="none" 
                     stroke="#10C5C9" 
                     strokeWidth="2.5"
@@ -196,21 +227,21 @@ const RedCorrelacionesPage = () => {
                 <circle 
                   cx={pos.x} 
                   cy={pos.y} 
-                  r="20" 
+                  r="36" 
                   fill={isSelected ? '#10C5C9' : '#0B3256'} 
                   stroke={isSelected ? '#FFFFFF' : '#10C5C9'} 
                   strokeWidth="2"
                 />
                 <text 
                   x={pos.x} 
-                  y={pos.y + 4} 
+                  y={pos.y + 3} 
                   textAnchor="middle" 
                   fill={isSelected ? '#0B3256' : '#FFFFFF'} 
-                  fontSize="10" 
+                  fontSize="9" 
                   fontWeight="bold"
                   fontFamily="Inter, sans-serif"
                 >
-                  #{id}
+                  {shortLabel}
                 </text>
               </g>
             );
@@ -276,7 +307,7 @@ const RedCorrelacionesPage = () => {
             <div key={cluster.id} className="glass-card" style={{ padding: '0', display: 'flex', flexDirection: 'column', height: '100%' }}>
               <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: 'rgba(0,0,0,0.2)' }}>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--accent-primary)' }}>{cluster.nombre}</h3>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--accent-primary)' }}>{clusterName(cluster)}</h3>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     {cluster.total_cuentas} cuentas sospechosas vinculadas
                   </p>
@@ -333,7 +364,7 @@ const RedCorrelacionesPage = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '12px' }}>
               <div>
                 <h3 style={{ margin: 0, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <FaNetworkWired /> {selectedCluster.nombre}
+                  <FaNetworkWired /> {clusterName(selectedCluster)}
                 </h3>
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                   Inspección espacial de conexiones criminales multiplataforma
@@ -364,7 +395,7 @@ const RedCorrelacionesPage = () => {
                 {selectedNode && (
                   <div style={{ background: 'rgba(16, 197, 201, 0.1)', border: '1px solid var(--accent-primary)', borderRadius: '8px', padding: '15px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                     <div>
-                      <strong style={{ color: 'var(--accent-primary)', display: 'block' }}>Reporte Seleccionado: #{selectedNode}</strong>
+                      <strong style={{ color: 'var(--accent-primary)', display: 'block' }}>{nodeName(selectedCluster, selectedNode)}</strong>
                       <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                         Haz clic en el botón para abrir el expediente completo en el módulo de investigación.
                       </span>
@@ -403,7 +434,7 @@ const RedCorrelacionesPage = () => {
                                       {meta.icon} {meta.label} <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal', fontSize: '0.8rem' }}>({link.subtipo})</span>
                                     </div>
                                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                                      Conexión: <strong>Reporte #{link.reporte_a_id}</strong> ⟷ <strong>Reporte #{link.reporte_b_id}</strong>
+                                      Conexión: <strong>{reportName(link.reporte_a, link.reporte_a_id)}</strong> ⟷ <strong>{reportName(link.reporte_b, link.reporte_b_id)}</strong>
                                     </div>
                                   </div>
                                   <span className="badge" style={{ 

@@ -29,6 +29,91 @@ Object.defineProperty(navigator, 'languages', { get: () => ['es-AR', 'es', 'en']
 window.chrome = { runtime: {} };
 """
 
+LOGIN_WORDS = (
+    "iniciar sesión", "inicia sesión", "inicio de sesión", "log in", "login",
+    "sign in", "registrarte", "regístrate", "create new account",
+)
+
+
+def _dismiss_obstructions(page) -> None:
+    """Cierra avisos de acceso/cookies sin ocultar el contenido de la publicación."""
+    # Buscar la X dentro del cuadro de acceso. No usar un selector global porque
+    # podría cerrar el visor del producto que se necesita como evidencia.
+    try:
+        clicked = page.evaluate("""
+            (loginWords) => {
+                const dialogs = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')];
+                const dialog = dialogs.find((el) => {
+                    const text = (el.innerText || '').toLowerCase();
+                    return loginWords.some((word) => text.includes(word));
+                });
+                if (!dialog) return false;
+                const controls = [...dialog.querySelectorAll('button, [role="button"]')];
+                const close = controls.find((el) => {
+                    const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.toLowerCase();
+                    const text = (el.innerText || '').trim().toLowerCase();
+                    return /cerrar|close|dismiss/.test(label) || /^(×|x|ahora no|not now)$/.test(text);
+                });
+                if (!close) return false;
+                close.click();
+                return true;
+            }
+        """, list(LOGIN_WORDS))
+        if clicked:
+            time.sleep(0.4)
+    except Exception:
+        pass
+
+    # Consentimientos de cookies también pueden tapar la publicación.
+    for selector in (
+        'button:has-text("Permitir todas las cookies")',
+        'button:has-text("Allow all cookies")',
+        'button:has-text("Aceptar todas")',
+        'button:has-text("Accept all")',
+    ):
+        try:
+            candidate = page.locator(selector).first
+            if candidate.is_visible(timeout=200):
+                candidate.click(timeout=1000, force=True)
+                time.sleep(0.25)
+                break
+        except Exception:
+            continue
+
+    # Algunos avisos no ofrecen un botón accesible. Ocultar únicamente diálogos cuyo
+    # texto sea de acceso/registro; nunca se elimina el contenedor de la publicación.
+    try:
+        page.evaluate("""
+            (loginWords) => {
+                const visible = (el) => {
+                    const r = el.getBoundingClientRect();
+                    const s = getComputedStyle(el);
+                    return r.width > 0 && r.height > 0 && s.display !== 'none' &&
+                        s.visibility !== 'hidden';
+                };
+                document.querySelectorAll('[role="dialog"], [aria-modal="true"]').forEach((el) => {
+                    const text = (el.innerText || '').toLowerCase();
+                    if (visible(el) && loginWords.some((word) => text.includes(word))) {
+                        el.remove();
+                    }
+                });
+                document.querySelectorAll('#cookie-banner, .cookie-banner, [data-testid="cookie-policy-manage-dialog"]').forEach((el) => el.remove());
+                document.querySelectorAll('body > div').forEach((el) => {
+                    const style = getComputedStyle(el);
+                    const text = (el.innerText || '').toLowerCase();
+                    if ((style.position === 'fixed' || style.position === 'sticky') &&
+                        loginWords.some((word) => text.includes(word)) &&
+                        el.getBoundingClientRect().width >= innerWidth * 0.8) {
+                        el.remove();
+                    }
+                });
+                document.documentElement.style.overflow = 'auto';
+                document.body.style.overflow = 'auto';
+            }
+        """, list(LOGIN_WORDS))
+    except Exception:
+        pass
+
 def _take_screenshot_sync(url: str, output_path: Path) -> bool:
     """Función sincrónica ejecutada en threadpool aislado."""
     import sys
@@ -66,6 +151,13 @@ def _take_screenshot_sync(url: str, output_path: Path) -> bool:
                 # Si domcontentloaded demora por scripts externos pesados, continuar con el contenido renderizado
                 pass
             time.sleep(1.5)
+
+            _dismiss_obstructions(page)
+            try:
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+            time.sleep(0.5)
 
             current_url = page.url.lower()
             redirected_to_login = any(
@@ -113,36 +205,6 @@ def _take_screenshot_sync(url: str, output_path: Path) -> bool:
                     f"[Screenshot OSINT] Se conserva la captura: hay una imagen de publicación visible "
                     f"a pesar del formulario de login ({url})."
                 )
-
-            # Intentar limpiar modales obstructivos de login/cookies
-            try:
-                page.evaluate("""
-                    () => {
-                        const selectors = [
-                            'div[role="dialog"]',
-                            '#cookie-banner',
-                            '.cookie-banner',
-                            'div[aria-label="Cerrar"]',
-                            'div[aria-label="Close"]',
-                            'div[aria-label="Decline"]',
-                            'button[aria-label="Cerrar"]',
-                            'button:has-text("Aceptar")',
-                            'button:has-text("Accept")',
-                            'div[data-testid="cookie-policy-manage-dialog"]'
-                        ];
-                        selectors.forEach(sel => {
-                            try {
-                                document.querySelectorAll(sel).forEach(el => {
-                                    if (el.innerText && (el.innerText.includes('Inicia') || el.innerText.includes('cookies') || el.innerText.includes('Log In'))) {
-                                        el.style.display = 'none';
-                                    }
-                                });
-                            } catch(e) {}
-                        });
-                    }
-                """)
-            except Exception:
-                pass
 
             page.screenshot(
                 path=str(output_path),

@@ -17,7 +17,6 @@ import {
   FaExclamationTriangle,
   FaArrowRight,
   FaBroadcastTower,
-  FaBrain,
   FaUsers
 } from 'react-icons/fa';
 import {
@@ -353,10 +352,6 @@ export default function Dashboard() {
             <Link to="/cron" className="action-pill-btn action-pill-secondary">
               <span className="action-pill-icon"><FaCog /></span>
               <span>Configurar Cron</span>
-            </Link>
-            <Link to="/admin/logs" className="action-pill-btn action-pill-secondary">
-              <span className="action-pill-icon"><FaBrain /></span>
-              <span>Memoria RAG</span>
             </Link>
             <Link to="/admin/users" className="action-pill-btn action-pill-accent">
               <span className="action-pill-icon"><FaUsers /></span>

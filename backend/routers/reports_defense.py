@@ -338,36 +338,8 @@ async def capture_reporte_screenshot(
             "reporte_id": reporte_id,
         }
 
-    # Guardar la screenshot en la tabla platform_data correspondiente
-    screenshot_json = json.dumps([screenshot_url])
-    plat = (reporte.plataforma or "").lower()
-    
-    if plat == "facebook":
-        plat_row = db.query(ReporteFacebookData).filter(ReporteFacebookData.reporte_id == reporte_id).first()
-        if plat_row:
-            plat_row.image_urls = screenshot_json
-        else:
-            db.add(ReporteFacebookData(reporte_id=reporte_id, image_urls=screenshot_json))
-    elif plat == "instagram":
-        plat_row = db.query(ReporteInstagramData).filter(ReporteInstagramData.reporte_id == reporte_id).first()
-        if plat_row:
-            plat_row.image_urls = screenshot_json
-        else:
-            db.add(ReporteInstagramData(reporte_id=reporte_id, image_urls=screenshot_json))
-    elif plat == "tiktok":
-        plat_row = db.query(ReporteTiktokData).filter(ReporteTiktokData.reporte_id == reporte_id).first()
-        if plat_row:
-            plat_row.image_urls = screenshot_json
-        else:
-            db.add(ReporteTiktokData(reporte_id=reporte_id, image_urls=screenshot_json))
-    elif plat == "mercadolibre":
-        plat_row = db.query(ReporteMercadoLibreData).filter(ReporteMercadoLibreData.reporte_id == reporte_id).first()
-        if plat_row:
-            plat_row.image_urls = screenshot_json
-        else:
-            db.add(ReporteMercadoLibreData(reporte_id=reporte_id, image_urls=screenshot_json))
-    
-    db.commit()
+    # La captura se persiste en /static/screenshots. No reemplazar image_urls: allí
+    # están las fotografías originales del producto que alimentan OCR y exportaciones.
 
     return {
         "status": "ok",

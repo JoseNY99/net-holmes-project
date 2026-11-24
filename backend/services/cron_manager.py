@@ -25,6 +25,7 @@ from services.argentina_scope import (
     is_explicitly_foreign_location,
     is_spanish_text,
 )
+from services.publication_ai_enrichment import enrich_publication
 
 # Instancia del scheduler con zona horaria de Argentina
 scheduler = AsyncIOScheduler(timezone="America/Argentina/Buenos_Aires")
@@ -328,6 +329,7 @@ def process_and_save_single_result(
 
     description_parts = [
         description_text,
+        str(item.get("observed_text") or ""),
         str(platform_data.get("description_full") or ""),
         str(platform_data.get("caption_full") or ""),
     ]
@@ -365,11 +367,7 @@ def process_and_save_single_result(
         )
         return False
 
-    social_text = (
-        social_analysis_text
-        if platform_name == "instagram"
-        else f"{title_text} {description_text}"
-    )
+    social_text = social_analysis_text
     deteccion_social = None
     if platform_name in social_platforms:
         if not is_spanish_text(social_text):
@@ -514,7 +512,7 @@ def process_and_save_single_result(
         return False
 
     from services.product_relevance import matches_configured_product
-    product_text = " ".join((title, desc, raw_data_str))
+    product_text = " ".join((title, desc, raw_data_str, str(item.get("observed_text") or "").lower()))
     if not matches_configured_product(product_text, brand.nombre, brand.products):
         cron_logger.log(
             f"[Filtro Producto] Resultado descartado por no coincidir con productos configurados de {brand.nombre}: "
@@ -598,7 +596,7 @@ def process_and_save_single_result(
         from services.listing_fields import extract_price
         # Algunos proveedores no completan `price`, aunque el vendedor publique
         # claramente "Precio: 25.000" en el texto.
-        parsed_price = extract_price(item.get("price"))
+        parsed_price = item.get("extracted_price") or extract_price(item.get("price"))
         if parsed_price is None:
             parsed_price = extract_price(
                 title_text,
@@ -642,15 +640,16 @@ def process_and_save_single_result(
             return False  # Rechazar originales/sin indicadores.
 
         new_result = ReporteBrandDefense(
-            pais=item.get("location", "Argentina"),
-            producto_catalogo=keyword if keyword else "Desconocido",
+            pais=item.get("location") or "Argentina",
+            producto_catalogo=item.get("product") or (keyword if keyword else "Desconocido"),
             marca_afectada=brand.nombre,
             plataforma=item.get("plataforma") or "web",
             titular_cuenta=titular,
             url_evidencia=item.get("url"),
             descripcion_post=f"[FALSIFICACIÓN: {'SÍ' if es_falsificacion else 'NO'}] {motivo_falsificacion}\n\n{item.get('description') or item.get('title', '')}",
             precio_publico=parsed_price,
-            direccion_publica=item.get("location", ""),
+            moneda=item.get("detected_currency") or "ARS",
+            direccion_publica=item.get("address") or item.get("location") or None,
             telefono_publico=found_phone or item.get("phone") or item.get("platform_data", {}).get("phone"),
             seguidores_infractor=parsed_followers,
             estado="Investigando" if es_falsificacion else "Pendiente"
@@ -660,6 +659,8 @@ def process_and_save_single_result(
 
         from services.phase_transition import start_phase_two_automatically
         start_phase_two_automatically(db, new_result)
+        if item.get("email") and new_result.perfil:
+            new_result.perfil.email = str(item["email"])[:255]
 
         # 💾 Descargar físicamente la imagen al servidor local (/static/evidencias/reporte_{id}.jpg)
         local_img_path = None
@@ -947,6 +948,9 @@ async def run_automatic_scan(*args, **kwargs):
                                         continue
                                     if url_key:
                                         seen_urls.add(url_key)
+                                    # OCR + IA completan únicamente datos públicos faltantes;
+                                    # si el proveedor falla, el item original continúa su curso.
+                                    item = await enrich_publication(item, country)
                                     if process_and_save_single_result(db, item, brand, keyword):
                                         inserted_count += 1
                                         cron_logger.log(

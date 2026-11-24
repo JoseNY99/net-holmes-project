@@ -20,6 +20,8 @@ class CorrelationLinkResponse(CorrelationLinkBase):
     reporte_a: Optional[ReporteResponse] = None
     reporte_b: Optional[ReporteResponse] = None
 
+    model_config = {"from_attributes": True}
+
 class CorrelationClusterBase(BaseModel):
     nombre: str
     descripcion: Optional[str] = None
@@ -32,6 +34,8 @@ class CorrelationClusterResponse(CorrelationClusterBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     links: List[CorrelationLinkResponse] = []
+
+    model_config = {"from_attributes": True}
 
 class CorrelationAnalysisRequest(BaseModel):
     dimensiones: List[str] = ["temporal", "linguistico", "contenido", "identificador"]

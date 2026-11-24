@@ -67,10 +67,12 @@ def get_reporte_detail(db: Session, reporte_id: int):
     evid_path = base_dir / "static" / "evidencias" / f"reporte_{reporte.id}.jpg"
     screen_path = base_dir / "static" / "screenshots" / f"reporte_{reporte.id}.jpg"
 
-    if evid_path.exists() and evid_path.stat().st_size > 100:
-        reporte.evidence_image_url = f"/static/evidencias/reporte_{reporte.id}.jpg"
-    elif screen_path.exists() and screen_path.stat().st_size > 100:
+    # Una captura solicitada por el usuario es la evidencia principal. La foto del
+    # producto descargada por el buscador queda disponible como respaldo.
+    if screen_path.exists() and screen_path.stat().st_size > 100:
         reporte.evidence_image_url = f"/static/screenshots/reporte_{reporte.id}.jpg"
+    elif evid_path.exists() and evid_path.stat().st_size > 100:
+        reporte.evidence_image_url = f"/static/evidencias/reporte_{reporte.id}.jpg"
     else:
         reporte.evidence_image_url = None
 

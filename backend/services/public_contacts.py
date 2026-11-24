@@ -83,3 +83,20 @@ def extract_phone(text: str, country: str) -> str | None:
         if phone:
             return phone
     return None
+
+
+def extract_labelled_phone(text: str) -> str | None:
+    """Conserva un contacto explícito aunque no coincida con el plan telefónico local.
+
+    Se exige una etiqueta de contacto para no confundir precios, talles, IDs o
+    cantidades con teléfonos. Admite de 7 a 15 dígitos, como ``wasap 999114958``.
+    """
+    value = unquote(text or "")
+    label = r"(?:whats?\s*app|whatsapp|wasap|wsp|wa|tel[eé]fono|telefone|celular|cel\.?|contacto|contato|phone)"
+    pattern = rf"(?i)\b{label}\b\s*(?:al|a|es|:|=|-)?\s*(\+?\d[\d().\s-]{{5,25}}\d)"
+    for match in re.finditer(pattern, value):
+        raw = match.group(1).strip().rstrip(" .-")
+        digits = re.sub(r"\D", "", raw)
+        if 7 <= len(digits) <= 15:
+            return ("+" if raw.startswith("+") else "") + digits
+    return None
