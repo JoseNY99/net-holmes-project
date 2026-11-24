@@ -37,6 +37,23 @@ LOGIN_WORDS = (
 
 def _dismiss_obstructions(page) -> None:
     """Cierra avisos de acceso/cookies sin ocultar el contenido de la publicación."""
+    # Facebook Marketplace usa este control para el cuadro "Ve más en Facebook".
+    # Se intenta primero mediante Playwright para reproducir el clic real sobre la X.
+    for selector in (
+        '[role="dialog"] [aria-label="Cerrar"]',
+        '[role="dialog"] [aria-label="Close"]',
+        '[aria-modal="true"] [aria-label="Cerrar"]',
+        '[aria-modal="true"] [aria-label="Close"]',
+    ):
+        try:
+            close_button = page.locator(selector).first
+            if close_button.is_visible(timeout=250):
+                close_button.click(timeout=1200, force=True)
+                time.sleep(0.4)
+                break
+        except Exception:
+            continue
+
     # Buscar la X dentro del cuadro de acceso. No usar un selector global porque
     # podría cerrar el visor del producto que se necesita como evidencia.
     try:
@@ -48,14 +65,23 @@ def _dismiss_obstructions(page) -> None:
                     return loginWords.some((word) => text.includes(word));
                 });
                 if (!dialog) return false;
-                const controls = [...dialog.querySelectorAll('button, [role="button"]')];
+                const controls = [...dialog.querySelectorAll('button, [role="button"], [aria-label], [title]')];
                 const close = controls.find((el) => {
                     const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.toLowerCase();
                     const text = (el.innerText || '').trim().toLowerCase();
                     return /cerrar|close|dismiss/.test(label) || /^(×|x|ahora no|not now)$/.test(text);
                 });
-                if (!close) return false;
-                close.click();
+                if (close) {
+                    close.click();
+                    return true;
+                }
+                // Último recurso para el modal de Marketplace: su X está en la
+                // esquina superior derecha aunque Facebook quite el aria-label.
+                const rect = dialog.getBoundingClientRect();
+                const element = document.elementFromPoint(rect.right - 42, rect.top + 38);
+                const clickable = element && element.closest('button, [role="button"], a, div');
+                if (!clickable) return false;
+                clickable.click();
                 return true;
             }
         """, list(LOGIN_WORDS))
@@ -152,59 +178,15 @@ def _take_screenshot_sync(url: str, output_path: Path) -> bool:
                 pass
             time.sleep(1.5)
 
-            _dismiss_obstructions(page)
-            try:
-                page.keyboard.press("Escape")
-            except Exception:
-                pass
-            time.sleep(0.5)
-
-            current_url = page.url.lower()
-            redirected_to_login = any(
-                part in current_url for part in ("/login", "/checkpoint", "/auth/")
-            )
-
-            try:
-                password_fields = page.locator('input[type="password"]').count()
-                body_text = page.locator("body").inner_text(timeout=3000).lower()
-            except Exception:
-                password_fields = 0
-                body_text = ""
-
-            login_wall = redirected_to_login or (
-                password_fields > 0
-                and any(
-                    phrase in body_text
-                    for phrase in ("iniciar sesión", "inicia sesión", "log in", "sign in")
-                )
-            )
-            # Marketplace/post pages can show a login prompt while still rendering
-            # the actual listing photo. Keep that visual evidence instead of rejecting it.
-            visible_listing_image = page.evaluate("""
-                () => Array.from(document.images).some((img) => {
-                    const rect = img.getBoundingClientRect();
-                    const style = window.getComputedStyle(img);
-                    const description = `${img.alt || ''} ${img.src || ''}`.toLowerCase();
-                    const looksLikeUi = /avatar|profile|logo|icon|emoji|sprite|rsrc\\.php/.test(description);
-                    const visible = rect.width >= 140 && rect.height >= 120 &&
-                        style.display !== 'none' && style.visibility !== 'hidden' &&
-                        Number(style.opacity || 1) > 0 &&
-                        rect.bottom > 0 && rect.right > 0 &&
-                        rect.top < window.innerHeight && rect.left < window.innerWidth;
-                    return visible && img.complete && img.naturalWidth >= 140 &&
-                        img.naturalHeight >= 120 && !looksLikeUi;
-                })
-            """)
-            if login_wall and not visible_listing_image:
-                cron_logger.log(
-                    f"[Screenshot OSINT] Se omite captura: se detectó un formulario de login ({url})."
-                )
-                return False
-            if login_wall and visible_listing_image:
-                cron_logger.log(
-                    f"[Screenshot OSINT] Se conserva la captura: hay una imagen de publicación visible "
-                    f"a pesar del formulario de login ({url})."
-                )
+            # El aviso puede aparecer unos segundos después de cargar Marketplace.
+            # Reintentar el cierre, pero capturar siempre aunque Facebook lo cambie.
+            for _attempt in range(3):
+                _dismiss_obstructions(page)
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                time.sleep(0.6)
 
             page.screenshot(
                 path=str(output_path),
