@@ -245,7 +245,8 @@ def extract_police_pdf(path_or_bytes) -> dict:
     labels = (
         r"ASUNTO|MAGISTRADO(?:\s+INTERVENTOR)?|CAUSA|CAR[ÁA]TULA|FECHA(?:\s+DE\s+LA\s+OPERACI[ÓO]N)?|"
         r"DETENIDOS?|IMPUTADOS?|INVESTIGADOS?|DOMICILIO|LUGAR(?:ES)?|PERSONAL(?:\s+AFECTADO)?|"
-        r"ORGANISMOS(?:\s+(?:ACTUANTES|INTERVINIENTES))?|RECURSOS|ELEMENTOS\s+SECUESTRADOS|SECUESTRO|"
+        r"ORGANISMOS(?:\s+(?:ACTUANTES|INTERVINIENTES))?|FUERZAS\s+INTERVINIENTES|INTERVINIENTES|"
+        r"RECURSOS|ELEMENTOS\s+SECUESTRADOS|SECUESTRO|"
         r"(?:BREVE\s+)?RESE[ÑN]A|VALOR\s+ESTIMATIVO|OBSERVACIONES|ESTADO|FIRMA"
     )
 
@@ -282,7 +283,9 @@ def extract_police_pdf(path_or_bytes) -> dict:
     # cuerpo principal del informe policial en el Word.
     summary = section(r"(?:BREVE\s+)?RESE[ÑN]A")
     subject = compact(section(r"ASUNTO"))
-    intervening_section = section(r"ORGANISMOS(?:\s+(?:ACTUANTES|INTERVINIENTES))?")
+    intervening_section = section(
+        r"(?:ORGANISMOS(?:\s+(?:ACTUANTES|INTERVINIENTES))?|FUERZAS\s+INTERVINIENTES|INTERVINIENTES)"
+    )
     intervening_agencies = " / ".join(
         line.strip(" .-") for line in (intervening_section or "").splitlines() if line.strip(" .-")
     ) or None

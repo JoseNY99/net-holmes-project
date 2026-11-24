@@ -157,6 +157,25 @@ def test_explicit_intervening_agencies_are_preserved_with_priority():
     assert data["police_unit"] is None
 
 
+def test_standalone_intervinientes_heading_is_recognized():
+    from reportlab.pdfgen import canvas
+    from io import BytesIO
+    stream=BytesIO(); pdf=canvas.Canvas(stream)
+    lines=[
+        "INTERVINIENTES:",
+        "Agencia Gubernamental de Control (AGC)",
+        "Estudio Jurídico Camino y Asociados",
+        "BREVE RESEÑA: Resultado positivo.",
+    ]
+    for index,line in enumerate(lines): pdf.drawString(30,800-index*22,line)
+    pdf.save(); stream.seek(0)
+    data=service.extract_police_pdf(stream)
+    assert data["intervening_agencies_explicit"] is True
+    assert data["police_agency"] == (
+        "Agencia Gubernamental de Control (AGC) / Estudio Jurídico Camino y Asociados"
+    )
+
+
 def test_parse_separate_product_and_fee_list():
     rows = service.parse_product_list_text(
         "NIKE,1466\nLACOSTE, 775 USD 750\nPUMA, 1025- USD 850\n"
