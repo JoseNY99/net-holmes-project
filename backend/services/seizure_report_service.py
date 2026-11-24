@@ -245,7 +245,7 @@ def extract_police_pdf(path_or_bytes) -> dict:
     labels = (
         r"ASUNTO|MAGISTRADO(?:\s+INTERVENTOR)?|CAUSA|CAR[ÁA]TULA|FECHA(?:\s+DE\s+LA\s+OPERACI[ÓO]N)?|"
         r"DETENIDOS?|IMPUTADOS?|INVESTIGADOS?|DOMICILIO|LUGAR(?:ES)?|PERSONAL(?:\s+AFECTADO)?|"
-        r"ORGANISMOS(?:\s+ACTUANTES)?|RECURSOS|ELEMENTOS\s+SECUESTRADOS|SECUESTRO|"
+        r"ORGANISMOS(?:\s+(?:ACTUANTES|INTERVINIENTES))?|RECURSOS|ELEMENTOS\s+SECUESTRADOS|SECUESTRO|"
         r"(?:BREVE\s+)?RESE[ÑN]A|VALOR\s+ESTIMATIVO|OBSERVACIONES|ESTADO|FIRMA"
     )
 
@@ -282,6 +282,10 @@ def extract_police_pdf(path_or_bytes) -> dict:
     # cuerpo principal del informe policial en el Word.
     summary = section(r"(?:BREVE\s+)?RESE[ÑN]A")
     subject = compact(section(r"ASUNTO"))
+    intervening_section = section(r"ORGANISMOS(?:\s+(?:ACTUANTES|INTERVINIENTES))?")
+    intervening_agencies = " / ".join(
+        line.strip(" .-") for line in (intervening_section or "").splitlines() if line.strip(" .-")
+    ) or None
 
     merchandise_terms = r"zapatillas?|calzados?|buzos?|remeras?|camperones?|shorts?|camisetas?|prendas?|pantalones?|gorras?|medias?|camisas?|vestidos?|chaquetas?|bolsos?|carteras?"
     product_rows = []
@@ -325,8 +329,11 @@ def extract_police_pdf(path_or_bytes) -> dict:
     institution_lines = [line for line in heading_lines if re.fullmatch(r"(?:SUPERINTENDENCIA|DIRECCI[ÓO]N|DEPARTAMENTO|DIVISI[ÓO]N|DCC|DIC).{0,120}", line, re.I)]
     # Dirección, Departamento y División describen la unidad orgánica, no la
     # fuerza. El organismo sólo se completa cuando está nombrado expresamente.
-    police_agency = next((name for pattern, name in POLICE_AGENCIES if re.search(pattern, clean_text, re.I)), None)
-    police_unit = " / ".join(dict.fromkeys(institution_lines)) or None
+    detected_police_agency = next((name for pattern, name in POLICE_AGENCIES if re.search(pattern, clean_text, re.I)), None)
+    # Cuando el parte enumera expresamente los organismos, ese bloque tiene
+    # prioridad y se conserva completo, aunque incluya entidades no policiales.
+    police_agency = intervening_agencies or detected_police_agency
+    police_unit = None if intervening_agencies else (" / ".join(dict.fromkeys(institution_lines)) or None)
 
     city = province = None
     location_match = re.search(r"localidad\s+de\s+([^,]+),\s*(?:Provincia(?:\s+de)?\s+)?([^,.]+)", places_text or subject or "", re.I)
@@ -359,6 +366,7 @@ def extract_police_pdf(path_or_bytes) -> dict:
         "operation_date_text": date_text, "operation_date": iso_date,
         "case_origin": origin, "case_subject": subject, "action_type": action_type,
         "police_agency": police_agency, "police_unit": police_unit,
+        "intervening_agencies_explicit": bool(intervening_agencies),
         "court": court, "judge": judge, "prosecution": prosecution, "prosecutor": prosecutor,
         "court_case_number": case_number, "targets": places, "target_details": target_details,
         "city": city, "province": province, "infringers": infringers,

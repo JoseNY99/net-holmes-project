@@ -135,6 +135,28 @@ def test_organismos_actuantes_does_not_become_an_infringer():
     assert data["operation_summary"] == "Resultado positivo"
 
 
+def test_explicit_intervening_agencies_are_preserved_with_priority():
+    from reportlab.pdfgen import canvas
+    from io import BytesIO
+    stream=BytesIO(); pdf=canvas.Canvas(stream)
+    lines=[
+        "DIRECCIÓN LUCHA CONTRA EL CIBERCRIMEN",
+        "ORGANISMOS INTERVINIENTES:",
+        "Agencia Gubernamental de Control (AGC) - DGFyC.-",
+        'Estudio Jurídico "Camino y Asociados".-',
+        "BREVE RESEÑA: Resultado positivo.",
+    ]
+    for index,line in enumerate(lines): pdf.drawString(30,800-index*22,line)
+    pdf.save(); stream.seek(0)
+    data=service.extract_police_pdf(stream)
+    assert data["intervening_agencies_explicit"] is True
+    assert data["police_agency"] == (
+        "Agencia Gubernamental de Control (AGC) - DGFyC / "
+        'Estudio Jurídico "Camino y Asociados"'
+    )
+    assert data["police_unit"] is None
+
+
 def test_parse_separate_product_and_fee_list():
     rows = service.parse_product_list_text(
         "NIKE,1466\nLACOSTE, 775 USD 750\nPUMA, 1025- USD 850\n"
