@@ -150,11 +150,8 @@ def test_explicit_intervening_agencies_are_preserved_with_priority():
     pdf.save(); stream.seek(0)
     data=service.extract_police_pdf(stream)
     assert data["intervening_agencies_explicit"] is True
-    assert data["police_agency"] == (
-        "Agencia Gubernamental de Control (AGC) / "
-        'Estudio Jurídico "Camino y Asociados"'
-    )
-    assert data["police_unit"] == "DGFyC"
+    assert data["police_agency"] == "Agencia Gubernamental de Control (AGC) - DGFyC"
+    assert data["police_unit"] == 'Estudio Jurídico "Camino y Asociados"'
 
 
 def test_standalone_intervinientes_heading_is_recognized():
@@ -171,10 +168,8 @@ def test_standalone_intervinientes_heading_is_recognized():
     pdf.save(); stream.seek(0)
     data=service.extract_police_pdf(stream)
     assert data["intervening_agencies_explicit"] is True
-    assert data["police_agency"] == (
-        "Agencia Gubernamental de Control (AGC) / Estudio Jurídico Camino y Asociados"
-    )
-    assert data["police_unit"] is None
+    assert data["police_agency"] == "Agencia Gubernamental de Control (AGC)"
+    assert data["police_unit"] == "Estudio Jurídico Camino y Asociados"
 
 
 def test_parse_separate_product_and_fee_list():

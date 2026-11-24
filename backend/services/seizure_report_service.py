@@ -286,19 +286,16 @@ def extract_police_pdf(path_or_bytes) -> dict:
     intervening_section = section(
         r"(?:ORGANISMOS(?:\s+(?:ACTUANTES|INTERVINIENTES))?|FUERZAS\s+INTERVINIENTES|INTERVINIENTES)"
     )
-    intervening_agency_names, intervening_units = [], []
+    intervening_lines = []
     for raw_line in (intervening_section or "").splitlines():
         line = raw_line.strip(" .-")
         if not line:
             continue
-        # En los partes, "Organismo – Unidad" identifica la entidad y su
-        # dependencia. Las líneas sin separador son otros organismos actuantes.
-        parts = re.split(r"\s+[–—-]\s+", line, maxsplit=1)
-        intervening_agency_names.append(parts[0].strip(" .-"))
-        if len(parts) == 2 and parts[1].strip(" .-"):
-            intervening_units.append(parts[1].strip(" .-"))
-    intervening_agencies = " / ".join(intervening_agency_names) or None
-    explicit_intervening_units = " / ".join(intervening_units) or None
+        # El salto de línea separa las entradas. Los guiones internos forman
+        # parte del nombre o dependencia informada y deben conservarse.
+        intervening_lines.append(line)
+    intervening_agencies = intervening_lines[0] if intervening_lines else None
+    explicit_intervening_units = " / ".join(intervening_lines[1:]) or None
 
     merchandise_terms = r"zapatillas?|calzados?|buzos?|remeras?|camperones?|shorts?|camisetas?|prendas?|pantalones?|gorras?|medias?|camisas?|vestidos?|chaquetas?|bolsos?|carteras?"
     product_rows = []
