@@ -111,7 +111,7 @@ def test_police_hierarchy_is_not_mistaken_for_the_force():
     assert "DEPARTAMENTO DELITOS TECNOLÓGICOS" in data["police_unit"]
 
 
-def test_explicit_police_force_is_separated_from_unit():
+def test_police_force_is_not_assumed_without_intervening_section():
     from reportlab.pdfgen import canvas
     from io import BytesIO
     stream=BytesIO(); pdf=canvas.Canvas(stream)
@@ -119,7 +119,7 @@ def test_explicit_police_force_is_separated_from_unit():
     for index,line in enumerate(lines): pdf.drawString(30,800-index*22,line)
     pdf.save(); stream.seek(0)
     data=service.extract_police_pdf(stream)
-    assert data["police_agency"] == "Policía de la Ciudad de Buenos Aires"
+    assert data["police_agency"] is None
     assert "DIRECCIÓN LUCHA CONTRA EL CIBERCRIMEN" in data["police_unit"]
 
 
@@ -140,7 +140,7 @@ def test_explicit_intervening_agencies_are_preserved_with_priority():
     from io import BytesIO
     stream=BytesIO(); pdf=canvas.Canvas(stream)
     lines=[
-        "DIRECCIÓN LUCHA CONTRA EL CIBERCRIMEN",
+        "DIVISIÓN DELITOS CONTRA LA SALUD Y SEGURIDAD PERSONAL",
         "ORGANISMOS INTERVINIENTES:",
         "Agencia Gubernamental de Control (AGC) - DGFyC.-",
         'Estudio Jurídico "Camino y Asociados".-',
@@ -150,8 +150,11 @@ def test_explicit_intervening_agencies_are_preserved_with_priority():
     pdf.save(); stream.seek(0)
     data=service.extract_police_pdf(stream)
     assert data["intervening_agencies_explicit"] is True
-    assert data["police_agency"] == "Agencia Gubernamental de Control (AGC) - DGFyC"
-    assert data["police_unit"] == 'Estudio Jurídico "Camino y Asociados"'
+    assert data["police_agency"] == (
+        "Agencia Gubernamental de Control (AGC) - DGFyC / "
+        'Estudio Jurídico "Camino y Asociados"'
+    )
+    assert data["police_unit"] == "DIVISIÓN DELITOS CONTRA LA SALUD Y SEGURIDAD PERSONAL"
 
 
 def test_standalone_intervinientes_heading_is_recognized():
@@ -168,8 +171,10 @@ def test_standalone_intervinientes_heading_is_recognized():
     pdf.save(); stream.seek(0)
     data=service.extract_police_pdf(stream)
     assert data["intervening_agencies_explicit"] is True
-    assert data["police_agency"] == "Agencia Gubernamental de Control (AGC)"
-    assert data["police_unit"] == "Estudio Jurídico Camino y Asociados"
+    assert data["police_agency"] == (
+        "Agencia Gubernamental de Control (AGC) / Estudio Jurídico Camino y Asociados"
+    )
+    assert data["police_unit"] is None
 
 
 def test_parse_separate_product_and_fee_list():

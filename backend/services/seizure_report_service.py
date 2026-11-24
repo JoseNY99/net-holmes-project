@@ -294,8 +294,7 @@ def extract_police_pdf(path_or_bytes) -> dict:
         # El salto de línea separa las entradas. Los guiones internos forman
         # parte del nombre o dependencia informada y deben conservarse.
         intervening_lines.append(line)
-    intervening_agencies = intervening_lines[0] if intervening_lines else None
-    explicit_intervening_units = " / ".join(intervening_lines[1:]) or None
+    intervening_agencies = " / ".join(intervening_lines) or None
 
     merchandise_terms = r"zapatillas?|calzados?|buzos?|remeras?|camperones?|shorts?|camisetas?|prendas?|pantalones?|gorras?|medias?|camisas?|vestidos?|chaquetas?|bolsos?|carteras?"
     product_rows = []
@@ -339,11 +338,11 @@ def extract_police_pdf(path_or_bytes) -> dict:
     institution_lines = [line for line in heading_lines if re.fullmatch(r"(?:SUPERINTENDENCIA|DIRECCI[ÓO]N|DEPARTAMENTO|DIVISI[ÓO]N|DCC|DIC).{0,120}", line, re.I)]
     # Dirección, Departamento y División describen la unidad orgánica, no la
     # fuerza. El organismo sólo se completa cuando está nombrado expresamente.
-    detected_police_agency = next((name for pattern, name in POLICE_AGENCIES if re.search(pattern, clean_text, re.I)), None)
     # Cuando el parte enumera expresamente los organismos, ese bloque tiene
     # prioridad y se conserva completo, aunque incluya entidades no policiales.
-    police_agency = intervening_agencies or detected_police_agency
-    police_unit = explicit_intervening_units if intervening_agencies else (" / ".join(dict.fromkeys(institution_lines)) or None)
+    # Si no existe la sección, el campo queda vacío para revisión humana.
+    police_agency = intervening_agencies
+    police_unit = " / ".join(dict.fromkeys(institution_lines)) or None
 
     city = province = None
     location_match = re.search(r"localidad\s+de\s+([^,]+),\s*(?:Provincia(?:\s+de)?\s+)?([^,.]+)", places_text or subject or "", re.I)
