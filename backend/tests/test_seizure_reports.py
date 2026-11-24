@@ -177,6 +177,25 @@ def test_standalone_intervinientes_heading_is_recognized():
     assert data["police_unit"] is None
 
 
+def test_unit_and_interviene_court_are_classified_separately():
+    from reportlab.pdfgen import canvas
+    from io import BytesIO
+    stream=BytesIO(); pdf=canvas.Canvas(stream)
+    lines=[
+        "MINISTERIO DE SEGURIDAD NACIONAL",
+        "GENDARMERIA NACIONAL ARGENTINA",
+        'UNIDAD: Región III "CÓRDOBA" - Escuadrón 65 "CÓRDOBA" (Sección Vial Sinsacate)',
+        "FECHA: 22 de marzo del 2026",
+        "Interviene Juzgado Federal Nro 3 de CORDOBA",
+    ]
+    for index,line in enumerate(lines): pdf.drawString(20,800-index*22,line)
+    pdf.save(); stream.seek(0)
+    data=service.extract_police_pdf(stream)
+    assert data["police_agency"] is None
+    assert data["police_unit"] == 'Región III "CÓRDOBA" - Escuadrón 65 "CÓRDOBA" (Sección Vial Sinsacate)'
+    assert data["court"] == "Juzgado Federal Nro 3 de CORDOBA"
+
+
 def test_parse_separate_product_and_fee_list():
     rows = service.parse_product_list_text(
         "NIKE,1466\nLACOSTE, 775 USD 750\nPUMA, 1025- USD 850\n"

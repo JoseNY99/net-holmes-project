@@ -243,9 +243,10 @@ def extract_police_pdf(path_or_bytes) -> dict:
     clean_text = re.sub(r"[ \t]+", " ", clean_text)
 
     labels = (
-        r"ASUNTO|MAGISTRADO(?:\s+INTERVENTOR)?|CAUSA|CAR[ÁA]TULA|FECHA(?:\s+DE\s+LA\s+OPERACI[ÓO]N)?|"
+        r"ASUNTO|MAGISTRADO(?:\s+(?:INTERVENTOR|INTERVINIENTE))?|CAUSA|CAR[ÁA]TULA|FECHA(?:\s+DE\s+LA\s+OPERACI[ÓO]N)?|"
         r"DETENIDOS?|IMPUTADOS?|INVESTIGADOS?|DOMICILIO|LUGAR(?:ES)?|PERSONAL(?:\s+AFECTADO)?|"
-        r"ORGANISMOS(?:\s+(?:ACTUANTES|INTERVINIENTES))?|FUERZAS\s+INTERVINIENTES|INTERVINIENTES|"
+        r"UNIDAD|DIVISI[ÓO]N|ORGANISMOS?(?:\s+(?:ACTUANTES|INTERVINIENTES?))?|"
+        r"FUERZAS?\s+INTERVINIENTES?|INTERVINIENTES?|INTERVIENEN?|"
         r"RECURSOS|ELEMENTOS\s+SECUESTRADOS|SECUESTRO|"
         r"(?:BREVE\s+)?RESE[ÑN]A|VALOR\s+ESTIMATIVO|OBSERVACIONES|ESTADO|FIRMA"
     )
@@ -277,15 +278,20 @@ def extract_police_pdf(path_or_bytes) -> dict:
         places = [" ".join(value.split()) for value in numbered] if numbered else [" ".join(places_text.split())]
 
     infringers = compact(section(r"(?:IMPUTADOS?|DETENIDOS?|INVESTIGADOS?)"))
-    court = compact(section(r"MAGISTRADO(?:\s+INTERVENTOR)?")) or one(r"JUZGADO\s*:\s*([^\n]+)")
+    court = (
+        compact(section(r"MAGISTRADO(?:\s+(?:INTERVENTOR|INTERVINIENTE))?"))
+        or one(r"JUZGADO\s*:\s*([^\n]+)")
+        or one(r"(?:^|\n)\s*INTERVIENE(?:N)?\s*:?\s*((?:JUZGADO|FISCAL[IÍ]A|TRIBUNAL)\b[^\n]+)")
+    )
     seizure = section(r"(?:ELEMENTOS\s+SECUESTRADOS|SECUESTRO)")
     # La reseña conserva sus saltos y puntuación porque se reproduce como
     # cuerpo principal del informe policial en el Word.
     summary = section(r"(?:BREVE\s+)?RESE[ÑN]A")
     subject = compact(section(r"ASUNTO"))
     intervening_section = section(
-        r"(?:ORGANISMOS(?:\s+(?:ACTUANTES|INTERVINIENTES))?|FUERZAS\s+INTERVINIENTES|INTERVINIENTES)"
+        r"(?:ORGANISMOS?(?:\s+(?:ACTUANTES|INTERVINIENTES?))?|FUERZAS?\s+INTERVINIENTES?|INTERVINIENTES?)"
     )
+    explicit_unit = compact(section(r"(?:UNIDAD|DIVISI[ÓO]N)"))
     intervening_lines = []
     for raw_line in (intervening_section or "").splitlines():
         line = raw_line.strip(" .-")
@@ -342,7 +348,7 @@ def extract_police_pdf(path_or_bytes) -> dict:
     # prioridad y se conserva completo, aunque incluya entidades no policiales.
     # Si no existe la sección, el campo queda vacío para revisión humana.
     police_agency = intervening_agencies
-    police_unit = " / ".join(dict.fromkeys(institution_lines)) or None
+    police_unit = explicit_unit or (" / ".join(dict.fromkeys(institution_lines)) or None)
 
     city = province = None
     location_match = re.search(r"localidad\s+de\s+([^,]+),\s*(?:Provincia(?:\s+de)?\s+)?([^,.]+)", places_text or subject or "", re.I)
