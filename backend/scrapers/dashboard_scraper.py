@@ -17,7 +17,9 @@ from services.public_contacts import extract_phone
 from services.dashboard_log import dashboard_log
 from services.listing_fields import (
     extract_facebook_author,
+    extract_facebook_publication_text,
     extract_instagram_author,
+    extract_price,
     instagram_url_identity,
 )
 
@@ -158,6 +160,11 @@ class DashboardScraper(SerperGoogleScraper):
                     # Se reutiliza en el enriquecedor de autor; nunca se persiste.
                     item["_facebook_public_html"] = html
                 soup = BeautifulSoup(html, "html.parser")
+                publication_text = (
+                    extract_facebook_publication_text(html)
+                    if item["plataforma"] == "facebook" and url == item["url"]
+                    else None
+                )
                 metadata_parts = [
                     str(tag.get("content") or "").strip()
                     for tag in soup.select('meta[property="og:description"], meta[name="description"], meta[property="og:title"]')
@@ -178,14 +185,17 @@ class DashboardScraper(SerperGoogleScraper):
                     tag.decompose()
                 # No tomar menciones de usuarios, sugerencias ni comentarios como autor.
                 text = " ".join((metadata, soup.get_text(" ", strip=True)[:40000], " ".join(links), " ".join(structured)))
+                if publication_text:
+                    item["search_snippet"] = item.get("description")
+                    item["description"] = publication_text
+                    item["description_source"] = "facebook_public_html"
                 item["phone"] = item["phone"] or extract_phone(text, self.country)
+                item["extracted_price"] = item.get("extracted_price") or extract_price(publication_text, text)
                 email = re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", text, re.I)
                 item["email"] = item["email"] or (email[0][:255] if email else None)
                 for entry in structured:
                     if entry.startswith("Dirección: "):
                         item["address"] = entry[len("Dirección: "):][:255]
-                if metadata:
-                    item["description"] += "\n" + metadata[:4000]
                 item["observed_text"] = item.get("observed_text", "") + " " + " ".join((metadata, " ".join(structured)))
                 if item["plataforma"] == "facebook":
                     author = next(

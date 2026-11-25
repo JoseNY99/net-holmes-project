@@ -30,6 +30,7 @@ from services.public_contacts import extract_labelled_phone, extract_phone, norm
 from services.dashboard_log import dashboard_log
 from services.listing_fields import (
     extract_facebook_author,
+    extract_facebook_publication_text,
     extract_instagram_author,
     extract_price,
     instagram_url_identity,
@@ -161,6 +162,30 @@ def test_phone_requires_context_and_supports_whatsapp_links():
 ])
 def test_explicit_listing_price_extraction(text, expected):
     assert extract_price(text) == expected
+
+
+def test_facebook_visible_description_is_clean_and_keeps_price_and_contacts():
+    html = '''
+    <html><head><meta property="og:description" content="Resumen truncado..."></head>
+    <body><div role="main"><div data-testid="marketplace_pdp_description">
+      Importadas, excelente calidad.<br>
+      <img alt="📏"> Talles disponibles: 39 / 40 / 41 / 42 / 43<br>
+      <img alt="📦"> Stock limitado<br>
+      <img alt="💵"> Precio: $65.000<br>
+      <img alt="📍"> Entrega inmediata
+    </div></div></body></html>
+    '''
+    description = extract_facebook_publication_text(html)
+    assert description == (
+        "Importadas, excelente calidad.\n📏 Talles disponibles: 39 / 40 / 41 / 42 / 43\n"
+        "📦 Stock limitado\n💵 Precio: $65.000\n📍 Entrega inmediata"
+    )
+    assert extract_price(description) == 65000
+
+
+def test_facebook_metadata_alone_is_not_saved_as_visible_description():
+    html = '<meta property="og:description" content="Título y fragmento repetido...">'
+    assert extract_facebook_publication_text(html) is None
 
 
 def test_facebook_post_author_has_priority_over_group():
@@ -550,6 +575,35 @@ def test_facebook_pending_seller_insert_and_duplicate_update(sessions):
         assert report.titular_cuenta == "Maxi Damian"
         assert facebook_data.seller_name == "Maxi Damian"
         assert facebook_data.estado_vendedor == "identificado"
+
+
+def test_verified_facebook_description_and_price_replace_automatic_snippet(sessions):
+    pending = sample_item("fb-visible-description")
+    pending.update({
+        "url": "https://facebook.com/marketplace/item/123456789",
+        "plataforma": "facebook",
+        "seller": "Vendedor No Identificado",
+        "account": None,
+        "seller_author_verified": False,
+        "description": "Resumen truncado sin precio...",
+    })
+    with sessions() as db:
+        report_id, created = search_module.save_item(db, pending, BRAND, "Argentina", "zapatillas", ["top quality"])
+        assert created is True
+        visible = {
+            **pending,
+            "description": "Importadas, excelente calidad.\nPrecio: $65.000\nEntrega inmediata",
+            "description_source": "facebook_playwright",
+            "extracted_price": 65000,
+        }
+        same_id, created = search_module.save_item(
+            db, visible, BRAND, "Argentina", "zapatillas", ["top quality"], report_id,
+        )
+        db.expire_all()
+        report = db.get(ReporteBrandDefense, report_id)
+        assert same_id == report_id and created is False
+        assert report.descripcion_post == visible["description"]
+        assert report.precio_publico == 65000
 
 
 def test_serper_failure_falls_back_once_per_run(monkeypatch):

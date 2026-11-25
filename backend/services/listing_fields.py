@@ -4,6 +4,8 @@ import re
 from typing import Any
 from urllib.parse import urlsplit
 
+from bs4 import BeautifulSoup
+
 
 _PRICE_PATTERNS = (
     # Exige etiqueta o moneda para no confundir teléfonos, talles o fechas con precios.
@@ -53,6 +55,56 @@ def extract_price(*values: Any) -> float | None:
         if len(values) == 1 and (parsed := _number_from_price(text)) is not None:
             return parsed
     return None
+
+
+def extract_facebook_publication_text(raw_html: str) -> str | None:
+    """Extrae sólo el texto visible del aviso/post, sin menús ni sugerencias."""
+    if not raw_html:
+        return None
+    soup = BeautifulSoup(raw_html, "html.parser")
+    for image in soup.select("img[alt]"):
+        alt = str(image.get("alt") or "").strip()
+        if alt:
+            image.replace_with(alt)
+
+    strong_selectors = (
+        '[data-ad-preview="message"]',
+        '[data-ad-comet-preview="message"]',
+        '[data-testid="post_message"]',
+        '[data-testid="marketplace_pdp_description"]',
+    )
+    candidates = []
+    for selector in strong_selectors:
+        for node in soup.select(selector):
+            candidates.append((node.get_text("\n", strip=True), True))
+
+    # Marketplace cambia frecuentemente las clases. Estos nodos se aceptan sólo
+    # cuando contienen señales comerciales propias de una descripción.
+    for node in soup.select('[role="main"] div[dir="auto"], [role="article"] div[dir="auto"]'):
+        candidates.append((node.get_text("\n", strip=True), False))
+
+    best = None
+    best_score = -1
+    commercial = re.compile(
+        r"(?:precio|stock|talles?|tallas?|whatsapp|wa\.me|entrega|env[ií]o|venta|"
+        r"disponible|calidad|importad[oa]s?|mayor|unidad|\$\s*\d)", re.I,
+    )
+    blocked = re.compile(r"^(?:iniciar sesi[oó]n|crear cuenta|ver m[aá]s en facebook|detalles del vendedor)$", re.I)
+    for raw, strong in candidates:
+        lines = []
+        for value in raw.splitlines():
+            clean = " ".join(value.split()).strip()
+            if clean and not blocked.match(clean) and (not lines or clean != lines[-1]):
+                lines.append(clean)
+        text = "\n".join(lines).strip()
+        if len(text) < 20 or (not strong and not commercial.search(text)):
+            continue
+        score = min(len(text), 4000) + (500 if strong else 0)
+        score += 150 if extract_price(text) else 0
+        score += 80 if re.search(r"(?:wa\.me|whatsapp|instagram\s+@)", text, re.I) else 0
+        if score > best_score:
+            best, best_score = text[:8000], score
+    return best
 
 
 def extract_facebook_author(item: dict, title: str = "", description: str = "") -> str | None:

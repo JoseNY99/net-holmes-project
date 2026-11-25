@@ -135,6 +135,14 @@ def save_item(db, item: dict, brand: dict, country: str, keyword: str, terms: li
         ):
             if not getattr(existing, field) and value:
                 setattr(existing, field, value)
+        # Reemplazar únicamente la descripción automática anterior. Una edición
+        # del analista nunca se pisa al reencontrar la publicación.
+        if (
+            item.get("description_source") in {"facebook_public_html", "facebook_playwright"}
+            and (existing.descripcion_post or "").startswith("[INDICIOS DE RÉPLICA:")
+            and item.get("description", "").strip()
+        ):
+            existing.descripcion_post = item["description"].strip()
         if item.get("seller") and (
             item.get("seller_author_verified")
             or (existing_seller_missing and item.get("seller_source") == "ai_public_evidence")
@@ -181,7 +189,10 @@ def save_item(db, item: dict, brand: dict, country: str, keyword: str, terms: li
         return existing.id, False
 
     location = observed_region(item.get("observed_text", "") + " " + item["title"] + " " + item["description"], country)
-    description = f"[INDICIOS DE RÉPLICA: {', '.join(terms)}; pendiente de verificación humana]\n{item['title']}\n{item['description']}"
+    if item.get("description_source") in {"facebook_public_html", "facebook_playwright"}:
+        description = item["description"].strip()
+    else:
+        description = f"[INDICIOS DE RÉPLICA: {', '.join(terms)}; pendiente de verificación humana]\n{item['title']}\n{item['description']}"
     report = ReporteBrandDefense(
         pais=country, producto_catalogo=(item.get("product") or keyword)[:255], marca_afectada=brand["name"],
         plataforma=item["plataforma"], titular_cuenta=item["seller"][:255], url_evidencia=item["url"],

@@ -15,7 +15,8 @@ from bs4 import BeautifulSoup
 
 from services.dashboard_log import dashboard_log
 from services.dashboard_result_rules import canonical_url
-from services.listing_fields import extract_facebook_author
+from services.listing_fields import extract_facebook_author, extract_facebook_publication_text, extract_price
+from services.public_contacts import extract_phone
 
 
 UNKNOWN = {"", "desconocido", "usuario desconocido", "vendedor no identificado"}
@@ -53,12 +54,17 @@ class FacebookPostEnricher:
             return result
 
         cached = self._cache.get(url)
-        if cached and monotonic() - cached[0] < self._cache_ttl:
+        if (
+            cached
+            and monotonic() - cached[0] < self._cache_ttl
+            and item.get("description_source") in {"facebook_public_html", "facebook_playwright"}
+        ):
             result = cached[1]
             self._log(url, item, result, started, original=False, structured=False, playwright=False, cached=True)
             return result
 
         original_queried = structured = playwright_used = False
+        resolved_name = resolved_source = None
         failure = None
         html = ""
         try:
@@ -71,8 +77,7 @@ class FacebookPostEnricher:
                 name, source = self.extract_from_html(html, item)
                 structured = source in {"json_ld", "metadata"}
                 if name:
-                    result = self._result(name, source, "identificado")
-                    return self._finish(url, item, result, started, original_queried, structured, playwright_used)
+                    resolved_name, resolved_source = name, source
                 if self._requires_auth(html):
                     failure = "facebook solicita autenticación"
             else:
@@ -80,19 +85,31 @@ class FacebookPostEnricher:
         except (asyncio.TimeoutError, httpx.HTTPError, OSError, ValueError) as exc:
             failure = f"consulta pública falló: {type(exc).__name__}"
 
-        if failure != "facebook solicita autenticación":
-            playwright_used = True
-            rendered, rendered_text, render_reason = await self._render_public(url)
-            if rendered:
-                name, source = self.extract_from_html(rendered, item, rendered=True)
-                if not name:
-                    name = self.extract_near_title(rendered_text, item)
-                    source = "facebook_playwright" if name else None
-                if name:
-                    result = self._result(name, source, "identificado")
-                    return self._finish(url, item, result, started, original_queried, structured, playwright_used)
-                failure = "playwright renderizó la publicación pero no validó un autor cercano al título"
-            failure = render_reason or failure
+        # Playwright también se intenta cuando el HTML inicial muestra el muro de
+        # acceso: la publicación suele estar renderizada detrás del modal.
+        playwright_used = True
+        rendered, rendered_text, render_reason = await self._render_public(url)
+        if rendered:
+            publication_text = extract_facebook_publication_text(rendered)
+            if publication_text:
+                item["search_snippet"] = item.get("description")
+                item["description"] = publication_text
+                item["description_source"] = "facebook_playwright"
+                item["extracted_price"] = item.get("extracted_price") or extract_price(publication_text)
+                item["phone"] = item.get("phone") or extract_phone(publication_text, self.country)
+            name, source = self.extract_from_html(rendered, item, rendered=True)
+            if not name:
+                name = self.extract_near_title(rendered_text, item)
+                source = "facebook_playwright" if name else None
+            if name:
+                result = self._result(name, source, "identificado")
+                return self._finish(url, item, result, started, original_queried, structured, playwright_used)
+            failure = "playwright renderizó la publicación pero no validó un autor cercano al título"
+        failure = render_reason or failure
+
+        if resolved_name:
+            result = self._result(resolved_name, resolved_source, "identificado")
+            return self._finish(url, item, result, started, original_queried, structured, playwright_used)
 
         if self.serper_key:
             name = await self._complementary_serper(client, url)
@@ -308,6 +325,30 @@ class FacebookPostEnricher:
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=15000)
             await page.wait_for_timeout(2500)
+            for selector in (
+                '[role="dialog"] [aria-label="Cerrar"]',
+                '[role="dialog"] [aria-label="Close"]',
+                '[aria-modal="true"] [aria-label="Cerrar"]',
+                '[aria-modal="true"] [aria-label="Close"]',
+            ):
+                try:
+                    button = page.locator(selector).first
+                    if await button.is_visible(timeout=250):
+                        await button.click(force=True, timeout=1000)
+                        await page.wait_for_timeout(300)
+                        break
+                except Exception:
+                    continue
+            for label in ("Ver más", "See more"):
+                try:
+                    buttons = page.get_by_text(label, exact=True)
+                    for index in range(min(await buttons.count(), 4)):
+                        button = buttons.nth(index)
+                        if await button.is_visible(timeout=150):
+                            await button.click(force=True, timeout=800)
+                except Exception:
+                    continue
+            await page.wait_for_timeout(300)
             body_text = await page.locator("body").inner_text(timeout=5000)
             html = await page.content()
             if "login" in page.url.casefold() and not body_text:
