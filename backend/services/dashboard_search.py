@@ -328,6 +328,9 @@ class DashboardSearchManager:
                             for platform in options["plataformas"]:
                                 state.update(current_platform=platform, current_location=province or options["pais"])
                                 items = await scraper.search(client, platform, query_keyword, province, variant)
+                                # La consulta al proveedor ya terminó. El enriquecimiento posterior
+                                # puede tardar, pero no debe hacer que el panel muestre cero consultas.
+                                state["queries_done"] += 1
                                 state.update(provider=scraper.provider, warning=scraper.warning)
                                 candidates = []
                                 for item in items:
@@ -450,7 +453,6 @@ class DashboardSearchManager:
                                                 state["saved"], state["deadline_at"],
                                             )
                                             return
-                                state["queries_done"] += 1
                                 await asyncio.sleep(0)
                 variant += 1
                 # Al rotar cinco expresiones y diez páginas, comenzar otra ronda

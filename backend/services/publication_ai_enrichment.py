@@ -127,7 +127,9 @@ def _ocr_image(data: bytes) -> str:
                 image = image.resize((int(image.width * ratio), int(image.height * ratio)))
             gray = ImageOps.grayscale(image)
             gray = ImageEnhance.Contrast(gray).enhance(1.7)
-            text = pytesseract.image_to_string(gray, lang="spa+eng", config="--psm 6")
+            # pytesseract termina su subproceso cuando vence este límite. Sin
+            # esto, una imagen dañada puede detener toda la búsqueda.
+            text = pytesseract.image_to_string(gray, lang="spa+eng", config="--psm 6", timeout=6)
             return "\n".join(line.strip() for line in text.splitlines() if line.strip())[:8000]
     except Exception as exc:
         cron_logger.log(f"[OCR publicación] No se pudo leer una imagen: {exc}")
@@ -137,12 +139,17 @@ def _ocr_image(data: bytes) -> str:
 async def add_image_ocr(item: dict, client: httpx.AsyncClient, country: str = "Argentina") -> dict:
     """Añade texto visible de las imágenes sin llamar todavía al LLM."""
     texts = []
-    for source in image_sources(item):
-        data = await _download_image(client, source)
-        if data:
-            text = await asyncio.to_thread(_ocr_image, data)
-            if text:
-                texts.append(text)
+    try:
+        # El OCR complementa los datos, pero nunca debe bloquear la recolección.
+        async with asyncio.timeout(15):
+            for source in image_sources(item):
+                data = await asyncio.wait_for(_download_image(client, source), timeout=7)
+                if data:
+                    text = await asyncio.wait_for(asyncio.to_thread(_ocr_image, data), timeout=8)
+                    if text:
+                        texts.append(text)
+    except TimeoutError:
+        cron_logger.log("[OCR publicación] Tiempo agotado; la búsqueda continúa sin esta imagen.")
     if not texts:
         return item
     ocr_text = "\n--- IMAGEN ---\n".join(dict.fromkeys(texts))[:16000]

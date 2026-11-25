@@ -35,7 +35,9 @@ class FacebookPostEnricher:
     _cache: dict[str, tuple[float, SellerResolution]] = {}
     _cache_ttl = 6 * 60 * 60
     _network_slots = asyncio.Semaphore(2)
-    _playwright_slots = asyncio.Semaphore(1)
+    # Dos contextos permiten enriquecer una tanda sin procesar cada enlace en
+    # serie. Se mantiene un límite bajo para no saturar el contenedor.
+    _playwright_slots = asyncio.Semaphore(2)
     _browser_lock = asyncio.Lock()
     _playwright = None
     _browser = None
@@ -296,7 +298,7 @@ class FacebookPostEnricher:
     async def _render_public(self, url: str) -> tuple[str, str, str | None]:
         try:
             async with self._playwright_slots:
-                return await asyncio.wait_for(self._render_async(url), timeout=20)
+                return await asyncio.wait_for(self._render_async(url), timeout=12)
         except asyncio.TimeoutError:
             return "", "", "playwright agotó el tiempo"
         except Exception as exc:
@@ -323,8 +325,8 @@ class FacebookPostEnricher:
         )
         page = await context.new_page()
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            await page.wait_for_timeout(2500)
+            await page.goto(url, wait_until="domcontentloaded", timeout=8000)
+            await page.wait_for_timeout(1200)
             for selector in (
                 '[role="dialog"] [aria-label="Cerrar"]',
                 '[role="dialog"] [aria-label="Close"]',
