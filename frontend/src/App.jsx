@@ -26,7 +26,8 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 
 function AppRoutes() {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, isClient, loading } = useAuth();
+  const landingPath = isClient ? '/seizure-reports' : '/dashboard';
 
   if (loading) {
     return <div className="page-container"><div className="spinner-container"><div className="spinner spinner--dark"></div></div></div>;
@@ -34,10 +35,10 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
-      <Route path="/home" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />} />
-      <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
-      <Route path="/register" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Register />} />
+      <Route path="/" element={isAuthenticated ? <Navigate to={landingPath} replace /> : <Navigate to="/login" replace />} />
+      <Route path="/home" element={isAuthenticated ? <Navigate to={landingPath} replace /> : <Navigate to="/login" replace />} />
+      <Route path="/login" element={isAuthenticated ? <Navigate to={landingPath} replace /> : <Login />} />
+      <Route path="/register" element={isAuthenticated ? <Navigate to={landingPath} replace /> : <Register />} />
       <Route
         path="/dashboard"
         element={
@@ -89,7 +90,7 @@ function AppRoutes() {
       <Route
         path="/seizure-reports"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute clientAllowed>
             <SeizureReports />
           </ProtectedRoute>
         }

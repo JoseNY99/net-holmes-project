@@ -2,8 +2,8 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-export default function ProtectedRoute({ children, adminOnly = false }) {
-  const { isAuthenticated, isAdmin, loading } = useAuth();
+export default function ProtectedRoute({ children, adminOnly = false, clientAllowed = false }) {
+  const { isAuthenticated, isAdmin, isClient, loading } = useAuth();
 
   // Mostrar spinner mientras verifica sesión
   if (loading) {
@@ -24,9 +24,13 @@ export default function ProtectedRoute({ children, adminOnly = false }) {
     return <Navigate to="/login" replace />;
   }
 
+  if (isClient && !clientAllowed) {
+    return <Navigate to="/seizure-reports" replace />;
+  }
+
   // Redirigir si requiere admin y no lo es
   if (adminOnly && !isAdmin) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={isClient ? '/seizure-reports' : '/dashboard'} replace />;
   }
 
   return children;

@@ -47,6 +47,7 @@ export function AuthProvider({ children }) {
   const isAuthenticated = !!token && !!user;
   const isAdmin = user?.rol === 'admin' || user?.rol === 'sup_admin';
   const isSuperAdmin = user?.rol === 'sup_admin';
+  const isClient = user?.rol === 'cliente';
 
   const value = {
     user,
@@ -56,6 +57,7 @@ export function AuthProvider({ children }) {
     isAuthenticated,
     isAdmin,
     isSuperAdmin,
+    isClient,
     loading,
   };
 

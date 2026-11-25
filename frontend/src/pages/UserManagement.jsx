@@ -220,6 +220,13 @@ export default function UserManagement() {
         </span>
       );
     }
+    if (r === 'cliente') {
+      return (
+        <span className="role-badge role-analista">
+          CLIENTE · ALLANAMIENTOS
+        </span>
+      );
+    }
     return (
       <span className="role-badge role-analista">
         ANALISTA
@@ -287,6 +294,7 @@ export default function UserManagement() {
               <option value="sup_admin">  SUP_ADMIN</option>
               <option value="admin">  ADMIN</option>
               <option value="analista">  ANALISTA</option>
+              <option value="cliente">  CLIENTE</option>
             </select>
           </div>
         </div>
@@ -495,6 +503,7 @@ export default function UserManagement() {
                 <label>Nivel de Acceso (Rol) *</label>
                 <select className="input-field" value={formData.rol} onChange={e => setFormData({...formData, rol: e.target.value})}>
                   <option value="analista">  Analista OSINT (Operador)</option>
+                  <option value="cliente">  Cliente (solo Allanamientos)</option>
                   {isSuperAdmin && (
                     <>
                       <option value="admin">  Administrador Global</option>
@@ -557,6 +566,7 @@ export default function UserManagement() {
                   <label>Nivel de Acceso (Rol)</label>
                   <select className="input-field" value={editFormData.rol} onChange={e => setEditFormData({...editFormData, rol: e.target.value})}>
                     <option value="analista">  Analista OSINT</option>
+                    <option value="cliente">  Cliente (solo Allanamientos)</option>
                     <option value="admin">  Administrador Global</option>
                     <option value="sup_admin">  Super Administrador (SUP_ADMIN)</option>
                   </select>

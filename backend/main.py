@@ -141,6 +141,19 @@ async def lifespan(app: FastAPI):
             conn.rollback()
             pass
 
+        # Habilita el acceso acotado al módulo Allanamientos. PostgreSQL no
+        # actualiza restricciones CHECK mediante create_all.
+        user_role_migrations = [
+            "ALTER TABLE users DROP CONSTRAINT IF EXISTS ck_users_rol;",
+            "ALTER TABLE users ADD CONSTRAINT ck_users_rol CHECK (rol IN ('sup_admin', 'admin', 'analista', 'cliente'));",
+        ]
+        for migration in user_role_migrations:
+            try:
+                conn.execute(text(migration))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
         # Migración de estado en tabla products
         try:
             conn.execute(text("ALTER TABLE products ADD COLUMN estado VARCHAR(20) DEFAULT 'activa';"))

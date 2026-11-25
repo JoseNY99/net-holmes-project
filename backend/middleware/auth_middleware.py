@@ -3,7 +3,7 @@ Middleware de autenticación.
 Provee dependencias de FastAPI para proteger endpoints con JWT.
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ bearer_scheme = HTTPBearer()
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -49,6 +50,22 @@ def get_current_user(
             detail="Sesión expirada: Se ha iniciado sesión desde otro dispositivo o navegador.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # El rol cliente opera exclusivamente dentro del módulo Allanamientos. Se
+    # permite consultar el catálogo de marcas porque el formulario lo necesita.
+    if user.rol == "cliente":
+        path = request.url.path.rstrip("/")
+        allowed = (
+            path == "/api/seizure-reports"
+            or path.startswith("/api/seizure-reports/")
+            or path == "/api/auth/me"
+            or (request.method == "GET" and path == "/api/brands")
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="El rol Cliente solo tiene acceso al módulo Allanamientos",
+            )
 
     return user
 

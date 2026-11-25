@@ -8,7 +8,7 @@ import './Navbar.css';
 import { getCronStatus } from '../services/cronService';
 
 export default function Navbar() {
-  const { user, isAuthenticated, isAdmin, logout } = useAuth();
+  const { user, isAuthenticated, isAdmin, isClient, logout } = useAuth();
   const navigate = useNavigate();
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -25,7 +25,7 @@ export default function Navbar() {
 
   // Chequear estado de cron
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isClient) return;
     
     const checkCron = async () => {
       try {
@@ -44,7 +44,7 @@ export default function Navbar() {
     checkCron();
     const interval = setInterval(checkCron, 15000);
     return () => clearInterval(interval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isClient]);
 
   // Alternar tema claro/oscuro
   const toggleTheme = () => {
@@ -78,7 +78,7 @@ export default function Navbar() {
     <nav className="navbar">
       <div className="navbar__inner">
         {/* Logo */}
-        <Link to="/" className="navbar__logo">
+        <Link to={isClient ? '/seizure-reports' : '/'} className="navbar__logo">
           <img src="/netholmes-icon.png" alt="Net Holmes" className="navbar__logo-img" />
           <span className="navbar__logo-text">net <strong className="navbar__logo-highlight">HOLMES</strong></span>
         </Link>
@@ -99,7 +99,7 @@ export default function Navbar() {
             <div className="navbar__mobile-menu">
               {isAuthenticated && (
                 <div className="navbar__links">
-                <NavLink
+                {!isClient && <NavLink
                   to="/dashboard"
                   className={({ isActive }) =>
                     `navbar__link ${isActive ? 'navbar__link--active' : ''}`
@@ -107,8 +107,8 @@ export default function Navbar() {
                   onClick={() => setMenuOpen(false)}
                 >
                   Dashboard
-                </NavLink>
-                <NavLink
+                </NavLink>}
+                {!isClient && <NavLink
                   to="/investigation"
                   className={({ isActive }) =>
                     `navbar__link ${isActive ? 'navbar__link--active' : ''}`
@@ -116,7 +116,7 @@ export default function Navbar() {
                   onClick={() => setMenuOpen(false)}
                 >
                   Investigaciones
-                </NavLink>
+                </NavLink>}
                 <NavLink
                   to="/seizure-reports"
                   className={({ isActive }) =>
@@ -137,7 +137,7 @@ export default function Navbar() {
                       Scraping Manual
                     </NavLink>
                   )}
-                  <NavLink
+                  {!isClient && <NavLink
                     to="/chat"
                     className={({ isActive }) =>
                       `navbar__link ${isActive ? 'navbar__link--active' : ''}`
@@ -145,8 +145,8 @@ export default function Navbar() {
                     onClick={() => setMenuOpen(false)}
                   >
                     Honeypot Chat
-                  </NavLink>
-                  <NavLink
+                  </NavLink>}
+                  {!isClient && <NavLink
                     to="/correlations"
                     className={({ isActive }) =>
                       `navbar__link ${isActive ? 'navbar__link--active' : ''}`
@@ -154,7 +154,7 @@ export default function Navbar() {
                     onClick={() => setMenuOpen(false)}
                   >
                     Correlaciones
-                  </NavLink>
+                  </NavLink>}
                 {isAdmin && (
                   <>
                     <NavLink
@@ -241,22 +241,22 @@ export default function Navbar() {
         <div className="navbar__links navbar__desktop-only" style={{ display: '' }}>
           {isAuthenticated && (
             <>
-              <NavLink
+              {!isClient && <NavLink
                 to="/dashboard"
                 className={({ isActive }) =>
                   `navbar__link ${isActive ? 'navbar__link--active' : ''}`
                 }
               >
                 Dashboard
-              </NavLink>
-              <NavLink
+              </NavLink>}
+              {!isClient && <NavLink
                 to="/investigation"
                 className={({ isActive }) =>
                   `navbar__link ${isActive ? 'navbar__link--active' : ''}`
                 }
               >
                 Investigaciones
-              </NavLink>
+              </NavLink>}
               <NavLink
                 to="/seizure-reports"
                 className={({ isActive }) =>
@@ -275,22 +275,22 @@ export default function Navbar() {
                   Scraping Manual
                 </NavLink>
               )}
-              <NavLink
+              {!isClient && <NavLink
                 to="/chat"
                 className={({ isActive }) =>
                   `navbar__link ${isActive ? 'navbar__link--active' : ''}`
                 }
               >
                   Honeypot Chat
-              </NavLink>
-              <NavLink
+              </NavLink>}
+              {!isClient && <NavLink
                 to="/correlations"
                 className={({ isActive }) =>
                   `navbar__link ${isActive ? 'navbar__link--active' : ''}`
                 }
               >
                 Correlaciones
-              </NavLink>
+              </NavLink>}
               {isAdmin && (
                 <>
                   <NavLink

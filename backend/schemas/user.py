@@ -1,6 +1,7 @@
 """Esquemas Pydantic para usuarios y autenticación."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, ConfigDict
 
@@ -21,7 +22,7 @@ class UserLogin(BaseModel):
     password: str
 
 class UserCreateAdmin(UserCreate):
-    rol: str = "analista"
+    rol: Literal["sup_admin", "admin", "analista", "cliente"] = "analista"
 
 
 class UserUpdate(BaseModel):
@@ -30,7 +31,7 @@ class UserUpdate(BaseModel):
     celular: str | None = None
     ci: str | None = None
     correo: EmailStr | None = None
-    rol: str | None = None
+    rol: Literal["sup_admin", "admin", "analista", "cliente"] | None = None
     password: str | None = None
 
 

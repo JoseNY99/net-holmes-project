@@ -28,7 +28,7 @@ class User(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("rol IN ('sup_admin', 'admin', 'analista')", name="ck_users_rol"),
+        CheckConstraint("rol IN ('sup_admin', 'admin', 'analista', 'cliente')", name="ck_users_rol"),
     )
 
     # Relación: marcas creadas por este usuario
