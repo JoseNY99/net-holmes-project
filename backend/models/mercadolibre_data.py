@@ -15,7 +15,8 @@ class ReporteMercadoLibreData(Base):
     seller_reputation_score = Column(String(50), nullable=True)
     seller_transactions_completed = Column(Integer, nullable=True)
     item_id = Column(String(100), nullable=True)
-    item_condition = Column(String(50), nullable=True)
+    # Mercado Libre también puede informar condiciones descriptivas extensas.
+    item_condition = Column(Text, nullable=True)
     category_id = Column(String(100), nullable=True)
     category_name = Column(String(200), nullable=True)
     shipping_mode = Column(String(100), nullable=True)

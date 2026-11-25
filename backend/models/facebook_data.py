@@ -12,7 +12,8 @@ class ReporteFacebookData(Base):
     listing_id = Column(String(100), nullable=True)
     seller_profile_url = Column(Text, nullable=True)
     marketplace_category = Column(String(100), nullable=True)
-    item_condition = Column(String(50), nullable=True)
+    # La IA puede devolver descripciones completas del estado del producto.
+    item_condition = Column(Text, nullable=True)
     delivery_method = Column(String(100), nullable=True)
     seller_name = Column(String(200), nullable=True)
     fuente_vendedor = Column(String(50), nullable=True)

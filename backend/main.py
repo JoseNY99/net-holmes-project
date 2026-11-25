@@ -108,6 +108,19 @@ async def lifespan(app: FastAPI):
             except Exception:
                 conn.rollback()
 
+        # Las condiciones extraídas por scrapers/IA son descripciones y pueden
+        # superar ampliamente los 50 caracteres originales.
+        product_condition_migrations = [
+            "ALTER TABLE reporte_facebook_data ALTER COLUMN item_condition TYPE TEXT;",
+            "ALTER TABLE reporte_mercadolibre_data ALTER COLUMN item_condition TYPE TEXT;",
+        ]
+        for migration in product_condition_migrations:
+            try:
+                conn.execute(text(migration))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
         instagram_identity_migrations = [
             "ALTER TABLE reporte_instagram_data ADD COLUMN tipo_resultado VARCHAR(20);",
             "ALTER TABLE reporte_instagram_data ADD COLUMN fuente_username VARCHAR(50);",
