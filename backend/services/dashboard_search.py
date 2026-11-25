@@ -377,9 +377,38 @@ class DashboardSearchManager:
                                                 item["seller_display_name"] = identity.display_name
                                     # La imagen puede contener la marca, el indicador de réplica y
                                     # datos de contacto que no aparecen en el snippet del buscador.
-                                    enriched = await asyncio.gather(*(
-                                        add_image_ocr(item, client, options["pais"]) for item in enriched
-                                    ))
+                                    dashboard_log(
+                                        "[DASHBOARD][OCR-INICIO] publicaciones=%s plataforma=%s",
+                                        len(enriched), platform,
+                                    )
+                                    ocr_tasks = [
+                                        asyncio.create_task(add_image_ocr(item, client, options["pais"]))
+                                        for item in enriched
+                                    ]
+                                    done, pending = await asyncio.wait(ocr_tasks, timeout=20)
+                                    for task in pending:
+                                        task.cancel()
+                                    # Los diccionarios se enriquecen en el lugar. Si alguna tarea
+                                    # vence, se conserva el resultado sin OCR y continúa el lote.
+                                    for task in done:
+                                        try:
+                                            task.result()
+                                        except asyncio.CancelledError:
+                                            dashboard_log("[DASHBOARD][OCR-OMITIDO] tarea cancelada")
+                                        except Exception as exc:
+                                            dashboard_log(
+                                                "[DASHBOARD][OCR-OMITIDO] error=%s",
+                                                type(exc).__name__,
+                                            )
+                                    if pending:
+                                        dashboard_log(
+                                            "[DASHBOARD][OCR-TIMEOUT] omitidas=%s; continúa la búsqueda",
+                                            len(pending),
+                                        )
+                                    dashboard_log(
+                                        "[DASHBOARD][OCR-FIN] completadas=%s omitidas=%s",
+                                        len(done), len(pending),
+                                    )
                                     for item in enriched:
                                         dashboard_log(
                                             "[DASHBOARD][RESULTADO-COMPLETO] %s",
