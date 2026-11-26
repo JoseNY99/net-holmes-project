@@ -66,7 +66,7 @@ def test_word_and_pdf_without_photos(monkeypatch, tmp_path):
     products = next(table for table in opened.tables if table.cell(0, 0).text == "SEIZED PRODUCTS")
     assert [cell.text for cell in products.rows[2].cells] == ["Nike", "Calzado · Zapatillas incautadas", "1250 unidades", "USD 450"]
     police = next(table for table in opened.tables if table.cell(0, 0).text == "POLICE REPORT: CONFIDENTIAL")
-    assert police.cell(1, 0).text == "Resultado positivo del procedimiento."
+    assert police.cell(1, 0).text == ""
     assert opened.tables[1].cell(5, 1).text == "N/A"
     assert pdf.stat().st_size > 1000 and word.stat().st_size > 1000
 

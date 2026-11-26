@@ -853,19 +853,9 @@ def generate_docx(report, user_id):
     police_table = next(table for table in doc.tables if table.cell(0, 0).text.strip() == "POLICE REPORT: CONFIDENTIAL")
     police_table.cell(0, 0).paragraphs[0].paragraph_format.page_break_before = True
     summary_cell = police_table.cell(1, 0)
-    report_body = getattr(report, "operation_summary", None)
-    # Los borradores creados con versiones anteriores guardaron la reseña en
-    # una sola línea. Recuperamos su formato desde el PDF original al generar.
-    if report_body and "\n" not in report_body:
-        source_document = next((item for item in report.files if item.kind == "document" and item.mime_type == "application/pdf"), None)
-        if source_document:
-            try:
-                extracted_body = extract_police_pdf(STORAGE / source_document.stored_name).get("operation_summary")
-                if extracted_body:
-                    report_body = extracted_body
-            except Exception:
-                pass
-    _set_report_body(summary_cell, report_body or "N/A")
+    # La plantilla corporativa mantiene esta celda vacía. El acta policial se
+    # incorpora completa, página por página, inmediatamente después.
+    summary_cell.text = ""
     _repeat_table_header(police_table.rows[0])
 
     # Word no permite anexar un PDF de forma nativa conservando sus páginas.
