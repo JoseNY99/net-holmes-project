@@ -469,7 +469,7 @@ def extract_police_pdf(path_or_bytes) -> dict:
         origin = "Oficio"
     target_details = [{
         "establishment_name": None, "address": address, "city": city, "province": province,
-        "country": "Argentina", "investigated_party": infringers, "description": subject,
+        "country": "Argentina", "investigated_party": None, "description": subject,
     } for address in places]
 
     return {
@@ -586,7 +586,9 @@ def _report_values(report):
         ("TARGET", ", ".join(getattr(report, "brand_names", []) or []) or report.client_name or "N/A"), ("DATE", report.operation_date.strftime("%d/%m/%Y") if report.operation_date else "N/A"),
         ("ORIGIN OF THE CASE", report.case_origin or "N/A"), ("SEARCH AND WARRANT TARGETS", targets),
         ("AMOUNT OF SEIZED GOODS", str(report.seized_goods_total)), ("SEIZED GOODS BY CLIENT / BRAND", breakdown_text),
-        ("INFRINGERS", "; ".join(t.investigated_party for t in report.targets if t.investigated_party) or "N/A"),
+        # La plantilla corporativa reserva el acta y sus involucrados para el
+        # anexo policial completo. No se reproduce ese bloque en INFRINGERS.
+        ("INFRINGERS", "N/A"),
         ("LAW ENFORCEMENT AGENCY", " - ".join(filter(None, [report.police_agency, report.police_unit])) or "N/A"),
         ("JUDGE", " - ".join(filter(None, [report.court, report.judge])) or "N/A"), ("MEDIA", report.media_impact or "N/A"),
         ("POLITICS", report.political_impact or "N/A"), ("PROPOSED FEES", fee_text),
