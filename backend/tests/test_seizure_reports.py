@@ -292,6 +292,42 @@ def test_crud_totals_workflow_history_and_reference(tmp_path):
     assert [row.to_status for row in report.history] == ["BORRADOR", "REVISION", "APROBACION"]
 
 
+def test_split_report_creates_one_draft_per_product_and_copies_evidence(monkeypatch, tmp_path):
+    monkeypatch.setattr(service, "STORAGE", tmp_path)
+    engine = create_engine(f"sqlite:///{tmp_path / 'split.db'}")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine)()
+    user = User(nombre="Ana", apellido="Test", correo="split@example.com", password_hash="x", rol="admin")
+    db.add(user); db.flush()
+    db.add_all([Brand(nombre="Puma", created_by=user.id), Brand(nombre="Nike", created_by=user.id)])
+    db.commit()
+    payload = SeizureReportIn(
+        brand_names=["Puma", "Nike"],
+        targets=[TargetIn(address="Castelli 264, CABA")],
+        products=[
+            ProductIn(brand_name="Puma", client_name="Puma", quantity=12, notes="USD 450"),
+            ProductIn(brand_name="Nike", client_name="Nike", quantity=8, notes="USD 650"),
+        ],
+    )
+    report = service.apply_payload(db, SeizureReport(created_by=user.id), payload, user.id)
+    (tmp_path / "acta.pdf").write_bytes(b"acta")
+    report.files.append(SeizureFile(
+        kind="document", document_type="ACTA_POLICIAL", original_name="acta.pdf",
+        stored_name="acta.pdf", mime_type="application/pdf", size_bytes=4,
+        position=0, uploaded_by=user.id,
+    ))
+    db.commit(); db.refresh(report)
+
+    separated = service.split_report_by_product(db, report, user.id)
+
+    assert len(separated) == 2
+    assert [[product.brand_name for product in row.products] for row in separated] == [["Puma"], ["Nike"]]
+    assert [row.seized_goods_total for row in separated] == [12, 8]
+    assert [row.brand_names for row in separated] == [["Puma"], ["Nike"]]
+    assert all(len(row.files) == 1 for row in separated)
+    assert all(row.status == "BORRADOR" for row in separated)
+
+
 def test_save_long_investigated_parties_from_police_report(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'long-fields.db'}")
     Base.metadata.create_all(engine)

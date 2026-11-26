@@ -53,6 +53,13 @@ def update(report_id: int, data: SeizureReportIn, db: Session = Depends(get_db),
     return service.apply_payload(db, report, data, user.id)
 
 
+@router.post("/{report_id}/split-products", response_model=list[SeizureReportOut])
+def split_products(report_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    report = service.get_report(db, report_id)
+    _require_edit_access(report, user)
+    return service.split_report_by_product(db, report, user.id)
+
+
 @router.post("/{report_id}/transition", response_model=SeizureReportOut)
 def change_status(report_id: int, data: TransitionIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     report = service.get_report(db, report_id)

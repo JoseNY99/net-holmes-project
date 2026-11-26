@@ -4,7 +4,7 @@ import { getBrands } from '../services/brandService';
 import {
   analyzeSeizurePhotos, createSeizureReport, deleteSeizureFile, downloadSeizureReport, extractPolicePdf, extractSeizureProductList, getSeizureHistory,
   getSeizureReport, listSeizureReports, reorderSeizureFiles, transitionSeizureReport,
-  updateSeizureFile, updateSeizureReport, uploadSeizureDocuments, uploadSeizurePhotos,
+  splitSeizureReportProducts, updateSeizureFile, updateSeizureReport, uploadSeizureDocuments, uploadSeizurePhotos,
 } from '../services/seizureReportService';
 import './SeizureReports.css';
 
@@ -45,8 +45,53 @@ export default function SeizureReports() {
   const validateProductSelection=()=>{ const valid=form.products.some(product=>product.brand_name?.trim()&&Number(product.quantity)>0); if(valid)return true; setMessage('Falta adjuntar el listado de cantidades y precios para completar los productos.'); document.querySelector('.seizure-products-card')?.scrollIntoView({behavior:'smooth',block:'center'}); return false; };
   const openNew=()=>{ resetForm(); setShowForm(true); };
   const editReport=async(id)=>{ setLoading(true); try { const {data}=await getSeizureReport(id); setEditingId(id); setStoredFiles(data.files||[]); setForm({...blank,...data,brand_id:data.brand_id||'',brand_names:data.brand_names?.length?data.brand_names:(data.brand_name?[data.brand_name]:[]),operation_date:data.operation_date||'',targets:data.targets?.length?data.targets:blank.targets,products:data.products?.length?data.products:blank.products}); setShowForm(true); window.scrollTo({top:0,behavior:'smooth'}); } catch { setMessage('No se pudo abrir el borrador.'); } finally { setLoading(false); } };
-  const saveDraft=async()=>{ setLoading(true); setMessage(''); try { const payload={...form,operation_date:form.operation_date||null,brand_id:form.brand_id?Number(form.brand_id):null,targets:form.targets.filter(target=>target.address?.trim()),products:form.products.filter(product=>product.brand_name?.trim()).map(p=>({...p,quantity:Number(p.quantity)||0}))}; const {data}=editingId?await updateSeizureReport(editingId,payload):await createSeizureReport(payload); setEditingId(data.id); if(documents.length)await uploadSeizureDocuments(data.id,documents); if(photos.length){const uploaded=await uploadSeizurePhotos(data.id,photos.map(item=>item.file));for(let index=0;index<uploaded.length;index++){const fileId=uploaded[index].data?.[0]?.id;if(fileId)await updateSeizureFile(data.id,fileId,{caption:photos[index].caption||null,establishment:photos[index].establishment||null});}} setMessage(`Informe #${data.id} guardado como borrador.`); resetForm(); setShowForm(false); await load(); window.scrollTo({top:0,behavior:'smooth'}); } catch(err){setMessage(err.response?.data?.detail||'No se pudo guardar el informe.');} finally {setLoading(false);} };
-  const submit=async(e)=>{ e.preventDefault(); if(!validateProductSelection())return; if(!editingId&&documents.length!==1){setMessage('Seleccioná el parte policial PDF antes de generar.');return;} setLoading(true); setMessage(''); let reportId=editingId; try { const payload={...form,operation_date:form.operation_date||null,brand_id:form.brand_id?Number(form.brand_id):null,targets:form.targets.filter(target=>target.address?.trim()),products:form.products.filter(product=>product.brand_name?.trim()).map(p=>({...p,quantity:Number(p.quantity)||0}))}; const {data}=editingId?await updateSeizureReport(editingId,payload):await createSeizureReport(payload); reportId=data.id; setEditingId(data.id); if(documents.length) await uploadSeizureDocuments(data.id,documents); if(photos.length){ const uploaded=await uploadSeizurePhotos(data.id,photos.map(item=>item.file)); for(let index=0;index<uploaded.length;index++){ const fileId=uploaded[index].data?.[0]?.id; if(fileId)await updateSeizureFile(data.id,fileId,{caption:photos[index].caption||null,establishment:photos[index].establishment||null}); } } const response=await downloadSeizureReport(data.id,'docx'); const url=URL.createObjectURL(response.data); const link=document.createElement('a'); link.href=url; link.download=`${data.internal_reference||`informe-${data.id}`}_SEIZURE_REPORT.docx`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000); setMessage(`Informe Word #${data.id} generado y descargado correctamente.`); resetForm(); setShowForm(false); await load(); } catch(err){ let detail=err.response?.data?.detail; if(err.response?.data instanceof Blob){ try { detail=JSON.parse(await err.response.data.text())?.detail; } catch { /* respuesta no JSON */ } } setMessage(reportId?`El informe #${reportId} quedó guardado, pero no se pudo generar el Word: ${detail||'revisá los archivos adjuntos'}.`:(detail||'No se pudo generar el informe.')); await load().catch(()=>{}); } finally {setLoading(false);} };
+  const persistSeparatedReports=async()=>{
+    const payload={...form,operation_date:form.operation_date||null,brand_id:form.brand_id?Number(form.brand_id):null,targets:form.targets.filter(target=>target.address?.trim()),products:form.products.filter(product=>product.brand_name?.trim()).map(p=>({...p,quantity:Number(p.quantity)||0}))};
+    const {data}=editingId?await updateSeizureReport(editingId,payload):await createSeizureReport(payload);
+    setEditingId(data.id);
+    if(documents.length)await uploadSeizureDocuments(data.id,documents);
+    if(photos.length){
+      const uploaded=await uploadSeizurePhotos(data.id,photos.map(item=>item.file));
+      for(let index=0;index<uploaded.length;index++){
+        const fileId=uploaded[index].data?.[0]?.id;
+        if(fileId)await updateSeizureFile(data.id,fileId,{caption:photos[index].caption||null,establishment:photos[index].establishment||null});
+      }
+    }
+    const separated=await splitSeizureReportProducts(data.id);
+    return separated.data||[data];
+  };
+  const saveDraft=async()=>{
+    setLoading(true);setMessage('');
+    try{
+      const reports=await persistSeparatedReports();
+      setMessage(`${reports.length} ${reports.length===1?'informe guardado':'informes separados guardados'} como borrador.`);
+      resetForm();setShowForm(false);await load();window.scrollTo({top:0,behavior:'smooth'});
+    }catch(err){setMessage(err.response?.data?.detail||'No se pudo guardar el informe.');}
+    finally{setLoading(false);}
+  };
+  const submit=async(e)=>{
+    e.preventDefault();if(!validateProductSelection())return;
+    if(!editingId&&documents.length!==1){setMessage('Seleccioná el parte policial PDF antes de generar.');return;}
+    setLoading(true);setMessage('');let reportId=editingId;
+    try{
+      const reports=await persistSeparatedReports();
+      reportId=reports[0]?.id||reportId;
+      for(const report of reports){
+        const response=await downloadSeizureReport(report.id,'docx');
+        const url=URL.createObjectURL(response.data);
+        const link=document.createElement('a');
+        link.href=url;link.download=`${report.internal_reference||`informe-${report.id}`}_${report.brand_name||report.client_name||'PRODUCTO'}_SEIZURE_REPORT.docx`;
+        document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      }
+      setMessage(`${reports.length} ${reports.length===1?'informe Word generado':'informes Word separados generados'} correctamente.`);
+      resetForm();setShowForm(false);await load();
+    }catch(err){
+      let detail=err.response?.data?.detail;
+      if(err.response?.data instanceof Blob){try{detail=JSON.parse(await err.response.data.text())?.detail;}catch{/* respuesta no JSON */}}
+      setMessage(reportId?`El informe #${reportId} quedó guardado, pero no se pudo generar el Word: ${detail||'revisá los archivos adjuntos'}.`:(detail||'No se pudo generar el informe.'));
+      await load().catch(()=>{});
+    }finally{setLoading(false);}
+  };
   const download=async(id,format)=>{ const {data}=await downloadSeizureReport(id,format); const url=URL.createObjectURL(data); const a=document.createElement('a'); a.href=url; a.download=`seizure-report.${format}`; a.click(); URL.revokeObjectURL(url); };
   const previewPdf=async(id)=>{ const tab=window.open('','_blank'); try { const {data}=await downloadSeizureReport(id,'pdf'); const url=URL.createObjectURL(data); tab.location=url; setTimeout(()=>URL.revokeObjectURL(url),60000); } catch { tab.close(); setMessage('No se pudo generar la vista previa.'); } };
   const changeStatus=async(id,nextStatus)=>{ try { await transitionSeizureReport(id,nextStatus); setMessage(`Estado actualizado a ${statusLabel(nextStatus)}.`); await load(); } catch(err){ setMessage(err.response?.data?.detail||'No se pudo cambiar el estado.'); } };

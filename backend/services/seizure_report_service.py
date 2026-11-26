@@ -210,6 +210,13 @@ async def store_upload(db, report, upload: UploadFile, kind: str, user_id: int, 
     content = await upload.read()
     if not content or len(content) > 20 * 1024 * 1024:
         raise HTTPException(413, "El archivo debe pesar entre 1 byte y 20 MB")
+    original_name = Path(upload.filename or "archivo").name
+    duplicate = next((
+        row for row in report.files
+        if row.kind == kind and row.original_name == original_name and row.size_bytes == len(content)
+    ), None)
+    if duplicate:
+        return duplicate
     suffix = Path(upload.filename or "file").suffix.lower()
     stored = f"{report.id}_{uuid.uuid4().hex}{suffix}"
     target = STORAGE / stored
@@ -226,7 +233,7 @@ async def store_upload(db, report, upload: UploadFile, kind: str, user_id: int, 
             target.unlink(missing_ok=True); raise HTTPException(415, "El PDF no es válido")
     elif not zipfile.is_zipfile(BytesIO(content)):
         target.unlink(missing_ok=True); raise HTTPException(415, "El documento Word no es válido")
-    row = SeizureFile(report_id=report.id, kind=kind, original_name=Path(upload.filename or "archivo").name,
+    row = SeizureFile(report_id=report.id, kind=kind, original_name=original_name,
                       stored_name=stored, mime_type=upload.content_type, size_bytes=len(content), position=position,
                       uploaded_by=user_id, document_type="ACTA_POLICIAL" if kind == "document" else None)
     db.add(row); db.flush()
@@ -234,6 +241,94 @@ async def store_upload(db, report, upload: UploadFile, kind: str, user_id: int, 
                 details={"kind": kind, "name": row.original_name, "size_bytes": row.size_bytes})
     db.commit(); db.refresh(row)
     return row
+
+
+def split_report_by_product(db: Session, report: SeizureReport, user_id: int) -> list[SeizureReport]:
+    """Convierte un borrador con varios productos en un informe por producto."""
+    products = list(report.products)
+    if len(products) <= 1:
+        return [report]
+
+    catalogue = {row.nombre.casefold(): row for row in db.query(Brand).all()}
+    source_files = []
+    seen_files = set()
+    for row in report.files:
+        signature = (row.kind, row.original_name, row.size_bytes)
+        if signature not in seen_files:
+            source_files.append(row)
+            seen_files.add(signature)
+
+    common_fields = (
+        "country", "province", "city", "operation_date", "case_origin", "action_type", "report_type",
+        "client_case_number", "investigator", "general_notes", "police_agency", "police_unit", "court",
+        "judge", "prosecution", "prosecutor", "court_case_number", "authorities_notes", "media_impact",
+        "political_impact", "currency", "internal_comments", "background", "operation_summary", "created_by",
+    )
+    target_values = [{
+        key: getattr(target, key) for key in (
+            "establishment_name", "address", "city", "province", "country", "description",
+            "investigated_party", "notes",
+        )
+    } for target in report.targets]
+
+    def configure(target_report: SeizureReport, product: SeizureProduct) -> None:
+        brand = catalogue.get((product.brand_name or "").casefold())
+        target_report.brand_id = brand.id if brand else None
+        target_report.brand_name = product.brand_name
+        target_report.client_name = product.client_name or product.brand_name
+        target_report.brand_code = brand_code(product.brand_name)
+        target_report.proposed_fees = product.notes or "N/A"
+        target_report.seized_goods_total = product.quantity or 0
+        target_report.report_brands = [SeizureReportBrand(
+            brand_id=brand.id if brand else None,
+            brand_name=product.brand_name,
+        )]
+
+    created = [report]
+    first = products[0]
+    report.internal_reference = None
+    report.products[:] = [first]
+    report.report_brands.clear()
+    db.flush()
+    configure(report, first)
+
+    for product in products[1:]:
+        clone = SeizureReport(**{key: getattr(report, key) for key in common_fields})
+        clone.status = "BORRADOR"
+        clone.internal_reference = None
+        clone.targets = [SeizureTarget(**values) for values in target_values]
+        clone.products = [SeizureProduct(**{
+            key: getattr(product, key) for key in (
+                "brand_name", "client_name", "category", "description", "quantity", "unit",
+                "establishment", "notes",
+            )
+        })]
+        configure(clone, clone.products[0])
+        db.add(clone)
+        db.flush()
+        for source in source_files:
+            suffix = Path(source.stored_name).suffix
+            stored_name = f"{clone.id}_{uuid.uuid4().hex}{suffix}"
+            source_path = STORAGE / source.stored_name
+            if not source_path.is_file():
+                continue
+            (STORAGE / stored_name).write_bytes(source_path.read_bytes())
+            clone.files.append(SeizureFile(
+                kind=source.kind, document_type=source.document_type, original_name=source.original_name,
+                stored_name=stored_name, mime_type=source.mime_type, size_bytes=source.size_bytes,
+                position=source.position, caption=source.caption, brand_name=source.brand_name,
+                establishment=source.establishment, include_in_report=source.include_in_report,
+                uploaded_by=source.uploaded_by,
+            ))
+        clone.history.append(SeizureHistory(to_status="BORRADOR", comment=f"Borrador separado del informe #{report.id}", user_id=user_id))
+        audit_event(db, clone.id, user_id, "REPORT_SPLIT", details={"source_report_id": report.id, "product": product.brand_name})
+        created.append(clone)
+
+    audit_event(db, report.id, user_id, "REPORT_SPLIT", details={"created_report_ids": [row.id for row in created[1:]]})
+    db.commit()
+    for row in created:
+        db.refresh(row)
+    return created
 
 
 def extract_police_pdf(path_or_bytes) -> dict:
@@ -626,7 +721,12 @@ def generate_pdf(report, user_id):
         path = STORAGE/photo.stored_name; w,h = _photo_dimensions(path, 16.5*cm, 10.5*cm)
         story += [RLImage(str(path), width=w, height=h), Paragraph(_photo_caption(photo, index), styles["BodyText"]), Spacer(1,.4*cm)]
         if index % 2 == 1 and index < len(photos)-1: story.append(PageBreak())
-    documents = [f for f in report.files if f.kind == "document" and f.include_in_report and f.mime_type == "application/pdf"]
+    documents, seen_documents = [], set()
+    for item in report.files:
+        signature = (item.original_name, item.size_bytes)
+        if item.kind == "document" and item.include_in_report and item.mime_type == "application/pdf" and signature not in seen_documents:
+            documents.append(item)
+            seen_documents.add(signature)
     if documents:
         story += [PageBreak(), pdf_section_heading("POLICE REPORT: CONFIDENTIAL"), Spacer(1, .4*cm),
                   Paragraph("The original police documentation is attached in full on the following pages.", styles["BodyText"])]

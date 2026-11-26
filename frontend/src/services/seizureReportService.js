@@ -4,6 +4,7 @@ export const listSeizureReports = (params = {}) => api.get('/api/seizure-reports
 export const createSeizureReport = (data) => api.post('/api/seizure-reports/', data);
 export const getSeizureReport = (id) => api.get(`/api/seizure-reports/${id}`);
 export const updateSeizureReport = (id, data) => api.put(`/api/seizure-reports/${id}`, data);
+export const splitSeizureReportProducts = (id) => api.post(`/api/seizure-reports/${id}/split-products`);
 export const transitionSeizureReport = (id, status, comment = '') => api.post(`/api/seizure-reports/${id}/transition`, { status, comment });
 export const extractPolicePdf = (file) => {
   const body = new FormData(); body.append('file', file);
