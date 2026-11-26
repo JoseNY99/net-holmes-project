@@ -865,6 +865,41 @@ def generate_docx(report, user_id):
                 pass
     _set_report_body(summary_cell, report_body or "N/A")
     _repeat_table_header(police_table.rows[0])
+
+    # Word no permite anexar un PDF de forma nativa conservando sus páginas.
+    # Renderizamos cada página del acta como imagen para que el documento
+    # original quede completo, legible y en el mismo orden al final del informe.
+    source_documents, seen_documents = [], set()
+    for item in report.files:
+        signature = (item.original_name, item.size_bytes)
+        if (
+            item.kind == "document"
+            and item.include_in_report
+            and item.mime_type == "application/pdf"
+            and signature not in seen_documents
+        ):
+            source_documents.append(item)
+            seen_documents.add(signature)
+    if source_documents:
+        import fitz
+
+        for source in source_documents:
+            source_path = STORAGE / source.stored_name
+            if not source_path.is_file():
+                continue
+            with fitz.open(source_path) as police_pdf:
+                for page in police_pdf:
+                    paragraph = doc.add_paragraph()
+                    paragraph.paragraph_format.page_break_before = True
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    pixmap = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
+                    image = BytesIO(pixmap.tobytes("jpeg", jpg_quality=82))
+                    page_width = 16.5
+                    page_height = page_width * page.rect.height / page.rect.width
+                    if page_height > 23.0:
+                        page_height = 23.0
+                        page_width = page_height * page.rect.width / page.rect.height
+                    paragraph.add_run().add_picture(image, width=Cm(page_width), height=Cm(page_height))
     doc.save(output)
     return output
 

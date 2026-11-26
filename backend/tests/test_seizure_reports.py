@@ -28,7 +28,7 @@ def fake_report():
         court="Juzgado PCyF 35", judge="Dra. Celsa Ramírez", media_impact="N/A", political_impact="N/A",
         proposed_fees="450", currency="USD", internal_reference="001-26-NI", seized_goods_total=1250,
         operation_summary="Resultado positivo del procedimiento.",
-        products=[SimpleNamespace(brand_name="Nike", client_name="Nike", category="Calzado", description="Zapatillas incautadas", quantity=1250, unit="unidades")],
+        products=[SimpleNamespace(brand_name="Nike", client_name="Nike", category="Calzado", description="Zapatillas incautadas", quantity=1250, unit="unidades", notes=None)],
         targets=[SimpleNamespace(establishment_name=None,address="Castelli 264, CABA",investigated_party=None)],
         files=[],
     )
@@ -68,6 +68,30 @@ def test_word_and_pdf_without_photos(monkeypatch, tmp_path):
     police = next(table for table in opened.tables if table.cell(0, 0).text == "POLICE REPORT: CONFIDENTIAL")
     assert police.cell(1, 0).text == "Resultado positivo del procedimiento."
     assert pdf.stat().st_size > 1000 and word.stat().st_size > 1000
+
+
+def test_word_appends_every_page_of_police_pdf(monkeypatch, tmp_path):
+    from reportlab.pdfgen import canvas
+
+    monkeypatch.setattr(service, "STORAGE", tmp_path)
+    monkeypatch.setattr(service, "TEMPLATE_DIR", Path(__file__).resolve().parents[1] / "assets" / "seizure_templates")
+    police_path = tmp_path / "police-report.pdf"
+    police = canvas.Canvas(str(police_path))
+    for page_number in range(1, 4):
+        police.drawString(40, 800, f"ACTA POLICIAL PAGINA {page_number}")
+        police.showPage()
+    police.save()
+    report = fake_report()
+    report.files = [SimpleNamespace(
+        kind="document", include_in_report=True, mime_type="application/pdf",
+        original_name="police-report.pdf", stored_name="police-report.pdf",
+        size_bytes=police_path.stat().st_size,
+    )]
+
+    word = service.generate_docx(report, 1)
+    opened = Document(str(word))
+
+    assert len(opened.inline_shapes) == 3
 
 
 def test_extract_police_report_fields():
